@@ -65,11 +65,19 @@ export default function App() {
     return () => { window.addAttachment = null; window.sendToAgent = null; window.pbaChat = null; };
   }, [agent.send, agent.open, agent.reset]);
 
+  // Enter while the agent is working parks the message instead of losing it.
+  // Enter on an empty box is the second half of that gesture: it hands
+  // everything parked to the turn already running.
   const submit = useCallback((_message, e) => {
     e?.preventDefault?.();
     const body = text.trim();
-    if (!body || agent.busy) return;
-    agent.send(attachmentText(attachments) + body);
+    if (!body) {
+      if (agent.queued.length) agent.flushQueue();
+      return;
+    }
+    const full = attachmentText(attachments) + body;
+    if (agent.busy) agent.enqueue(full);
+    else agent.send(full);
     setText('');
     setAttachments([]);
   }, [text, attachments, agent]);

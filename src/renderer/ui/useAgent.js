@@ -14,6 +14,9 @@ export function useAgent() {
   const [model, setModel] = useState('');
   const [mode, setMode] = useState('default');
   const [driver, setDriver] = useState(null);
+  // Messages typed while a turn is running. They park here, in order, until
+  // something hands them to the agent.
+  const [queued, setQueued] = useState([]);
 
   // The streaming assistant block is addressed by id rather than by position:
   // tool rows can land between deltas.
@@ -27,6 +30,9 @@ export function useAgent() {
   // Read inside the IPC listeners, which are registered once and would
   // otherwise close over the first render's session.
   const sessionRef = useRef(null);
+  // The queue is read inside callbacks that also write it, and the flush is
+  // async, so the ref is the copy that is always current.
+  const queuedRef = useRef([]);
   const setLiveSession = useCallback((id) => { sessionRef.current = id; setSession(id); }, []);
 
   const push = useCallback((item) => setItems((prev) => [...prev, item]), []);
@@ -165,7 +171,7 @@ export function useAgent() {
 
   const send = useCallback(async (text) => {
     if (!text.trim()) return;
-    push({ id: `u${Date.now()}`, kind: 'user', text });
+    push({ id: uid('u'), kind: 'user', text });
     setTitle((t) => (t === 'New chat' ? text.slice(0, 80) : t));
     // The rail reads chats off disk and claude has not written this one yet, so
     // give it the first message to show until the transcript catches up.
@@ -179,15 +185,49 @@ export function useAgent() {
     }
   }, [push]);
 
+  const enqueue = useCallback((text) => {
+    if (!text.trim()) return;
+    queuedRef.current = [...queuedRef.current, { id: uid('q'), text }];
+    setQueued(queuedRef.current);
+  }, []);
+
+  const unqueue = useCallback((id) => {
+    queuedRef.current = queuedRef.current.filter((m) => m.id !== id);
+    setQueued(queuedRef.current);
+  }, []);
+
+  // Hand the parked messages over. Sent one at a time and in order: the CLI
+  // takes a message mid-turn and folds it into the turn already running, which
+  // is the whole point of the queue.
+  const flushQueue = useCallback(async () => {
+    const parked = queuedRef.current;
+    if (!parked.length) return;
+    queuedRef.current = [];
+    setQueued([]);
+    for (const m of parked) await send(m.text);
+  }, [send]);
+
+  // Whatever is still parked when the agent goes idle goes out on its own, so a
+  // queue nobody flushed does not sit there forever.
+  useEffect(() => {
+    if (!busy && queued.length) flushQueue();
+  }, [busy, queued, flushQueue]);
+
   const decide = useCallback((id, decision) => {
     pba().agent.decide(id, decision);
     patch(id, { decided: decision });
   }, [patch]);
 
+  // Stopping the turn also empties the queue, and the parked text is handed
+  // back to the caller so the composer can put it where the user left it.
   const interrupt = useCallback(async () => {
+    const parked = queuedRef.current.map((m) => m.text);
+    queuedRef.current = [];
+    setQueued([]);
     await pba().agent.interrupt();
     setBusy(false);
     push({ id: `i${Date.now()}`, kind: 'note', text: 'interrupted' });
+    return parked;
   }, [push]);
 
   const reset = useCallback(async () => {
@@ -196,6 +236,8 @@ export function useAgent() {
     setLiveSession(null);
     setTitle('New chat');
     setBusy(false);
+    queuedRef.current = [];
+    setQueued([]);
     seenText.current.clear();
     streamId.current = null;
     pendingText.current = '';   // a chunk buffered mid-stream belongs to the chat being dropped
@@ -260,9 +302,12 @@ export function useAgent() {
   }, []);
 
   return {
-    items, busy, session, title, models, model, mode, driver,
-    send, decide, interrupt, reset, open, changeModel, changeMode,
+    items, busy, session, title, models, model, mode, driver, queued,
+    send, enqueue, unqueue, flushQueue,
+    decide, interrupt, reset, open, changeModel, changeMode,
   };
 }
+
+const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 
 const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();

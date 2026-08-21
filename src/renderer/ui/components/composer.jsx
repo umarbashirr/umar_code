@@ -33,6 +33,11 @@ export const MODES = [
 const cleanModelName = (m) =>
   (m.displayName || m.value).replace(/\s*\((recommended|default)\)\s*$/i, '');
 
+// A queued message may start with the element-picker preamble; the chip shows
+// what the human actually typed.
+const queueLabel = (t) =>
+  (t.startsWith('[preview element]') ? t.slice(t.lastIndexOf('\n\n') + 2) : t);
+
 function Pill({ className, children, ...props }) {
   return (
     <button
@@ -106,6 +111,13 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
   const togglePlan = useCallback(() => {
     agent.changeMode(agent.mode === 'plan' ? 'default' : 'plan');
   }, [agent]);
+
+  // Stopping the turn empties the queue. The parked text goes back into the
+  // box, ahead of whatever is already typed there, rather than vanishing.
+  const stop = useCallback(async () => {
+    const parked = await agent.interrupt();
+    if (parked?.length) setText((t) => [...parked, t].filter(Boolean).join('\n\n'));
+  }, [agent, setText]);
 
   const onKeyDown = useCallback((e) => {
     if (menu) {
@@ -201,6 +213,34 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
         </div>
       )}
 
+      {agent.queued.length > 0 && (
+        <div className="mb-2 px-1">
+          <div className="mb-1 flex items-center gap-2 text-muted-foreground text-xs">
+            <span>{agent.queued.length} queued</span>
+            <span className="opacity-70">
+              {agent.busy ? 'press Enter on an empty box to send now' : 'sending…'}
+            </span>
+          </div>
+          <div className="space-y-1">
+            {agent.queued.map((m, i) => (
+              <div
+                key={m.id}
+                className="flex items-center gap-2 rounded-md border border-border border-dashed px-2.5 py-1.5">
+                <span className="font-mono text-muted-foreground text-[10px]">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-xs">{queueLabel(m.text)}</span>
+                <button
+                  type="button"
+                  title="Drop this one"
+                  onClick={() => agent.unqueue(m.id)}
+                  className="text-muted-foreground opacity-60 hover:opacity-100">
+                  <XIcon className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* PromptInput puts className on the form, so the box itself is reached
           through its slot. The wrapper is what the slash menu hangs off. */}
       <div className="relative" ref={box}>
@@ -213,7 +253,9 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Plan, build, or ask about this project"
+              placeholder={agent.busy
+                ? 'Working. Enter parks this, Enter again sends it into this turn'
+                : 'Plan, build, or ask about this project'}
               className="min-h-[76px] px-4 pt-3.5 text-[13.5px]" />
           </PromptInputBody>
 
@@ -265,7 +307,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               className="size-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
               disabled={!agent.busy && !text.trim()}
               status={agent.busy ? 'streaming' : undefined}
-              onClick={agent.busy ? (e) => { e.preventDefault(); agent.interrupt(); } : undefined}>
+              onClick={agent.busy ? (e) => { e.preventDefault(); stop(); } : undefined}>
               {agent.busy ? <SquareIcon className="size-3.5 fill-current" /> : <ArrowUpIcon className="size-4" />}
             </PromptInputSubmit>
           </PromptInputFooter>
