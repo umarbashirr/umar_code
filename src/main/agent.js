@@ -114,11 +114,11 @@ class AgentSession extends EventEmitter {
         await new Promise((r) => { this.waiting = r; });
         if (this.closed) return;
       }
-      const text = this.queue.shift();
-      if (text == null) return;
+      const turn = this.queue.shift();
+      if (turn == null) return;
       yield {
         type: 'user',
-        message: { role: 'user', content: [{ type: 'text', text }] },
+        message: { role: 'user', content: blocks(turn) },
         parent_tool_use_id: null,
         session_id: this.sessionId || '',
         origin: { kind: 'human' },
@@ -174,9 +174,11 @@ class AgentSession extends EventEmitter {
     return true;
   }
 
-  send(text) {
+  // `images` is what the human attached: base64 already, because the model can
+  // only look at a picture whose bytes came with the message.
+  send(text, images) {
     this.busy = true;
-    this.queue.push(text);
+    this.queue.push(images?.length ? { text, images } : text);
     if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
   }
 
@@ -293,6 +295,19 @@ class AgentSession extends EventEmitter {
     if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
     try { this.abort?.abort(); } catch {}
   }
+}
+
+// Pictures go ahead of the words. The models read a prompt that refers back to
+// an image it has already seen more reliably than one that arrives first.
+function blocks(turn) {
+  if (typeof turn === 'string') return [{ type: 'text', text: turn }];
+  return [
+    ...turn.images.map((img) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: img.media, data: img.data },
+    })),
+    { type: 'text', text: turn.text },
+  ];
 }
 
 module.exports = { AgentSession, SHOT_NOTE };

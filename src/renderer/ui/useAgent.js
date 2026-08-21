@@ -169,25 +169,29 @@ export function useAgent() {
     return pba().agent.onDriver?.((d) => apply({ ...d, current: null })) ?? undefined;
   }, []);
 
-  const send = useCallback(async (text) => {
+  const send = useCallback(async (text, images = []) => {
     if (!text.trim()) return;
-    push({ id: uid('u'), kind: 'user', text });
-    setTitle((t) => (t === 'New chat' ? text.slice(0, 80) : t));
+    // The bubble and the chat title show what was typed. The attachment
+    // preamble is for the agent, and repeating it back at the human turns every
+    // message with a picture on it into a wall of paths.
+    const said = spoken(text);
+    push({ id: uid('u'), kind: 'user', text: said, images });
+    setTitle((t) => (t === 'New chat' ? said.slice(0, 80) : t));
     // The rail reads chats off disk and claude has not written this one yet, so
     // give it the first message to show until the transcript catches up.
-    if (!sessionRef.current) window.pbaRail?.begin(text);
+    if (!sessionRef.current) window.pbaRail?.begin(said);
     setBusy(true);
     try {
-      await pba().agent.send(text);
+      await pba().agent.send(text, images);
     } catch (e) {
       setBusy(false);
       push({ id: `e${Date.now()}`, kind: 'note', error: true, text: `could not reach the agent: ${e.message}` });
     }
   }, [push]);
 
-  const enqueue = useCallback((text) => {
+  const enqueue = useCallback((text, images = []) => {
     if (!text.trim()) return;
-    queuedRef.current = [...queuedRef.current, { id: uid('q'), text }];
+    queuedRef.current = [...queuedRef.current, { id: uid('q'), text, images }];
     setQueued(queuedRef.current);
   }, []);
 
@@ -204,7 +208,7 @@ export function useAgent() {
     if (!parked.length) return;
     queuedRef.current = [];
     setQueued([]);
-    for (const m of parked) await send(m.text);
+    for (const m of parked) await send(m.text, m.images);
   }, [send]);
 
   // Whatever is still parked when the agent goes idle goes out on its own, so a
@@ -311,3 +315,8 @@ export function useAgent() {
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 
 const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+
+// Drop the [preview element] / [attached …] preamble the composer adds, and
+// leave what the human actually typed. Exported because the composer shows the
+// same thing on a queued message.
+export const spoken = (t) => String(t).replace(/^(\[(?:preview element|attached [a-z]+)\][\s\S]*?\n\n)+/, '');

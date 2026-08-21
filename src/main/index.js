@@ -14,6 +14,7 @@ const { listSessions, readSession } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const files = require('./files');
+const attachments = require('./attachments');
 const projects = require('./projects');
 const bridgeState = require('../../cli/state');
 
@@ -352,9 +353,9 @@ function registerIpc() {
   ipcMain.on('term:kill', (_e, { id }) => { terms.get(id)?.kill(); terms.delete(id); });
 
   // --- agent ---
-  ipcMain.handle('agent:send', async (_e, { text }) => {
+  ipcMain.handle('agent:send', async (_e, { text, images }) => {
     const a = await ensureAgent();
-    a.send(text);
+    a.send(text, images);
     return { ok: true, sessionId: a.sessionId };
   });
   ipcMain.handle('agent:interrupt', async () => { await agent?.interrupt(); return { ok: true }; });
@@ -378,6 +379,11 @@ function registerIpc() {
     return { model: chosenModel };
   });
   ipcMain.handle('agent:reset', () => { agent?.stop(); agent = null; return { ok: true }; });
+
+  // --- attachments ---
+  ipcMain.handle('attach:pick', () => attachments.pick(win));
+  ipcMain.handle('attach:add', (_e, { paths } = {}) => attachments.add(paths));
+  ipcMain.handle('attach:paste', (_e, payload = {}) => attachments.fromDataUrl(payload));
 
   // --- skills and MCP servers ---
   // Read off disk, so the panel can draw the list before any session exists.

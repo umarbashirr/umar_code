@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer, webFrame } = require('electron');
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 
 const on = (channel) => (cb) => {
   const handler = (_e, payload) => cb(payload);
@@ -61,7 +61,7 @@ contextBridge.exposeInMainWorld('pba', {
 
   agent: {
     onActivity: on('agent:activity'),
-    send: (text) => ipcRenderer.invoke('agent:send', { text }),
+    send: (text, images) => ipcRenderer.invoke('agent:send', { text, images }),
     interrupt: () => ipcRenderer.invoke('agent:interrupt'),
     mode: (mode) => ipcRenderer.invoke('agent:mode', { mode }),
     models: () => ipcRenderer.invoke('agent:models'),
@@ -81,6 +81,17 @@ contextBridge.exposeInMainWorld('pba', {
     onDecided: on('agent:decided'),
     onStderr: on('agent:stderr'),
     onDriver: on('agent:driver'),
+  },
+
+  // Files the human hands to the chat. Pictures come back with their bytes so
+  // the model can look at them; everything else comes back as a path.
+  attach: {
+    pick: () => ipcRenderer.invoke('attach:pick'),
+    add: (paths) => ipcRenderer.invoke('attach:add', { paths }),
+    paste: (dataUrl, name) => ipcRenderer.invoke('attach:paste', { dataUrl, name }),
+    // Chromium stopped putting a path on dropped File objects, and this is the
+    // sanctioned way back to one.
+    pathFor: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   },
 
   // Skills and MCP servers, read off disk so the lists draw without a session.

@@ -22,17 +22,32 @@ const STARTERS = [
     prompt: 'Open the app in the preview, snapshot the page, and tell me what is on screen and what looks wrong.' },
 ];
 
-// The element picker lives in the vanilla half; it hands back a hit plus a
-// screenshot path, which the agent gets as text alongside the prompt.
+// Everything clipped to a message becomes a preamble above what was typed. An
+// element picked out of the preview is described in full; a picture travels as
+// real image bytes and only needs naming here; any other file is named by its
+// path, because the agent can open it itself and a pasted-in log is a waste of
+// the context window.
 function attachmentText(list) {
-  if (!list.length) return '';
-  return list.map(({ hit, shotPath }) => [
-    '[preview element]',
-    `  css: ${hit.css}`,
-    `  element: ${hit.role === 'generic' ? hit.tag : hit.role} ${JSON.stringify(hit.name || hit.text || '')}`,
-    `  ref: ${hit.ref}   size: ${hit.rect.w}x${hit.rect.h} at ${hit.rect.x},${hit.rect.y}`,
-    shotPath ? `  screenshot: ${shotPath}` : null,
-  ].filter(Boolean).join('\n')).join('\n\n') + '\n\n';
+  const lines = [];
+
+  for (const a of list) {
+    if (a.kind === 'element') {
+      const { hit, shotPath } = a;
+      lines.push([
+        '[preview element]',
+        `  css: ${hit.css}`,
+        `  element: ${hit.role === 'generic' ? hit.tag : hit.role} ${JSON.stringify(hit.name || hit.text || '')}`,
+        `  ref: ${hit.ref}   size: ${hit.rect.w}x${hit.rect.h} at ${hit.rect.x},${hit.rect.y}`,
+        shotPath ? `  screenshot: ${shotPath}` : null,
+      ].filter(Boolean).join('\n'));
+    } else if (a.kind === 'image') {
+      lines.push(`[attached image] ${a.name}${a.path ? `\n  file: ${a.path}` : ''}`);
+    } else if (a.kind === 'file') {
+      lines.push(`[attached file] ${a.name}\n  path: ${a.path}\n  Read it before answering.`);
+    }
+  }
+
+  return lines.length ? lines.join('\n\n') + '\n\n' : '';
 }
 
 const toolText = (output) => {
@@ -59,7 +74,8 @@ export default function App() {
   // Bridge to the vanilla half: the picker pushes here, the preview's error
   // card sends straight through.
   useEffect(() => {
-    window.addAttachment = (hit, shotPath) => setAttachments((a) => [...a, { id: Date.now(), hit, shotPath }]);
+    window.addAttachment = (hit, shotPath) =>
+      setAttachments((a) => [...a, { id: `el${Date.now()}`, kind: 'element', hit, shotPath }]);
     window.sendToAgent = (t) => agent.send(t);
     window.pbaChat = { open: agent.open, newChat: agent.reset };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.pbaChat = null; };
@@ -76,8 +92,9 @@ export default function App() {
       return;
     }
     const full = attachmentText(attachments) + body;
-    if (agent.busy) agent.enqueue(full);
-    else agent.send(full);
+    const images = attachments.filter((a) => a.kind === 'image');
+    if (agent.busy) agent.enqueue(full, images);
+    else agent.send(full, images);
     setText('');
     setAttachments([]);
   }, [text, attachments, agent]);
@@ -137,7 +154,21 @@ function Item({ item, onDecide }) {
   if (item.kind === 'user') {
     return (
       <Message from="user">
-        <MessageContent className="whitespace-pre-wrap">{item.text}</MessageContent>
+        <MessageContent className="whitespace-pre-wrap">
+          {item.images?.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {item.images.map((img, i) => (
+                <img
+                  key={i}
+                  alt={img.name || 'attachment'}
+                  title={img.name}
+                  className="max-h-40 rounded-md border"
+                  src={`data:${img.media};base64,${img.data}`} />
+              ))}
+            </div>
+          )}
+          {item.text}
+        </MessageContent>
       </Message>
     );
   }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, CameraIcon, ChevronDownIcon, CrosshairIcon, FolderIcon,
-  GitBranchIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
+  ArrowUpIcon, CameraIcon, ChevronDownIcon, CrosshairIcon, FileIcon, FolderIcon,
+  GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
@@ -19,6 +19,8 @@ import { CatalogDialog } from '@/components/catalog-dialog';
 import { SlashMenu, matchSkills, slashQuery } from '@/components/slash-menu';
 import { cn } from '@/lib/utils';
 import { useProject, shortPath } from '../useProject';
+import { spoken } from '../useAgent';
+import { fromBlob, fromPaths, sizeLabel, toAttachments } from '@/lib/attachments';
 // The panes are the vanilla half's business; this is the one call into it.
 import { runCommand } from '../../app.js';
 
@@ -32,11 +34,6 @@ export const MODES = [
 
 const cleanModelName = (m) =>
   (m.displayName || m.value).replace(/\s*\((recommended|default)\)\s*$/i, '');
-
-// A queued message may start with the element-picker preamble; the chip shows
-// what the human actually typed.
-const queueLabel = (t) =>
-  (t.startsWith('[preview element]') ? t.slice(t.lastIndexOf('\n\n') + 2) : t);
 
 function Pill({ className, children, ...props }) {
   return (
@@ -74,6 +71,56 @@ function Chip({ active, shortcut, children, ...props }) {
   );
 }
 
+// One chip per attached thing. A picture shows itself, because a filename is a
+// poor way to notice you attached the wrong screenshot.
+function Attachment({ item, onRemove }) {
+  const remove = (
+    <button type="button" onClick={onRemove} className="opacity-60 hover:opacity-100" title="Remove">
+      <XIcon className="size-3" />
+    </button>
+  );
+
+  if (item.kind === 'image') {
+    return (
+      <span
+        className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-secondary/60 py-0 pr-2 pl-0 text-xs"
+        title={`${item.name} · ${item.width}×${item.height} · ${sizeLabel(item.size)}`}>
+        <img src={item.preview} alt="" className="h-8 w-8 rounded-l-md border-border border-r object-cover" />
+        <span className="max-w-[16ch] truncate">{item.name}</span>
+        {remove}
+      </span>
+    );
+  }
+
+  if (item.kind === 'error') {
+    return (
+      <Badge variant="secondary" className="gap-1 font-normal text-destructive">
+        {item.name}: {item.error}
+        {remove}
+      </Badge>
+    );
+  }
+
+  if (item.kind === 'file') {
+    return (
+      <Badge variant="secondary" className="gap-1 font-normal" title={item.note ? `${item.path} — ${item.note}` : item.path}>
+        <FileIcon className="size-3 opacity-70" />
+        <span className="max-w-[22ch] truncate">{item.name}</span>
+        <span className="text-muted-foreground">{sizeLabel(item.size)}</span>
+        {remove}
+      </Badge>
+    );
+  }
+
+  const { hit } = item;
+  return (
+    <Badge variant="secondary" className="gap-1 font-normal">
+      {hit.role === 'generic' ? hit.tag : hit.role} {(hit.name || hit.text || '').slice(0, 28)}
+      {remove}
+    </Badge>
+  );
+}
+
 export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onSubmit }) {
   const project = useProject();
   const [showCatalog, setShowCatalog] = useState(false);
@@ -82,6 +129,54 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const box = useRef(null);
+
+  // Dropping onto the composer is the gesture people try first, so the whole
+  // box is the target and it says so while something is over it.
+  const [dropping, setDropping] = useState(false);
+
+  const attach = useCallback(async (incoming) => {
+    if (!incoming.length) return;
+    setAttachments((list) => [...list, ...incoming]);
+  }, [setAttachments]);
+
+  const drop = useCallback((id) => {
+    setAttachments((list) => list.filter((x) => x.id !== id));
+  }, [setAttachments]);
+
+  const pickFiles = useCallback(async () => {
+    const res = await window.pba.attach.pick();
+    if (res?.canceled) return;
+    attach(await toAttachments(res.files || []));
+  }, [attach]);
+
+  const onDrop = useCallback(async (e) => {
+    e.preventDefault();
+    setDropping(false);
+    const files = [...(e.dataTransfer?.files || [])];
+    if (!files.length) return;
+    // A real file has a path and stays on disk. Anything dragged out of a web
+    // page arrives as bytes with no file behind it, so it gets written to one.
+    const paths = files.map((f) => window.pba.attach.pathFor(f)).filter(Boolean);
+    if (paths.length === files.length) return attach(await fromPaths(paths));
+    for (const f of files) {
+      const path = window.pba.attach.pathFor(f);
+      attach(path ? await fromPaths([path]) : await fromBlob(f, f.name));
+    }
+  }, [attach]);
+
+  const onPaste = useCallback(async (e) => {
+    const items = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file');
+    if (!items.length) return;
+    // Only swallow the paste when it really was a file; a copied screenshot on
+    // Linux often carries the text form as well.
+    e.preventDefault();
+    for (const it of items) {
+      const file = it.getAsFile();
+      if (!file) continue;
+      const path = window.pba.attach.pathFor(file);
+      attach(path ? await fromPaths([path]) : await fromBlob(file, file.name || 'pasted image'));
+    }
+  }, [attach]);
 
   const query = slashQuery(text);
   const matches = useMemo(
@@ -197,18 +292,9 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
       <CatalogDialog catalog={catalog} open={showCatalog} onOpenChange={setShowCatalog} />
 
       {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+        <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1">
           {attachments.map((a) => (
-            <Badge key={a.id} variant="secondary" className="gap-1 font-normal">
-              {a.hit.role === 'generic' ? a.hit.tag : a.hit.role}{' '}
-              {(a.hit.name || a.hit.text || '').slice(0, 28)}
-              <button
-                type="button"
-                onClick={() => setAttachments((list) => list.filter((x) => x !== a))}
-                className="opacity-60 hover:opacity-100">
-                <XIcon className="size-3" />
-              </button>
-            </Badge>
+            <Attachment key={a.id} item={a} onRemove={() => drop(a.id)} />
           ))}
         </div>
       )}
@@ -227,7 +313,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
                 key={m.id}
                 className="flex items-center gap-2 rounded-md border border-border border-dashed px-2.5 py-1.5">
                 <span className="font-mono text-muted-foreground text-[10px]">{i + 1}</span>
-                <span className="min-w-0 flex-1 truncate text-xs">{queueLabel(m.text)}</span>
+                <span className="min-w-0 flex-1 truncate text-xs">{spoken(m.text)}</span>
                 <button
                   type="button"
                   title="Drop this one"
@@ -243,8 +329,18 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
       {/* PromptInput puts className on the form, so the box itself is reached
           through its slot. The wrapper is what the slash menu hangs off. */}
-      <div className="relative" ref={box}>
+      <div
+        className="relative"
+        ref={box}
+        onDragOver={(e) => { e.preventDefault(); setDropping(true); }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropping(false); }}
+        onDrop={onDrop}>
         {menu && <SlashMenu items={matches} active={cursor} onActive={setActive} onPick={pick} />}
+        {dropping && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-primary/60 border-dashed bg-background/80 text-sm">
+            Drop to attach
+          </div>
+        )}
         <PromptInput
           onSubmit={onSubmit}
           className="[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:shadow-sm">
@@ -253,6 +349,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={onPaste}
               placeholder={agent.busy
                 ? 'Working. Enter parks this, Enter again sends it into this turn'
                 : 'Plan, build, or ask about this project'}
@@ -265,12 +362,17 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    title="Add something from the preview"
+                    title="Attach a file, or add something from the preview"
                     className="flex size-8 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
                     <PlusIcon className="size-4" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
+                  <DropdownMenuItem onSelect={pickFiles}>
+                    <PaperclipIcon className="size-4 text-muted-foreground" />
+                    Attach files…
+                    <span className="ml-auto text-muted-foreground text-xs">or drop them here</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => window.pickElement?.()}>
                     <CrosshairIcon className="size-4 text-muted-foreground" />
                     Point at an element
