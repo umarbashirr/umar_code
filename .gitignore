@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+*.log
+.scratch/
+.DS_Store
+
+# Vite output for the agent panel; `npm run build:renderer` regenerates it.
+build/renderer/
+index-*.css
+
+# Local Claude Code settings, per machine.
+.claude/settings.local.json

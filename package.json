@@ -1,0 +1,145 @@
+{
+  "name": "preview-browser-for-agent",
+  "version": "0.2.1",
+  "description": "A terminal with an agent and a browser it can drive.",
+  "main": "src/main/index.js",
+  "type": "commonjs",
+  "bin": {
+    "pba": "cli/pba.js"
+  },
+  "scripts": {
+    "start": "npm run build:renderer && node scripts/launch.js",
+    "dev": "npm run build:renderer && node scripts/launch.js --dev",
+    "mcp": "node mcp/server.js",
+    "postinstall": "electron-rebuild -f -w node-pty || true",
+    "enable-sandbox": "bash scripts/enable-sandbox.sh",
+    "icon": "electron scripts/make-icon.js",
+    "pack": "npm run build:renderer && electron-builder --dir",
+    "dist": "npm run build:renderer && electron-builder --linux AppImage deb",
+    "build:renderer": "vite build"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.238",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@radix-ui/react-use-controllable-state": "^1.2.6",
+    "@streamdown/cjk": "^1.0.3",
+    "@streamdown/code": "^1.1.1",
+    "@streamdown/math": "^1.0.2",
+    "@streamdown/mermaid": "^1.0.2",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "ai": "^7.0.73",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "lucide": "^1.33.0",
+    "lucide-react": "^1.33.0",
+    "motion": "^13.1.1",
+    "nanoid": "^6.0.1",
+    "node-pty": "^1.0.0",
+    "radix-ui": "^1.6.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "shiki": "^4.4.3",
+    "streamdown": "^2.5.0",
+    "tailwind-merge": "^3.6.0",
+    "use-stick-to-bottom": "^1.1.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  },
+  "build": {
+    "appId": "dev.pba.preview-browser-for-agent",
+    "productName": "preview-browser-for-agent",
+    "artifactName": "pba-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/renderer/**/*",
+      "cli/**/*",
+      "mcp/**/*",
+      "bin/**/*",
+      "scripts/launch.js",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": [
+      "cli/**",
+      "bin/**",
+      "mcp/**",
+      "node_modules/node-pty/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+    ],
+    "npmRebuild": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development;TerminalEmulator",
+      "icon": "build/icon.png",
+      "synopsis": "Terminal, agent, and a browser the agent can drive",
+      "desktop": {
+        "entry": {
+          "Name": "Preview Browser for Agent",
+          "Comment": "A terminal with an agent and a browser it can drive",
+          "Keywords": "terminal;agent;browser;preview;claude;",
+          "StartupWMClass": "preview-browser-for-agent"
+        }
+      },
+      "executableName": "preview-browser-for-agent",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libsecret-1-0"
+      ],
+      "afterInstall": "build/deb-postinstall.sh",
+      "afterRemove": "build/deb-postremove.sh"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "appImage": {
+      "executableArgs": [
+        "--no-sandbox"
+      ]
+    }
+  },
+  "author": {
+    "name": "xclore",
+    "email": "dev@trackmyshuttle.com"
+  },
+  "homepage": "https://example.invalid/preview-browser-for-agent",
+  "desktopName": "preview-browser-for-agent.desktop"
+}

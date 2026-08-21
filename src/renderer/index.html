@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
+  <title>Preview Browser for Agent</title>
+</head>
+<body>
+  <header id="titlebar">
+    <span class="tb-mark"><i data-lucide="hexagon"></i></span>
+    <nav id="menubar"></nav>
+    <span class="spacer"></span>
+    <div id="window-controls">
+      <button class="wc" data-win="minimize" title="Minimize"><i data-lucide="minus"></i></button>
+      <button class="wc" data-win="maximize" title="Maximize"><i data-lucide="square"></i></button>
+      <button class="wc close" data-win="close" title="Close"><i data-lucide="x"></i></button>
+    </div>
+  </header>
+
+  <div id="toolbar">
+    <button id="rail-toggle" class="icon" title="Sessions (Ctrl+Shift+S)"><i data-lucide="panel-left"></i></button>
+    <button id="project" class="project" title="Project folder"></button>
+
+    <span class="spacer"></span>
+
+    <span id="activity" class="activity" title="What the agent last did in the preview"></span>
+    <div id="viewstrip"></div>
+    <span class="tb-sep"></span>
+    <button id="term-toggle" class="icon" title="Terminal panel (Ctrl+`)"><i data-lucide="panel-bottom"></i></button>
+    <button id="theme-toggle" class="icon" title="Light or dark"><i data-lucide="sun"></i></button>
+  </div>
+
+  <main id="shell">
+    <aside id="rail">
+      <button id="new-chat" class="rail-new"><i data-lucide="square-pen"></i>New chat</button>
+      <div class="rail-search">
+        <i data-lucide="search"></i>
+        <input id="session-search" spellcheck="false" placeholder="Search chats" />
+      </div>
+      <div class="rail-label">Chats</div>
+      <div id="session-list"></div>
+      <div class="rail-foot">
+        <i data-lucide="folder"></i>
+        <span id="agent-cwd" class="ah-path"></span>
+      </div>
+    </aside>
+
+    <div id="rail-gutter" class="gutter-v" title="Drag to resize"></div>
+
+    <div id="content">
+      <div id="panes">
+        <section id="agent">
+          <div id="agent-root"></div>
+
+          <div id="welcome" hidden>
+            <div class="wel-card">
+              <div class="ph-mark"><i data-lucide="folder-open"></i></div>
+              <h1>Open a folder to start</h1>
+              <p>
+                The agent, the shells and the chat history are all scoped to one project
+                folder. Pick the one you want to work in.
+              </p>
+              <div class="wel-actions">
+                <button id="wel-open" class="primary">Open folder…</button>
+                <button id="wel-new" class="ghost-btn">New window…</button>
+              </div>
+              <div id="wel-recent" class="wel-recent"></div>
+              <button id="wel-skip" class="linkish">Work in <span id="wel-home">~</span> instead</button>
+            </div>
+          </div>
+        </section>
+
+        <div id="agent-gutter" class="gutter-v closed" title="Drag to resize"></div>
+
+        <section id="right" class="closed">
+          <div id="urlbar">
+            <div class="nav">
+              <button id="back" class="icon" title="Back"><i data-lucide="arrow-left"></i></button>
+              <button id="forward" class="icon" title="Forward"><i data-lucide="arrow-right"></i></button>
+              <button id="reload" class="icon" title="Reload"><i data-lucide="rotate-cw"></i></button>
+            </div>
+            <div class="urlwrap">
+              <span id="url-scheme" class="scheme"></span>
+              <input id="url" spellcheck="false" placeholder="localhost:3000, a URL, or a search" />
+            </div>
+            <div class="nav">
+              <select id="viewport" title="Emulate a viewport size">
+                <option value="">fit</option>
+                <option value="390x844">phone</option>
+                <option value="768x1024">tablet</option>
+                <option value="1280x800">laptop</option>
+                <option value="1920x1080">desktop</option>
+              </select>
+              <button id="pick" class="icon" title="Point at an element (Ctrl+Shift+E)"><i data-lucide="crosshair"></i></button>
+              <button id="shot" class="icon" title="Screenshot to disk"><i data-lucide="camera"></i></button>
+              <button id="devtools" class="icon" title="DevTools"><i data-lucide="code-xml"></i></button>
+              <button id="close-preview" class="icon danger" title="Hide the preview (Ctrl+Shift+B)"><i data-lucide="x"></i></button>
+            </div>
+          </div>
+
+          <div id="stage">
+            <div id="paneslot"></div>
+            <div id="placeholder">
+              <div class="ph-mark"><i data-lucide="app-window"></i></div>
+              <h1>No page loaded</h1>
+              <p>Start a dev server in the terminal. When it prints a local address, this pane offers to open it.</p>
+              <div class="ph-keys">
+                <span><kbd>^&#8679;L</kbd> address bar</span>
+                <span><code>pba go 3000</code> from the shell or the agent</span>
+              </div>
+            </div>
+            <div id="page-error" hidden>
+              <h1 id="pe-title">Can't connect to server</h1>
+              <p id="pe-detail"></p>
+              <div class="pe-actions">
+                <button id="pe-ask" class="primary">Ask Agent</button>
+                <button id="pe-details" class="ghost">Show Details</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="drawer" class="collapsed">
+            <div id="drawer-tabs">
+              <button data-tab="console" class="active">console<span id="console-badge" class="badge"></span></button>
+              <button data-tab="network">network<span id="network-badge" class="badge"></span></button>
+              <span class="spacer"></span>
+              <button id="drawer-clear" class="ghost">clear</button>
+              <button id="drawer-toggle" class="ghost square" title="Console and network (Ctrl+Shift+J)"><i data-lucide="chevron-up"></i></button>
+            </div>
+            <div id="drawer-body"></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="panel-gutter" class="gutter-h closed" title="Drag to resize"></div>
+
+      <section id="panel" class="closed">
+        <div id="terms"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer id="status">
+    <span class="seg"><span id="bridge-dot" class="dot warn"></span><span id="bridge-status">starting</span></span>
+    <span class="sep"></span>
+    <button id="copy-mcp" class="linkish" title="Copy the MCP registration command">copy mcp command</button>
+    <span class="spacer"></span>
+    <span id="page-status" class="seg dim"></span>
+  </footer>
+
+  <div id="toasts"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

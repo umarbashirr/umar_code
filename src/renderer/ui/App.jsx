@@ -1,0 +1,228 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ListChecksIcon, BugIcon, MonitorIcon } from 'lucide-react';
+
+import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
+import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
+import { ToolRow, Pre, toolSummary } from '@/components/tool-row';
+import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion';
+import { Shimmer } from '@/components/ai-elements/shimmer';
+import { Composer } from '@/components/composer';
+import { Button } from '@/components/ui/button';
+
+import { useAgent } from './useAgent';
+import { useCatalog } from './useCatalog';
+
+const STARTERS = [
+  { icon: ListChecksIcon, title: 'Start with a plan', sub: 'Agree on the approach before code',
+    prompt: 'Read the project and explain how it is put together, then propose a plan before writing any code.' },
+  { icon: BugIcon, title: 'Debug an issue', sub: 'Find the root cause first',
+    prompt: 'Something is broken. Reproduce it, find the root cause, and tell me what you find before fixing anything.' },
+  { icon: MonitorIcon, title: 'Drive the preview', sub: 'Load the page and look at it',
+    prompt: 'Open the app in the preview, snapshot the page, and tell me what is on screen and what looks wrong.' },
+];
+
+// The element picker lives in the vanilla half; it hands back a hit plus a
+// screenshot path, which the agent gets as text alongside the prompt.
+function attachmentText(list) {
+  if (!list.length) return '';
+  return list.map(({ hit, shotPath }) => [
+    '[preview element]',
+    `  css: ${hit.css}`,
+    `  element: ${hit.role === 'generic' ? hit.tag : hit.role} ${JSON.stringify(hit.name || hit.text || '')}`,
+    `  ref: ${hit.ref}   size: ${hit.rect.w}x${hit.rect.h} at ${hit.rect.x},${hit.rect.y}`,
+    shotPath ? `  screenshot: ${shotPath}` : null,
+  ].filter(Boolean).join('\n')).join('\n\n') + '\n\n';
+}
+
+const toolText = (output) => {
+  if (typeof output === 'string') return output;
+  if (!Array.isArray(output)) return JSON.stringify(output ?? '', null, 2);
+  return output.map((b) => (b.type === 'image' ? '[screenshot]' : b.text ?? JSON.stringify(b))).join('\n');
+};
+
+// Live tool results carry a path (main strips the base64 before IPC); a replayed
+// transcript still carries the bytes for its most recent few. Handle both.
+const toolImages = (output) =>
+  (Array.isArray(output) ? output : []).filter((b) => b.type === 'image' && (b.path || b.source?.data));
+
+const imageSrc = (b) => (b.path
+  ? `file://${encodeURI(b.path)}`
+  : `data:${b.source.media_type || 'image/png'};base64,${b.source.data}`);
+
+export default function App() {
+  const agent = useAgent();
+  const catalog = useCatalog();
+  const [text, setText] = useState('');
+  const [attachments, setAttachments] = useState([]);
+
+  // Bridge to the vanilla half: the picker pushes here, the preview's error
+  // card sends straight through.
+  useEffect(() => {
+    window.addAttachment = (hit, shotPath) => setAttachments((a) => [...a, { id: Date.now(), hit, shotPath }]);
+    window.sendToAgent = (t) => agent.send(t);
+    window.pbaChat = { open: agent.open, newChat: agent.reset };
+    return () => { window.addAttachment = null; window.sendToAgent = null; window.pbaChat = null; };
+  }, [agent.send, agent.open, agent.reset]);
+
+  const submit = useCallback((_message, e) => {
+    e?.preventDefault?.();
+    const body = text.trim();
+    if (!body || agent.busy) return;
+    agent.send(attachmentText(attachments) + body);
+    setText('');
+    setAttachments([]);
+  }, [text, attachments, agent]);
+
+  const empty = agent.items.length === 0;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      <div className="flex h-[38px] flex-none items-center px-4 text-sm text-foreground/90">
+        <span className="truncate">{agent.title}</span>
+        {agent.busy && <Shimmer className="ml-3 text-xs">working</Shimmer>}
+      </div>
+
+      <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
+        <ConversationContent className="mx-auto w-full max-w-3xl gap-3">
+          {empty ? (
+            <h1 className="py-6 text-center font-medium text-2xl tracking-tight">What should change?</h1>
+          ) : (
+            agent.items.map((item) => <Item key={item.id} item={item} onDecide={agent.decide} />)
+          )}
+        </ConversationContent>
+        {!empty && <ConversationScrollButton />}
+      </Conversation>
+
+      <Composer
+        agent={agent}
+        catalog={catalog}
+        text={text}
+        setText={setText}
+        attachments={attachments}
+        setAttachments={setAttachments}
+        onSubmit={submit} />
+
+      {empty && (
+        <div className="mx-auto mb-auto w-full max-w-3xl flex-none px-4 pb-8">
+          <Suggestions className="flex-col items-stretch gap-0">
+            {STARTERS.map((s) => (
+              <Suggestion
+                key={s.title}
+                suggestion={s.prompt}
+                onClick={(p) => agent.send(p)}
+                variant="ghost"
+                className="h-auto justify-start gap-3 rounded-lg border-b px-3 py-2.5 last:border-b-0">
+                <s.icon className="size-4 text-muted-foreground" />
+                <span className="text-sm">{s.title}</span>
+                <span className="truncate text-muted-foreground text-sm">{s.sub}</span>
+              </Suggestion>
+            ))}
+          </Suggestions>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Item({ item, onDecide }) {
+  if (item.kind === 'user') {
+    return (
+      <Message from="user">
+        <MessageContent className="whitespace-pre-wrap">{item.text}</MessageContent>
+      </Message>
+    );
+  }
+
+  if (item.kind === 'assistant') {
+    return (
+      <Message from="assistant">
+        <MessageContent>
+          <MessageResponse isAnimating={item.streaming}>{item.text}</MessageResponse>
+        </MessageContent>
+      </Message>
+    );
+  }
+
+  if (item.kind === 'tool') {
+    const label = item.name.replace(/^mcp__preview__/, '').replace(/^mcp__[^_]+__/, '');
+    const images = toolImages(item.output);
+    const hunks = editHunks(label, item.input || {});
+    const text = toolText(item.output);
+
+    // A file edit is a diff. Showing it as JSON with two long strings in it is
+    // the same information in the shape nobody can read.
+    if (hunks) {
+      const { added, removed } = hunkStats(hunks);
+      return (
+        <ToolRow
+          name={label}
+          input={item.input}
+          state={item.state}
+          defaultOpen
+          right={(
+            <span className="flex items-center gap-1.5 font-mono text-xs">
+              {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
+              {removed > 0 && <span className="text-rose-600 dark:text-rose-400">-{removed}</span>}
+            </span>
+          )}>
+          <DiffView hunks={hunks} />
+          {item.state === 'output-error' && <Pre className="mt-2 text-destructive">{text}</Pre>}
+        </ToolRow>
+      );
+    }
+
+    return (
+      <ToolRow name={label} input={item.input} state={item.state} defaultOpen={item.state === 'output-error'}>
+        <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
+        {images.map((b, i) => (
+          <img
+            key={i}
+            alt="screenshot"
+            className="mt-2 max-w-full rounded-md border"
+            loading="lazy"
+            src={imageSrc(b)} />
+        ))}
+        {text && (
+          <Pre className={`mt-2 ${item.state === 'output-error' ? 'text-destructive' : ''}`}>
+            {text.slice(0, 4000)}
+          </Pre>
+        )}
+      </ToolRow>
+    );
+  }
+
+  if (item.kind === 'perm') {
+    const label = item.tool.replace(/^mcp__[^_]+__/, '');
+    if (item.decided) {
+      return (
+        <div className="px-2 text-muted-foreground text-xs">
+          {label}: {item.decided === 'deny' ? 'denied' : `allowed (${item.decided})`}
+        </div>
+      );
+    }
+    return (
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-[13px]">
+            Allow <span className="font-mono font-medium">{label}</span>?
+          </span>
+          <span className="truncate font-mono text-muted-foreground text-xs">
+            {toolSummary(label, item.input)}
+          </span>
+          <div className="ml-auto flex gap-1.5">
+            <Button size="sm" className="h-7" onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
+            <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`font-mono text-xs ${item.error ? 'text-destructive' : 'text-muted-foreground'}`}>
+      {item.text}
+    </div>
+  );
+}
