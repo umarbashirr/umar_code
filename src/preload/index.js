@@ -42,6 +42,20 @@ contextBridge.exposeInMainWorld('pba', {
     onConsole: on('browser:console'),
   },
 
+  // The project folder as a tree. Reads only: nothing here writes to disk.
+  files: {
+    list: (path) => ipcRenderer.invoke('files:list', { path }),
+    read: (path) => ipcRenderer.invoke('files:read', { path }),
+    search: (query) => ipcRenderer.invoke('files:search', { query }),
+    // The full set of folders the tree currently has expanded, sent whenever it
+    // changes so main can reconcile its watches in one go.
+    watch: (dirs) => ipcRenderer.send('files:watch', { dirs }),
+    reveal: (path) => ipcRenderer.invoke('files:reveal', { path }),
+    openExternal: (path) => ipcRenderer.invoke('files:openExternal', { path }),
+    absolute: (path) => ipcRenderer.invoke('files:absolute', { path }),
+    onChanged: on('files:changed'),
+  },
+
   agent: {
     onActivity: on('agent:activity'),
     send: (text) => ipcRenderer.invoke('agent:send', { text }),

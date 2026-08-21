@@ -3,10 +3,12 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
   createIcons,
-  AppWindow, ArrowLeft, ArrowRight, Camera, ChevronUp, CodeXml, Copy, Crosshair,
-  Folder, FolderOpen, Globe, Hexagon, Maximize2, MessageSquare, MessageSquareDot,
-  Minimize2, Minus, Moon, PanelBottom, PanelLeft, Plus, RotateCw, Search, Square,
-  SquarePen, SquareTerminal, Sun, X,
+  AppWindow, ArrowLeft, ArrowRight, Binary, Camera, ChevronDown, ChevronRight,
+  ChevronUp, CodeXml, Copy, Crosshair, ExternalLink, Eye, EyeOff, File, FileCode,
+  FileImage, FileJson, FileText, Folder, FolderOpen, FolderTree, Globe, Hexagon,
+  Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Moon, PanelBottom,
+  PanelLeft, Plus, RotateCw, Search, Sparkles, Square, SquarePen, SquareTerminal,
+  Sun, X,
 } from 'lucide';
 
 export const $ = (sel) => document.querySelector(sel);
@@ -20,10 +22,12 @@ export const el = (tag, cls, text) => { const n = document.createElement(tag); i
 // were landing in the entry chunk to draw these twenty. Adding an icon here
 // means adding its PascalCase name too.
 const USED = {
-  AppWindow, ArrowLeft, ArrowRight, Camera, ChevronUp, CodeXml, Copy, Crosshair,
-  Folder, FolderOpen, Globe, Hexagon, Maximize2, MessageSquare, MessageSquareDot,
-  Minimize2, Minus, Moon, PanelBottom, PanelLeft, Plus, RotateCw, Search, Square,
-  SquarePen, SquareTerminal, Sun, X,
+  AppWindow, ArrowLeft, ArrowRight, Binary, Camera, ChevronDown, ChevronRight,
+  ChevronUp, CodeXml, Copy, Crosshair, ExternalLink, Eye, EyeOff, File, FileCode,
+  FileImage, FileJson, FileText, Folder, FolderOpen, FolderTree, Globe, Hexagon,
+  Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Moon, PanelBottom,
+  PanelLeft, Plus, RotateCw, Search, Sparkles, Square, SquarePen, SquareTerminal,
+  Sun, X,
 };
 
 export const icons = () => { try { createIcons({ icons: USED }); } catch {} };
@@ -33,7 +37,10 @@ const state = {
   tabs: [],
   active: null,
   autoOpen: false,
-  previewOpen: false,
+  // The right column holds one view at a time: the preview browser or the
+  // project files. `rightOpen` is the column, `rightView` is which of the two.
+  rightOpen: false,
+  rightView: 'browser',
   previewFull: false,
   panelOpen: false,
   paneLive: false,
@@ -138,12 +145,21 @@ function renderStrip() {
   const strip = $('#viewstrip');
   strip.innerHTML = '';
 
-  const browser = el('button', 'vtab' + (state.previewOpen ? ' on' : ''));
+  const showing = (view) => state.rightOpen && state.rightView === view;
+
+  const browser = el('button', 'vtab' + (showing('browser') ? ' on' : ''));
   browser.appendChild(iconMark('globe'));
   browser.appendChild(el('span', null, 'Browser'));
   browser.title = 'Preview browser (Ctrl+Shift+B)';
   browser.onclick = () => togglePreview();
   strip.appendChild(browser);
+
+  const files = el('button', 'vtab' + (showing('files') ? ' on' : ''));
+  files.appendChild(iconMark('folder-tree'));
+  files.appendChild(el('span', null, 'Files'));
+  files.title = 'Project files (Ctrl+Shift+D)';
+  files.onclick = () => toggleFiles();
+  strip.appendChild(files);
 
   state.tabs.forEach((tab, i) => {
     const node = el('button', 'vtab' + (state.panelOpen && tab === state.active ? ' on' : ''));
@@ -272,44 +288,58 @@ export function parkPreview(on) {
   syncBounds();
 }
 
+// The pane is placed in the window's own pixels, while everything measured in
+// here is a CSS pixel. At any zoom other than 100% those are different sizes,
+// so every box handed over gets scaled on the way out.
+const inWindowPixels = (b) => ({
+  x: Math.round(b.x * zoom), y: Math.round(b.y * zoom),
+  width: Math.round(b.width * zoom), height: Math.round(b.height * zoom),
+});
+
 function syncBounds() {
-  if (previewParked || !state.previewOpen) {
+  // The files view sits where the pane would be, so anything other than the
+  // browser showing in that column parks the pane the same way a modal does.
+  if (previewParked || !state.rightOpen || state.rightView !== 'browser') {
     // Park it just outside the window instead of hiding it. A hidden view stops
     // laying out, and the agent would get a 0x0 page while the pane is closed.
-    window.pba.browser.setBounds({
+    window.pba.browser.setBounds(inWindowPixels({
       x: window.innerWidth + 40, y: 40,
-      width: Math.round(window.innerWidth * 0.5),
+      width: window.innerWidth * 0.5,
       height: Math.max(240, window.innerHeight - 96),
-    });
+    }));
     return;
   }
   const r = $('#paneslot').getBoundingClientRect();
-  window.pba.browser.setBounds({ x: r.x, y: r.y, width: r.width, height: r.height });
+  window.pba.browser.setBounds(inWindowPixels({ x: r.x, y: r.y, width: r.width, height: r.height }));
 }
 
-function openPreview(focusUrl = false) {
-  if (!state.previewOpen) {
-    state.previewOpen = true;
-    $('#right').classList.remove('closed');
-    $('#agent-gutter').classList.remove('closed');
-    renderStrip();
-    requestAnimationFrame(() => {
-      syncBounds();
-      resizeActive();
-      window.pba.browser.setVisible(true);
-      if (focusUrl && !state.paneLive) { $('#url').focus(); $('#url').select(); }
-    });
-    return;
-  }
-  if (focusUrl && !state.paneLive) { $('#url').focus(); $('#url').select(); }
+// Open the right column on one of its two views. Switching between them keeps
+// the column's width, so the browser and the files trade places rather than
+// each fighting for their own slice of the window.
+function showRight(view) {
+  const already = state.rightOpen && state.rightView === view;
+  state.rightOpen = true;
+  state.rightView = view;
+  $('#right').classList.remove('closed');
+  $('#agent-gutter').classList.remove('closed');
+  $('#browser-view').hidden = view !== 'browser';
+  $('#files-view').hidden = view !== 'files';
+  renderStrip();
+  if (view === 'files') window.pbaFiles?.activate();
+  requestAnimationFrame(() => {
+    syncBounds();
+    resizeActive();
+    if (view === 'browser') window.pba.browser.setVisible(true);
+  });
+  return already;
 }
 
-function closePreview() {
-  if (!state.previewOpen) return;
-  // Both panes hidden at once is a blank window, so putting the preview away
+function closeRight() {
+  if (!state.rightOpen) return;
+  // Both panes hidden at once is a blank window, so putting the column away
   // gives the chat its half back first.
   setPreviewFull(false);
-  state.previewOpen = false;
+  state.rightOpen = false;
   $('#right').classList.add('closed');
   $('#agent-gutter').classList.add('closed');
   renderStrip();
@@ -317,27 +347,43 @@ function closePreview() {
   requestAnimationFrame(resizeActive);
 }
 
-const togglePreview = () => (state.previewOpen ? closePreview() : openPreview(true));
+function openPreview(focusUrl = false) {
+  showRight('browser');
+  if (focusUrl && !state.paneLive) requestAnimationFrame(() => { $('#url').focus(); $('#url').select(); });
+}
 
-// The preview at full width: the chat collapses to nothing and the pane takes
-// the whole content column. The rail is deliberately left alone, so a sidebar
-// that was open stays open, and closing it hands the last of the window over
-// to the page.
+// Asked to hide the preview while the files are showing, there is no preview on
+// screen to hide, so the column stays where it is.
+function closePreview() {
+  if (state.rightView === 'browser') closeRight();
+}
+
+const togglePreview = () => (state.rightOpen && state.rightView === 'browser' ? closeRight() : openPreview(true));
+const toggleFiles = () => (state.rightOpen && state.rightView === 'files' ? closeRight() : showRight('files'));
+
+// The right column at full width: the chat collapses to nothing and whichever
+// view is showing takes the whole content column. The rail is deliberately left
+// alone, so a sidebar that was open stays open, and closing it hands the last of
+// the window over to the page.
 function setPreviewFull(on) {
   const next = on === undefined ? !state.previewFull : !!on;
   if (next === state.previewFull) return;
   state.previewFull = next;
-  if (next) openPreview();
+  if (next) showRight(state.rightView);
   $('#panes').classList.toggle('preview-full', next);
-  const btn = $('#expand');
-  btn.classList.toggle('armed', next);
-  btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : 'Preview at full width (Ctrl+Shift+F)';
-  btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
+  // Both views carry their own expand button and both mean the same thing.
+  for (const btn of document.querySelectorAll('[data-expand]')) {
+    const noun = btn.id === 'files-expand' ? 'Files' : 'Preview';
+    btn.classList.toggle('armed', next);
+    btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : `${noun} at full width (Ctrl+Shift+F)`;
+    btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
+  }
   icons();
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
 }
 
-$('#expand').onclick = () => setPreviewFull();
+for (const btn of document.querySelectorAll('[data-expand]')) btn.onclick = () => setPreviewFull();
+$('#close-files').onclick = () => closeRight();
 
 async function openInPane(url) {
   $('#url').value = url;
@@ -569,6 +615,14 @@ export function runCommand(name, arg) {
     case 'previewFull':
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();
+    case 'files':
+      if (arg === true) return showRight('files');
+      if (arg === false) return closeRight();
+      return toggleFiles();
+    case 'openFile':
+      if (!arg) return undefined;
+      showRight('files');
+      return window.pbaFiles?.open(String(arg));
     case 'terminal': return togglePanel();
     case 'newTerminal': return newTerminalTab();
     case 'runInTerminal': return newTerminalTab(arg);
@@ -632,7 +686,7 @@ new ResizeObserver(() => syncBounds()).observe($('#paneslot'));
 function isAppChord(e) {
   const mod = e.ctrlKey || e.metaKey;
   const k = (e.key || '').toLowerCase();
-  if (mod && e.shiftKey && ['b', 't', 'l', 'e', 'j', 's', 'k'].includes(k)) return true;
+  if (mod && e.shiftKey && ['b', 'd', 't', 'l', 'e', 'j', 's', 'k'].includes(k)) return true;
   if (mod && k === '`') return true;
   if (mod && !e.shiftKey && k.length === 1 && k >= '1' && k <= '9') return true;
   return false;
@@ -644,6 +698,7 @@ window.addEventListener('keydown', (e) => {
   const k = (e.key || '').toLowerCase();
   if (mod && k === '`') { e.preventDefault(); togglePanel(); }
   else if (mod && shift && k === 'b') { e.preventDefault(); togglePreview(); }
+  else if (mod && shift && k === 'd') { e.preventDefault(); toggleFiles(); }
   else if (mod && shift && k === 's') { e.preventDefault(); toggleRail(); }
   else if (mod && shift && k === 't') { e.preventDefault(); newTerminalTab(); }
   else if (mod && shift && k === 'k') { e.preventDefault(); document.querySelector('#agent-root textarea')?.focus(); }

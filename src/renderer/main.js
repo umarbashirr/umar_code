@@ -7,4 +7,5 @@ import './window.js';
 import './project.js';
 import './menu.js';
 import './rail.js';
+import './files.js';
 import './ui/main.jsx';

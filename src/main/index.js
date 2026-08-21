@@ -13,6 +13,7 @@ const shellEnv = require('./shell-path');
 const { listSessions, readSession } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
+const files = require('./files');
 const projects = require('./projects');
 const bridgeState = require('../../cli/state');
 
@@ -30,6 +31,7 @@ let driver = null;
 let catalog = null;
 let chosenModel = null;   // survives the agent it was picked for
 let driverReady = null;
+let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
 const terms = new Map();
 
@@ -102,6 +104,8 @@ function setProject(dir) {
   agent = null;
   for (const t of terms.values()) t.kill();
   terms.clear();
+  fileWatcher?.clear();
+  files.invalidate();
 
   project = { dir: target, chosen: true };
   projects.remember(target);
@@ -289,6 +293,7 @@ async function createWindow() {
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
     terms.clear();
+    fileWatcher?.clear();
     win = null;
     pane = null;
   });
@@ -462,6 +467,34 @@ function registerIpc() {
     sessionId: agent?.sessionId || null,
     mode: agent?.permissionMode || 'default',
   }));
+
+  // --- project files ---
+  // The tree reads on demand: one folder per call, and a watch on each folder
+  // that is open so the agent writing a file redraws the row rather than
+  // leaving a stale one until someone hits refresh.
+  ipcMain.handle('files:list', (_e, { path: rel } = {}) => files.list(agentCwd(), rel || ''));
+  ipcMain.handle('files:read', (_e, { path: rel } = {}) => files.read(agentCwd(), rel || ''));
+  ipcMain.handle('files:search', (_e, { query } = {}) => files.search(agentCwd(), query));
+  ipcMain.on('files:watch', (_e, { dirs } = {}) => {
+    if (!fileWatcher) fileWatcher = new files.Watcher((dir) => send('files:changed', { dir }));
+    fileWatcher.sync(agentCwd(), dirs);
+  });
+  ipcMain.handle('files:reveal', (_e, { path: rel } = {}) => {
+    const abs = files.within(agentCwd(), rel);
+    if (!abs) return { error: 'that path is outside the project folder' };
+    shell.showItemInFolder(abs);
+    return { ok: true };
+  });
+  ipcMain.handle('files:openExternal', async (_e, { path: rel } = {}) => {
+    const abs = files.within(agentCwd(), rel);
+    if (!abs) return { error: 'that path is outside the project folder' };
+    const err = await shell.openPath(abs);
+    return err ? { error: err } : { ok: true };
+  });
+  ipcMain.handle('files:absolute', (_e, { path: rel } = {}) => {
+    const abs = files.within(agentCwd(), rel);
+    return abs ? { path: abs } : { error: 'that path is outside the project folder' };
+  });
 
   // --- browser pane ---
   ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; pane?.setBounds(b); });
