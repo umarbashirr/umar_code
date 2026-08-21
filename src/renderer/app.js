@@ -4,9 +4,9 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
   createIcons,
   AppWindow, ArrowLeft, ArrowRight, Camera, ChevronUp, CodeXml, Copy, Crosshair,
-  Folder, FolderOpen, Globe, Hexagon, MessageSquare, MessageSquareDot, Minus, Moon,
-  PanelBottom, PanelLeft, Plus, RotateCw, Search, Square, SquarePen, SquareTerminal,
-  Sun, X,
+  Folder, FolderOpen, Globe, Hexagon, Maximize2, MessageSquare, MessageSquareDot,
+  Minimize2, Minus, Moon, PanelBottom, PanelLeft, Plus, RotateCw, Search, Square,
+  SquarePen, SquareTerminal, Sun, X,
 } from 'lucide';
 
 export const $ = (sel) => document.querySelector(sel);
@@ -21,9 +21,9 @@ export const el = (tag, cls, text) => { const n = document.createElement(tag); i
 // means adding its PascalCase name too.
 const USED = {
   AppWindow, ArrowLeft, ArrowRight, Camera, ChevronUp, CodeXml, Copy, Crosshair,
-  Folder, FolderOpen, Globe, Hexagon, MessageSquare, MessageSquareDot, Minus, Moon,
-  PanelBottom, PanelLeft, Plus, RotateCw, Search, Square, SquarePen, SquareTerminal,
-  Sun, X,
+  Folder, FolderOpen, Globe, Hexagon, Maximize2, MessageSquare, MessageSquareDot,
+  Minimize2, Minus, Moon, PanelBottom, PanelLeft, Plus, RotateCw, Search, Square,
+  SquarePen, SquareTerminal, Sun, X,
 };
 
 export const icons = () => { try { createIcons({ icons: USED }); } catch {} };
@@ -34,6 +34,7 @@ const state = {
   active: null,
   autoOpen: false,
   previewOpen: false,
+  previewFull: false,
   panelOpen: false,
   paneLive: false,
   drawerTab: 'console',
@@ -305,6 +306,9 @@ function openPreview(focusUrl = false) {
 
 function closePreview() {
   if (!state.previewOpen) return;
+  // Both panes hidden at once is a blank window, so putting the preview away
+  // gives the chat its half back first.
+  setPreviewFull(false);
   state.previewOpen = false;
   $('#right').classList.add('closed');
   $('#agent-gutter').classList.add('closed');
@@ -314,6 +318,26 @@ function closePreview() {
 }
 
 const togglePreview = () => (state.previewOpen ? closePreview() : openPreview(true));
+
+// The preview at full width: the chat collapses to nothing and the pane takes
+// the whole content column. The rail is deliberately left alone, so a sidebar
+// that was open stays open, and closing it hands the last of the window over
+// to the page.
+function setPreviewFull(on) {
+  const next = on === undefined ? !state.previewFull : !!on;
+  if (next === state.previewFull) return;
+  state.previewFull = next;
+  if (next) openPreview();
+  $('#panes').classList.toggle('preview-full', next);
+  const btn = $('#expand');
+  btn.classList.toggle('armed', next);
+  btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : 'Preview at full width (Ctrl+Shift+F)';
+  btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
+  icons();
+  requestAnimationFrame(() => { resizeActive(); syncBounds(); });
+}
+
+$('#expand').onclick = () => setPreviewFull();
 
 async function openInPane(url) {
   $('#url').value = url;
@@ -542,6 +566,9 @@ export function runCommand(name, arg) {
       if (arg === true) return openPreview();
       if (arg === false) return closePreview();
       return togglePreview();
+    case 'previewFull':
+      if (arg === true || arg === false) return setPreviewFull(arg);
+      return setPreviewFull();
     case 'terminal': return togglePanel();
     case 'newTerminal': return newTerminalTab();
     case 'runInTerminal': return newTerminalTab(arg);

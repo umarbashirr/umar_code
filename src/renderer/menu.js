@@ -51,6 +51,7 @@ const MENUS = [
       { label: 'Full screen', hint: 'F11', run: () => window.pba.win.action('fullScreen') },
       { label: 'Terminal', hint: '^`', run: () => runCommand('terminal') },
       { label: 'Preview browser', hint: '^⇧B', run: () => runCommand('preview') },
+      { label: 'Preview at full width', hint: '^⇧F', run: () => runCommand('previewFull') },
       { label: 'Console and network', hint: '^⇧J', run: () => runCommand('drawer') },
       sep(),
       { label: 'Light or dark', run: () => runCommand('theme') },

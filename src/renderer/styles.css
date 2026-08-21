@@ -369,6 +369,15 @@ body.dragging.row { cursor: row-resize; }
 #right { display: flex; flex-direction: column; flex: none; width: 42%; min-width: 360px; background: var(--bg-2); border-left: 1px solid var(--line); }
 #right.closed { display: none; }
 
+/* Full width: the chat and its splitter go away and the preview takes the whole
+   content column. The width set by dragging the splitter is an inline style, so
+   it has to be overridden here rather than cleared. The rail is untouched: it
+   stays open if it was open, and closing it gives the page the last of the
+   window. */
+#panes.preview-full #agent,
+#panes.preview-full #agent-gutter { display: none; }
+#panes.preview-full #right { flex: 1; width: auto !important; min-width: 0; border-left: none; }
+
 #urlbar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line); }
 .nav { display: flex; align-items: center; gap: 2px; }
 .icon {

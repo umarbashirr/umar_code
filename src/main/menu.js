@@ -20,6 +20,14 @@ function buildMenu({ recents = [], actions }) {
     registerAccelerator: false,
     click: () => actions.command(name),
   });
+  // The one chord the menu really owns. With the preview at full width the
+  // focus is usually inside the page, where a renderer keydown never lands, so
+  // this accelerator is registered for real and the renderer leaves it alone.
+  const hotkey = (label, name, accelerator) => ({
+    label,
+    accelerator,
+    click: () => actions.command(name),
+  });
 
   const recentItems = recents.length
     ? [
@@ -51,6 +59,7 @@ function buildMenu({ recents = [], actions }) {
         command('Sessions', 'rail', 'CmdOrCtrl+Shift+S'),
         command('Terminal', 'terminal', 'CmdOrCtrl+`'),
         command('Preview Browser', 'preview', 'CmdOrCtrl+Shift+B'),
+        hotkey('Preview at Full Width', 'previewFull', 'CmdOrCtrl+Shift+F'),
         command('Console and Network', 'drawer', 'CmdOrCtrl+Shift+J'),
         { type: 'separator' },
         command('Light or Dark', 'theme'),
