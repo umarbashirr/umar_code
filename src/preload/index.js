@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 const on = (channel) => (cb) => {
   const handler = (_e, payload) => cb(payload);
@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('pba', {
 
   win: {
     action: (action) => ipcRenderer.send('win:action', { action }),
+    // Scales the whole app shell: toolbar, rail, chat, files and the terminal
+    // text. The preview pane is a separate web contents and keeps its own zoom.
+    zoom: (factor) => { webFrame.setZoomFactor(factor); return webFrame.getZoomFactor(); },
     state: () => ipcRenderer.invoke('win:state'),
     onState: on('win:state'),
   },

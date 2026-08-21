@@ -65,9 +65,18 @@ function buildMenu({ recents = [], actions }) {
         { type: 'separator' },
         command('Light or Dark', 'theme'),
         { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        // The renderer owns the zoom, because the app shell and the preview
+        // pane are different web contents and only one of them should scale.
+        // These are registered for real: with the preview at full width the
+        // focus is inside the page, where a renderer keydown never lands.
+        hotkey('Zoom In', 'zoomIn', 'CmdOrCtrl+Plus'),
+        // Same command on the unshifted key, which is what most keyboards
+        // actually produce. A menu item carries one accelerator, so it takes
+        // two of them to cover both.
+        { ...hotkey('Zoom In', 'zoomIn', 'CmdOrCtrl+='), visible: false },
+        hotkey('Zoom Out', 'zoomOut', 'CmdOrCtrl+-'),
+        hotkey('Reset Zoom', 'zoomReset', 'CmdOrCtrl+0'),
+        { type: 'separator' },
         { role: 'togglefullscreen' },
         { role: 'toggleDevTools', label: 'Developer Tools (app shell)' },
       ],

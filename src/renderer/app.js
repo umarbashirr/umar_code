@@ -93,6 +93,39 @@ function toggleTheme() {
 
 $('#theme-toggle').onclick = toggleTheme;
 
+// ------------------------------------------------------------------- zoom
+
+// One zoom for the whole app shell. The preview pane is its own web contents
+// and keeps whatever zoom the page has; what changes here is the chrome around
+// it, which is the part people squint at.
+const ZOOM_KEY = 'pba.zoom';
+const ZOOM_STEPS = [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
+let zoom = 1;
+
+function applyZoom(next) {
+  zoom = ZOOM_STEPS.reduce((best, z) => (Math.abs(z - next) < Math.abs(best - next) ? z : best), 1);
+  window.pba.win.zoom(zoom);
+  const label = `${Math.round(zoom * 100)}%`;
+  $('#zoom-level').textContent = label;
+  $('#zoom').classList.toggle('off', zoom === 1);
+  try { localStorage.setItem(ZOOM_KEY, String(zoom)); } catch {}
+  // Every measurement the layout makes is in CSS pixels, which just changed
+  // size, so the terminal and the pane both need telling.
+  requestAnimationFrame(() => { resizeActive(); syncBounds(); });
+}
+
+function stepZoom(dir) {
+  const at = ZOOM_STEPS.indexOf(zoom);
+  const next = ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, Math.max(0, at + dir))];
+  if (next !== zoom) applyZoom(next);
+}
+
+try { zoom = Number(localStorage.getItem(ZOOM_KEY)) || 1; } catch {}
+
+$('#zoom-in').onclick = () => stepZoom(1);
+$('#zoom-out').onclick = () => stepZoom(-1);
+$('#zoom-level').onclick = () => applyZoom(1);
+
 // --------------------------------------------------------------- terminals
 
 function newTerminalTab(command) {
@@ -623,6 +656,9 @@ export function runCommand(name, arg) {
       if (!arg) return undefined;
       showRight('files');
       return window.pbaFiles?.open(String(arg));
+    case 'zoomIn': return stepZoom(1);
+    case 'zoomOut': return stepZoom(-1);
+    case 'zoomReset': return applyZoom(1);
     case 'terminal': return togglePanel();
     case 'newTerminal': return newTerminalTab();
     case 'runInTerminal': return newTerminalTab(arg);
@@ -720,6 +756,7 @@ window.addEventListener('keydown', (e) => {
   $('#bridge-status').textContent = `bridge ${info.url.replace('http://127.0.0.1', 'loopback')}`;
   $('#bridge-dot').className = 'dot';
   $('#copy-mcp').onclick = copyMcpCommand;
+  applyZoom(zoom);
   showPane(false);
   renderStrip();
   syncBounds();

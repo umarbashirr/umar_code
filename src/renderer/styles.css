@@ -579,6 +579,20 @@ body.dragging.row { cursor: row-resize; }
 .sep { width: 1px; height: 11px; background: var(--line); }
 .linkish { color: var(--fg-dim); font-size: 11px; padding: 0; }
 .linkish:hover { color: var(--accent); }
+
+/* The zoom control sits at the end of the status bar and fades back to the
+   quiet colour at 100%, so an app at its normal size does not carry a lit
+   control for something nobody changed. */
+.zoom { display: flex; align-items: center; gap: 1px; }
+.zbtn {
+  display: grid; place-items: center; width: 18px; height: 16px;
+  border-radius: 4px; color: var(--fg-dim);
+}
+.zbtn svg.lucide { width: 11px; height: 11px; }
+.zbtn:hover { background: var(--bg-3); color: var(--fg); }
+.zlevel { font: 10px var(--mono); color: var(--fg); padding: 0 5px; border-radius: 4px; min-width: 5ch; }
+.zlevel:hover { background: var(--bg-3); }
+.zoom.off .zlevel { color: var(--fg-faint); }
 #page-status { font-family: var(--mono); max-width: 50ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- toasts */
