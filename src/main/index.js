@@ -513,6 +513,7 @@ app.whenReady().then(async () => {
     },
     onActivity: (tool, args) => send('agent:activity', { tool, args, t: Date.now() }),
     showPreview,
+    command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },
     // Development aid: answer the oldest pending permission prompt.
     decide: (decision) => {
       const id = agent && [...agent.pending.keys()][0];

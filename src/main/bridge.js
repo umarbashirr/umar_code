@@ -8,13 +8,14 @@ const state = require('../../cli/state');
 const { TOOLS, runTool } = require('./tools');
 
 class Bridge {
-  constructor({ getPane, onActivity, captureWindow, showPreview, ask, decide, cwd, focusWindow }) {
+  constructor({ getPane, onActivity, captureWindow, showPreview, command, ask, decide, cwd, focusWindow }) {
     this.focusWindow = focusWindow || null;
     this.ask = null;
     this.cwd = cwd || process.cwd();
     this.getPane = getPane;
     this.captureWindow = captureWindow || null;
     this.showPreview = showPreview || null;
+    this.command = command || null;
     this.ask = ask || null;
     this.decideFn = decide || null;
     this.onActivity = onActivity || (() => {});
@@ -78,6 +79,19 @@ class Bridge {
     if (url.pathname === '/debug/window' && this.captureWindow) {
       const out = await this.captureWindow();
       return send(200, out);
+    }
+
+    // Development aid: run one of the window's view commands, the same ones the
+    // menu bar and the keyboard go through. This is how the app gets driven
+    // while it is being worked on, since its own chrome is not a web page the
+    // preview tools can reach.
+    if (url.pathname === '/debug/command' && this.command) {
+      const name = url.searchParams.get('name');
+      if (!name) return send(400, { error: 'name is required' });
+      const arg = url.searchParams.get('arg');
+      const open = url.searchParams.get('open');
+      if (arg !== null) return send(200, this.command(name, arg));
+      return send(200, this.command(name, open === null ? undefined : open === 'true'));
     }
 
     // Development aid: push a prompt into the agent panel.
