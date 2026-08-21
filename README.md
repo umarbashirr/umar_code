@@ -31,12 +31,18 @@ what is running is visible whether or not its pane is showing.
 
 ## Install
 
-Download or build a package, then install it:
+Grab the newest build from [Releases](https://github.com/umarbashirr/umar_code/releases/latest):
 
 ```sh
-sudo dpkg -i pba-0.2.1-amd64.deb     # recommended: sets up the Chromium sandbox, installs `pba`
-# or
-chmod +x pba-0.2.1-x86_64.AppImage && ./pba-0.2.1-x86_64.AppImage
+gh release download --repo umarbashirr/umar_code --pattern '*.deb' --dir /tmp --clobber
+sudo apt install /tmp/pba-*-amd64.deb   # recommended: sets up the Chromium sandbox, installs `pba`
+```
+
+Or run the AppImage, which needs nothing installed:
+
+```sh
+gh release download --repo umarbashirr/umar_code --pattern '*.AppImage' --dir ~/Apps --clobber
+chmod +x ~/Apps/pba-*.AppImage && ~/Apps/pba-*.AppImage
 ```
 
 The deb is the sandboxed install. The AppImage runs with `--no-sandbox`, because Ubuntu 24.04 and
@@ -84,7 +90,7 @@ one happened to start last. It walks up from your working directory, so subfolde
 Running the AppImage instead of the deb? Point `PBA_APP` at it and `pba .` will use it:
 
 ```sh
-export PBA_APP=~/Apps/pba-0.2.1-x86_64.AppImage
+export PBA_APP=~/Apps/pba-0.3.0-x86_64.AppImage
 ```
 
 ## The agent panel
