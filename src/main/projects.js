@@ -7,7 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const DIR = path.join(os.homedir(), '.preview-browser-for-agent');
+const DIR = path.join(os.homedir(), '.tandem');
 const LAST = path.join(DIR, 'last-project');
 const RECENT = path.join(DIR, 'recent-projects.json');
 const MAX_RECENT = 12;
@@ -59,15 +59,18 @@ function clearRecents() {
 // The folder to start in. `chosen` is false only when we had nothing to go on
 // and fell back to home, which is what puts the window in its empty state
 // instead of quietly rooting an agent at the person's home directory.
-function startProject() {
-  const explicit = process.env.PBA_CWD;
+//
+// `reopen` is the startup setting. Off, the last folder is still remembered for
+// the recents list; it just stops being where a bare launch lands.
+function startProject({ reopen = true } = {}) {
+  const explicit = process.env.TANDEM_CWD;
   if (explicit && isDir(explicit)) return { dir: path.resolve(explicit), chosen: true };
 
   const here = process.cwd();
   if (here !== '/' && here !== os.homedir() && isDir(here)) return { dir: here, chosen: true };
 
   let remembered = null;
-  try { remembered = fs.readFileSync(LAST, 'utf8').trim(); } catch {}
+  if (reopen) { try { remembered = fs.readFileSync(LAST, 'utf8').trim(); } catch {} }
   if (remembered && isDir(remembered)) return { dir: remembered, chosen: true };
 
   return { dir: os.homedir(), chosen: false };

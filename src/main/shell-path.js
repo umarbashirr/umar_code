@@ -12,7 +12,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
-const MARK = '__pba_path__';
+const MARK = '__tandem_path__';
 const TIMEOUT_MS = 5000;
 
 function merge(extra, current) {
@@ -36,7 +36,7 @@ function askShell(shell) {
 
     let child;
     try {
-      // Braces matter: `$PATH__pba_path__` is one variable name to a shell, so
+      // Braces matter: `$PATH__tandem_path__` is one variable name to a shell, so
       // the marker has to be fenced off from it.
       child = spawn(shell, ['-lic', `echo ${MARK}\${PATH}${MARK}`], { stdio: ['ignore', 'pipe', 'ignore'] });
     } catch {

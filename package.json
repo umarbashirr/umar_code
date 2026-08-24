@@ -1,11 +1,11 @@
 {
-  "name": "preview-browser-for-agent",
+  "name": "tandem",
   "version": "0.5.0",
   "description": "A terminal with an agent and a browser it can drive.",
   "main": "src/main/index.js",
   "type": "commonjs",
   "bin": {
-    "pba": "cli/pba.js"
+    "tandem": "cli/tandem.js"
   },
   "scripts": {
     "start": "npm run build:renderer && node scripts/launch.js",
@@ -59,9 +59,9 @@
     "vite": "^8.2.2"
   },
   "build": {
-    "appId": "dev.pba.preview-browser-for-agent",
-    "productName": "preview-browser-for-agent",
-    "artifactName": "pba-${version}-${arch}.${ext}",
+    "appId": "dev.tandem.app",
+    "productName": "tandem",
+    "artifactName": "tandem-${version}-${arch}.${ext}",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -95,13 +95,13 @@
       "synopsis": "Terminal, agent, and a browser the agent can drive",
       "desktop": {
         "entry": {
-          "Name": "Preview Browser for Agent",
+          "Name": "Tandem",
           "Comment": "A terminal with an agent and a browser it can drive",
           "Keywords": "terminal;agent;browser;preview;claude;",
-          "StartupWMClass": "preview-browser-for-agent"
+          "StartupWMClass": "tandem"
         }
       },
-      "executableName": "preview-browser-for-agent",
+      "executableName": "tandem",
       "syncDesktopName": true
     },
     "deb": {
@@ -140,6 +140,10 @@
     "name": "xclore",
     "email": "dev@trackmyshuttle.com"
   },
-  "homepage": "https://example.invalid/preview-browser-for-agent",
-  "desktopName": "preview-browser-for-agent.desktop"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umarbashirr/umar_code.git"
+  },
+  "homepage": "https://github.com/umarbashirr/umar_code",
+  "desktopName": "tandem.desktop"
 }

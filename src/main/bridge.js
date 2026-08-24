@@ -1,6 +1,6 @@
 'use strict';
 // Local control plane. The agent running inside the terminal reaches the
-// preview pane through this: cli/pba.js and mcp/server.js are both clients.
+// preview pane through this: cli/tandem.js and mcp/server.js are both clients.
 const http = require('http');
 const crypto = require('crypto');
 
@@ -48,7 +48,7 @@ class Bridge {
     return cwd;
   }
 
-  env() { return { PBA_BRIDGE_URL: this.url, PBA_TOKEN: this.token }; }
+  env() { return { TANDEM_BRIDGE_URL: this.url, TANDEM_TOKEN: this.token }; }
 
   stop() {
     try { this.server?.close(); } catch {}
@@ -66,8 +66,8 @@ class Bridge {
 
     if (url.pathname === '/health') return send(200, { ok: true, cwd: this.cwd, tools: Object.keys(TOOLS) });
 
-    if (req.headers['x-pba-token'] !== this.token) return send(401, { error: 'bad or missing x-pba-token' });
-    // `pba .` on a folder that already has a window raises that window.
+    if (req.headers['x-tandem-token'] !== this.token) return send(401, { error: 'bad or missing x-tandem-token' });
+    // `tandem .` on a folder that already has a window raises that window.
     if (url.pathname === '/focus') {
       if (!this.focusWindow) return send(404, { error: 'no window' });
       this.focusWindow();

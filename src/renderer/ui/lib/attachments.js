@@ -85,7 +85,7 @@ export async function toAttachments(described) {
 
 export async function fromPaths(paths) {
   if (!paths.length) return [];
-  return toAttachments(await window.pba.attach.add(paths));
+  return toAttachments(await window.tandem.attach.add(paths));
 }
 
 // Clipboard pictures arrive as bytes with no file behind them. Main writes one
@@ -97,7 +97,7 @@ export async function fromBlob(blob, name) {
     r.onerror = () => reject(new Error('could not read that'));
     r.readAsDataURL(blob);
   });
-  return toAttachments([await window.pba.attach.paste(dataUrl, name)]);
+  return toAttachments([await window.tandem.attach.paste(dataUrl, name)]);
 }
 
 // What the composer's chips say, and what the agent is told about a file it has

@@ -31,7 +31,7 @@ class BrowserPane extends EventEmitter {
     this.reqs = new Map();          // requestId -> the bits needed to log a failure
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
-    this.shotDir = path.join(os.tmpdir(), 'pba-shots');
+    this.shotDir = path.join(os.tmpdir(), 'tandem-shots');
     fs.mkdirSync(this.shotDir, { recursive: true });
     this.#pruneShots();
 
@@ -208,10 +208,10 @@ class BrowserPane extends EventEmitter {
   async reload() { this.wc.reload(); await settle(this.wc); return this.state(); }
 
   async snapshot(opts = {}) {
-    return this.#js(`window.__pba.snapshot(${JSON.stringify(opts)})`);
+    return this.#js(`window.__tandem.snapshot(${JSON.stringify(opts)})`);
   }
 
-  async text(max) { return this.#js(`window.__pba.text(${Number(max) || 20000})`); }
+  async text(max) { return this.#js(`window.__tandem.text(${Number(max) || 20000})`); }
 
   async html(max = 200000) {
     const h = await this.#js('document.documentElement.outerHTML');
@@ -219,7 +219,7 @@ class BrowserPane extends EventEmitter {
   }
 
   async click(target, { button = 'left', clickCount = 1, modifiers = [] } = {}) {
-    const p = await this.#js(`window.__pba.point(${JSON.stringify(target)})`);
+    const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)})`);
     const base = { x: Math.round(p.x), y: Math.round(p.y), button, modifiers };
     this.wc.sendInputEvent({ type: 'mouseMove', ...base });
     this.wc.sendInputEvent({ type: 'mouseDown', ...base, clickCount });
@@ -229,17 +229,17 @@ class BrowserPane extends EventEmitter {
   }
 
   async hover(target) {
-    const p = await this.#js(`window.__pba.point(${JSON.stringify(target)})`);
+    const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)})`);
     this.wc.sendInputEvent({ type: 'mouseMove', x: Math.round(p.x), y: Math.round(p.y) });
     await sleep(80);
     return { ok: true };
   }
 
-  async fill(target, value) { return this.#js(`window.__pba.fill(${JSON.stringify(target)}, ${JSON.stringify(value)})`); }
-  async select(target, value) { return this.#js(`window.__pba.select(${JSON.stringify(target)}, ${JSON.stringify(value)})`); }
+  async fill(target, value) { return this.#js(`window.__tandem.fill(${JSON.stringify(target)}, ${JSON.stringify(value)})`); }
+  async select(target, value) { return this.#js(`window.__tandem.select(${JSON.stringify(target)}, ${JSON.stringify(value)})`); }
 
   async type(text, { target, delay = 12 } = {}) {
-    if (target) await this.#js(`window.__pba.focus(${JSON.stringify(target)})`);
+    if (target) await this.#js(`window.__tandem.focus(${JSON.stringify(target)})`);
     for (const ch of String(text)) {
       this.wc.sendInputEvent({ type: 'char', keyCode: ch });
       if (delay) await sleep(delay);
@@ -263,13 +263,13 @@ class BrowserPane extends EventEmitter {
     return { ok: true, key: `${mods.join('+')}${mods.length ? '+' : ''}${keyCode}` };
   }
 
-  async scroll(dy = 400, dx = 0) { return this.#js(`window.__pba.scroll(${Number(dy)}, ${Number(dx)})`); }
-  async scrollTo(target) { return this.#js(`window.__pba.scrollTo(${JSON.stringify(target)})`); }
-  async highlight(target) { return this.#js(`window.__pba.highlight(${JSON.stringify(target)})`); }
+  async scroll(dy = 400, dx = 0) { return this.#js(`window.__tandem.scroll(${Number(dy)}, ${Number(dx)})`); }
+  async scrollTo(target) { return this.#js(`window.__tandem.scrollTo(${JSON.stringify(target)})`); }
+  async highlight(target) { return this.#js(`window.__tandem.highlight(${JSON.stringify(target)})`); }
 
   async pick() {
     this.wc.focus(); // the human is about to move the mouse over the pane
-    return this.#js('window.__pba.pick()');
+    return this.#js('window.__tandem.pick()');
   }
 
   async evaluate(code) {
@@ -280,7 +280,7 @@ class BrowserPane extends EventEmitter {
 
   async waitFor({ selector, ms, networkIdle, timeout = 10000 } = {}) {
     if (ms) { await sleep(ms); return { ok: true, waited: ms }; }
-    if (selector) { await this.#js(`window.__pba.waitFor(${JSON.stringify(selector)}, ${timeout})`); return { ok: true, selector }; }
+    if (selector) { await this.#js(`window.__tandem.waitFor(${JSON.stringify(selector)}, ${timeout})`); return { ok: true, selector }; }
     if (networkIdle !== false) {
       const started = Date.now();
       let quietSince = Date.now();
@@ -298,7 +298,7 @@ class BrowserPane extends EventEmitter {
   async screenshot({ fullPage = false, target, name } = {}) {
     let image;
     if (target) {
-      const p = await this.#js(`window.__pba.point(${JSON.stringify(target)})`);
+      const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)})`);
       const r = p.rect;
       image = await this.wc.capturePage({
         x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)),

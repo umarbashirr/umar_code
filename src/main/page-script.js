@@ -1,7 +1,7 @@
-// Injected into every page in the preview pane. Installs window.__pba, the
+// Injected into every page in the preview pane. Installs window.__tandem, the
 // helper the agent tools call through executeJavaScript.
 (() => {
-  if (window.__pba && window.__pba.version === 1) return 'already-installed';
+  if (window.__tandem && window.__tandem.version === 1) return 'already-installed';
 
   const INTERACTIVE = 'a,button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=switch],[role=combobox],[role=textbox],[contenteditable=""],[contenteditable=true],[onclick],[tabindex]:not([tabindex="-1"])';
   let counter = 0;
@@ -74,10 +74,10 @@
   };
 
   const ref = (el) => {
-    let r = el.getAttribute('data-pba-ref');
+    let r = el.getAttribute('data-tandem-ref');
     if (!r) {
       r = 'e' + ++counter;
-      el.setAttribute('data-pba-ref', r);
+      el.setAttribute('data-tandem-ref', r);
     }
     return r;
   };
@@ -106,7 +106,7 @@
   const resolve = (target) => {
     if (!target) throw new Error('missing target');
     const el = target.startsWith('e') && /^e\d+$/.test(target)
-      ? document.querySelector(`[data-pba-ref="${target}"]`)
+      ? document.querySelector(`[data-tandem-ref="${target}"]`)
       : document.querySelector(target);
     if (!el) {
       const stale = /^e\d+$/.test(target);
@@ -124,7 +124,7 @@
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: { x: r.left, y: r.top, w: r.width, h: r.height } };
   };
 
-  window.__pba = {
+  window.__tandem = {
     version: 1,
 
     snapshot(opts = {}) {
@@ -243,7 +243,7 @@
           const r = el.getBoundingClientRect();
           done({
             ref: ref(el),
-            css: window.__pba.cssPath(el),
+            css: window.__tandem.cssPath(el),
             role: role(el),
             name: label(el),
             tag: el.tagName.toLowerCase(),

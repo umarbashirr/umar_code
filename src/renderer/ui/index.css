@@ -43,3 +43,72 @@
     border-color: hsl(var(--border));
   }
 }
+
+/* A token badge is built twice: by React in the transcript, and by hand as a
+   DOM node inside the composer, where React cannot reconcile against a
+   contenteditable without eating the caret. Tailwind only sees class names it
+   can find in the source, and the composer's are assembled at runtime, so the
+   styling is plain CSS and both halves stamp the same class. */
+@layer components {
+  .tandem-token {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    vertical-align: baseline;
+    max-width: 30ch;
+    margin: 0 1px;
+    padding: 1px 7px 1px 5px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: .8125rem;
+    line-height: 1.35;
+    white-space: nowrap;
+    background: hsl(var(--tok) / .13);
+    color: hsl(var(--tok-fg));
+    box-shadow: inset 0 0 0 1px hsl(var(--tok) / .30);
+  }
+
+  .tandem-token > svg {
+    width: 11px;
+    height: 11px;
+    flex: none;
+    opacity: .9;
+  }
+
+  .tandem-token > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tok-skill { --tok: var(--token-skill); --tok-fg: var(--token-skill-fg); }
+  .tok-path { --tok: var(--token-path); --tok-fg: var(--token-path-fg); }
+  .tok-element { --tok: var(--token-element); --tok-fg: var(--token-element-fg); }
+
+  /* Inside the box the badge is one atom: the caret cannot get into it, a
+     click selects it whole rather than dropping a cursor mid-word. */
+  .tandem-input .tandem-token {
+    user-select: none;
+    cursor: default;
+  }
+
+  .tandem-input .tandem-token::selection,
+  .tandem-input .tandem-token *::selection {
+    background: hsl(var(--tok) / .32);
+  }
+
+  .tandem-input:empty::before,
+  .tandem-input.is-empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  /* The input group hangs its focus ring off :focus-visible, which Chromium
+     hands a textarea on any click but not a contenteditable div, so clicking
+     into the box stopped ringing the border. Same ring, off plain :focus.
+     Outline rather than box-shadow, to leave the group's own shadow alone. */
+  [data-slot="input-group"]:has(.tandem-input:focus) {
+    border-color: hsl(var(--ring));
+    outline: 3px solid hsl(var(--ring) / .5);
+  }
+}

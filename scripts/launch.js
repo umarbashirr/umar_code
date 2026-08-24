@@ -14,7 +14,7 @@ const args = process.argv.slice(2);
 
 if (process.platform === 'linux' && !sandboxUsable()) {
   process.stderr.write(
-    `\npba: running with --no-sandbox because ${helper} is not set up.\n` +
+    `\ntandem: running with --no-sandbox because ${helper} is not set up.\n` +
     `     Web content in the preview pane will not be sandboxed.\n` +
     `     Fix it once with:  npm run enable-sandbox\n\n`,
   );

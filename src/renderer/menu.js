@@ -2,6 +2,7 @@
    keyboard and the Alt key; this is the one people can see. */
 'use strict';
 import { $, el, runCommand } from './app.js';
+import { showMenu, closeMenu } from './menu-pop.js';
 import { project, shortPath, openFolder, openRecent } from './project.js';
 
 const sep = () => ({ sep: true });
@@ -24,6 +25,8 @@ const MENUS = [
         sep(),
         { label: 'New chat', run: () => runCommand('newChat') },
         { label: 'New terminal', hint: '^⇧T', run: () => runCommand('newTerminal') },
+        sep(),
+        { label: 'Settings…', hint: '^,', run: () => runCommand('settings') },
       );
       return items;
     },
@@ -34,13 +37,13 @@ const MENUS = [
     // Routed through the main process because focus may be inside the preview
     // pane, which is a different web contents entirely.
     items: () => [
-      { label: 'Undo', hint: '^Z', run: () => window.pba.win.action('undo') },
-      { label: 'Redo', hint: '^⇧Z', run: () => window.pba.win.action('redo') },
+      { label: 'Undo', hint: '^Z', run: () => window.tandem.win.action('undo') },
+      { label: 'Redo', hint: '^⇧Z', run: () => window.tandem.win.action('redo') },
       sep(),
-      { label: 'Cut', hint: '^X', run: () => window.pba.win.action('cut') },
-      { label: 'Copy', hint: '^C', run: () => window.pba.win.action('copy') },
-      { label: 'Paste', hint: '^V', run: () => window.pba.win.action('paste') },
-      { label: 'Select all', hint: '^A', run: () => window.pba.win.action('selectAll') },
+      { label: 'Cut', hint: '^X', run: () => window.tandem.win.action('cut') },
+      { label: 'Copy', hint: '^C', run: () => window.tandem.win.action('copy') },
+      { label: 'Paste', hint: '^V', run: () => window.tandem.win.action('paste') },
+      { label: 'Select all', hint: '^A', run: () => window.tandem.win.action('selectAll') },
     ],
   },
   {
@@ -48,7 +51,7 @@ const MENUS = [
     label: 'View',
     items: () => [
       { label: 'Sessions', hint: '^⇧S', run: () => runCommand('rail') },
-      { label: 'Full screen', hint: 'F11', run: () => window.pba.win.action('fullScreen') },
+      { label: 'Full screen', hint: 'F11', run: () => window.tandem.win.action('fullScreen') },
       { label: 'Terminal', hint: '^`', run: () => runCommand('terminal') },
       { label: 'Preview browser', hint: '^⇧B', run: () => runCommand('preview') },
       { label: 'Project files', hint: '^⇧D', run: () => runCommand('files') },
@@ -67,68 +70,31 @@ const MENUS = [
     label: 'Help',
     items: () => [
       { label: 'Copy MCP command', run: () => runCommand('copyMcp') },
+      { label: 'Check for updates…', run: () => runCommand('updates') },
       { label: 'About', run: () => runCommand('about') },
     ],
   },
 ];
 
 let open = null; // the menu id currently showing
-let pop = null;
 
-function popup() {
-  if (pop) return pop;
-  pop = el('div', 'menu-pop');
-  pop.hidden = true;
-  document.body.appendChild(pop);
-  return pop;
-}
-
-function close() {
-  if (!open) return;
-  open = null;
-  popup().hidden = true;
-  for (const b of $('#menubar').children) b.classList.remove('on');
+function paint() {
+  for (const b of $('#menubar').children) b.classList.toggle('on', b.dataset.menu === open);
 }
 
 function show(menu, trigger) {
-  const box = popup();
-  box.innerHTML = '';
-
-  for (const item of menu.items()) {
-    if (item.sep) { box.appendChild(el('div', 'menu-sep')); continue; }
-    if (item.header) { box.appendChild(el('div', 'menu-header', item.header)); continue; }
-
-    const row = el('button', 'menu-item');
-    row.appendChild(el('span', 'menu-label', item.label));
-    if (item.note) row.appendChild(el('span', 'menu-note', item.note));
-    if (item.hint) row.appendChild(el('kbd', null, item.hint));
-    row.disabled = !!item.disabled;
-    row.onclick = () => { close(); item.run?.(); };
-    box.appendChild(row);
-  }
-
-  box.hidden = false;
-  const r = trigger.getBoundingClientRect();
-  const width = box.getBoundingClientRect().width;
-  box.style.left = Math.round(Math.min(r.left, window.innerWidth - width - 8)) + 'px';
-  box.style.top = Math.round(r.bottom + 4) + 'px';
-
+  // showMenu closes whatever was showing first, and that fires its onClose.
+  showMenu(trigger, menu.items(), { id: menu.id, onClose: () => { if (open === menu.id) { open = null; paint(); } } });
   open = menu.id;
-  for (const b of $('#menubar').children) b.classList.toggle('on', b.dataset.menu === menu.id);
+  paint();
 }
 
 const bar = $('#menubar');
 for (const menu of MENUS) {
   const btn = el('button', 'menu-trigger', menu.label);
   btn.dataset.menu = menu.id;
-  btn.onclick = (e) => { e.stopPropagation(); open === menu.id ? close() : show(menu, btn); };
+  btn.onclick = (e) => { e.stopPropagation(); open === menu.id ? closeMenu() : show(menu, btn); };
   // Once one menu is showing, sliding across the bar walks between them.
   btn.onmouseenter = () => { if (open && open !== menu.id) show(menu, btn); };
   bar.appendChild(btn);
 }
-
-window.addEventListener('click', close);
-// Focus moving to the preview pane never reaches this document as a click.
-window.addEventListener('blur', close);
-window.addEventListener('resize', close);
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });

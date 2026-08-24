@@ -77,7 +77,7 @@ async function fromDataUrl({ dataUrl, name }) {
   const buf = Buffer.from(m[2], 'base64');
   if (buf.length > MAX_IMAGE_BYTES) return { error: 'that image is too large' };
 
-  const dir = path.join(os.tmpdir(), 'pba-attachments');
+  const dir = path.join(os.tmpdir(), 'tandem-attachments');
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, `paste-${Date.now()}-${++pasted}${ext}`);
   await fsp.writeFile(file, buf);

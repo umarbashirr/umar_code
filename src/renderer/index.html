@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
-  <title>Preview Browser for Agent</title>
+  <title>Tandem</title>
 </head>
 <body>
   <header id="titlebar">
@@ -22,6 +22,7 @@
     <span class="spacer"></span>
 
     <span id="activity" class="activity" title="What the agent last did in the preview"></span>
+    <button id="pane-driver" class="driver" hidden title="This agent is driving the preview. Click to take it back."></button>
     <div id="viewstrip"></div>
     <span class="tb-sep"></span>
     <button id="term-toggle" class="icon" title="Terminal panel (Ctrl+`)"><i data-lucide="panel-bottom"></i></button>
@@ -83,18 +84,7 @@
                 <input id="url" spellcheck="false" placeholder="localhost:3000, a URL, or a search" />
               </div>
               <div class="nav">
-                <div id="viewport" class="segmented" role="group" aria-label="Emulate a viewport size">
-                  <button class="seg on" data-size="" title="Fit the pane" aria-pressed="true"><i data-lucide="scan"></i></button>
-                  <button class="seg" data-size="390x844" title="Phone, 390 × 844"><i data-lucide="smartphone"></i></button>
-                  <button class="seg" data-size="768x1024" title="Tablet, 768 × 1024"><i data-lucide="tablet"></i></button>
-                  <button class="seg" data-size="1280x800" title="Laptop, 1280 × 800"><i data-lucide="laptop"></i></button>
-                  <button class="seg" data-size="1920x1080" title="Desktop, 1920 × 1080"><i data-lucide="monitor"></i></button>
-                </div>
-                <button id="pick" class="icon" title="Point at an element (Ctrl+Shift+E)"><i data-lucide="crosshair"></i></button>
-                <button id="shot" class="icon" title="Screenshot to disk"><i data-lucide="camera"></i></button>
-                <button id="devtools" class="icon" title="DevTools"><i data-lucide="code-xml"></i></button>
-                <button id="expand" class="icon" data-expand title="Preview at full width (Ctrl+Shift+F)"><i data-lucide="maximize-2"></i></button>
-                <button id="close-preview" class="icon danger" title="Hide the preview (Ctrl+Shift+B)"><i data-lucide="x"></i></button>
+                <button id="pane-menu" class="icon" title="Preview tools" aria-haspopup="menu" aria-expanded="false"><i data-lucide="ellipsis-vertical"></i></button>
               </div>
             </div>
 
@@ -106,7 +96,7 @@
                 <p>Start a dev server in the terminal. When it prints a local address, this pane offers to open it.</p>
                 <div class="ph-keys">
                   <span><kbd>^&#8679;L</kbd> address bar</span>
-                  <span><code>pba go 3000</code> from the shell or the agent</span>
+                  <span><code>tandem go 3000</code> from the shell or the agent</span>
                 </div>
               </div>
               <div id="page-error" hidden>
@@ -141,7 +131,7 @@
               <div class="nav">
                 <button id="files-refresh" class="icon" title="Re-read the folder"><i data-lucide="rotate-cw"></i></button>
                 <button id="files-hidden" class="icon" title="Show dotfiles"><i data-lucide="eye-off"></i></button>
-                <button id="files-expand" class="icon" data-expand title="Files at full width (Ctrl+Shift+F)"><i data-lucide="maximize-2"></i></button>
+                <button id="files-expand" class="icon" title="Files at full width (Ctrl+Shift+F)"><i data-lucide="maximize-2"></i></button>
                 <button id="close-files" class="icon danger" title="Hide the files (Ctrl+Shift+D)"><i data-lucide="x"></i></button>
               </div>
             </div>

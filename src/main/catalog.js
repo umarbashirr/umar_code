@@ -234,6 +234,44 @@ function scanSkills(dir) {
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Agents are one markdown file each, frontmatter and a prompt, in the same
+// three places skills live. Unlike a skill there is no folder: agents/foo.md is
+// the agent called foo.
+function agentsIn(root, source, prefix = '') {
+  const out = [];
+  let listing = [];
+  try { listing = fs.readdirSync(root, { withFileTypes: true }); } catch { return out; }
+  for (const e of listing) {
+    if (e.name.startsWith('.') || !e.name.endsWith('.md')) continue;
+    if (kindOf(root, e) !== 'file') continue;
+    const file = path.join(root, e.name);
+    const meta = frontmatter(readHead(file));
+    out.push({
+      kind: 'agent',
+      name: prefix + (meta.name || e.name.replace(/\.md$/, '')),
+      description: meta.description || '',
+      model: meta.model || 'inherit',
+      tools: meta.tools || '',
+      source,
+      path: file,
+    });
+  }
+  return out;
+}
+
+function scanAgents(dir) {
+  const out = [
+    ...agentsIn(path.join(dir, '.claude', 'agents'), 'project'),
+    ...agentsIn(path.join(CLAUDE_DIR, 'agents'), 'user'),
+  ];
+  for (const p of enabledPlugins(dir)) {
+    out.push(...agentsIn(path.join(p.root, 'agents'), 'plugin', `${p.name}:`).map((a) => ({ ...a, plugin: p.name })));
+  }
+  const seen = new Map();
+  for (const a of out) seen.set(a.name, { ...seen.get(a.name), ...a });
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // One server, flattened enough for a list: what it is and how to reach it.
 const describe = (name, config, scope) => ({
   name,
@@ -322,7 +360,7 @@ function mergeServers(configured, reported, off, live) {
 function writeJson(file, value) {
   let mode;
   try { mode = fs.statSync(file).mode & 0o777; } catch {}
-  const tmp = `${file}.pba-${process.pid}`;
+  const tmp = `${file}.tandem-${process.pid}`;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', mode === undefined ? undefined : { mode });
   fs.renameSync(tmp, file);
@@ -386,7 +424,7 @@ class Catalog {
   #scan(dir) {
     const hit = this.scans.get(dir);
     if (hit && Date.now() - hit.at < SCAN_TTL_MS) return hit;
-    const fresh = { at: Date.now(), skills: scanSkills(dir), mcp: scanMcp(dir) };
+    const fresh = { at: Date.now(), skills: scanSkills(dir), mcp: scanMcp(dir), agents: scanAgents(dir) };
     this.scans.set(dir, fresh);
     return fresh;
   }
@@ -399,7 +437,7 @@ class Catalog {
   // session has since reported. `live` is false when no session has ever run in
   // this folder, which is what the status column keys off.
   current(dir) {
-    const { skills, mcp } = this.#scan(dir);
+    const { skills, mcp, agents } = this.#scan(dir);
     const prefs = this.#for(dir);
     const live = this.live.get(dir);
     const off = new Set(prefs.skillsOff);
@@ -431,6 +469,9 @@ class Catalog {
       skills: [...byName.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((s) => ({ ...s, enabled: !off.has(s.name) })),
+      // Listed, not switchable: no settings key turns an agent off, and a
+      // toggle that quietly does nothing is worse than no toggle.
+      agents,
       mcp: mergeServers(mcp, live?.mcp || [], offMcp, !!live),
     };
   }

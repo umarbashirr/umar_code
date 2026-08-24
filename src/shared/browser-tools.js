@@ -1,6 +1,6 @@
 'use strict';
 // One definition of the browser tool surface, used three ways: over the bridge
-// by the pba CLI, over stdio by the MCP server, and in-process by the agent
+// by the tandem CLI, over stdio by the MCP server, and in-process by the agent
 // panel. Only the transport differs.
 
 /**

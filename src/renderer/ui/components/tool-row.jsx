@@ -4,8 +4,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ChevronRightIcon, CircleAlertIcon, FilePenIcon, FilePlusIcon, FolderSearchIcon,
-  GlobeIcon, LoaderIcon, MousePointerClickIcon, SearchIcon, SquareTerminalIcon,
-  TextCursorInputIcon, WrenchIcon,
+  GlobeIcon, LoaderIcon, MousePointerClickIcon, SearchIcon, SquareIcon, SquareTerminalIcon,
+  TextCursorInputIcon, UsersIcon, WrenchIcon,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -26,6 +26,12 @@ const ICONS = {
   browser_fill: TextCursorInputIcon,
   browser_type: TextCursorInputIcon,
   browser_snapshot: SearchIcon,
+  // An Agent call draws as its own container, but the tools for looking in on
+  // one still land here.
+  Agent: UsersIcon,
+  Task: UsersIcon,
+  TaskOutput: UsersIcon,
+  TaskStop: SquareIcon,
 };
 
 // One short line of context, so a collapsed row still says what it did.
@@ -38,6 +44,8 @@ const SUMMARY = {
   Glob: (i) => i.pattern,
   Grep: (i) => i.pattern,
   WebFetch: (i) => i.url,
+  Agent: (i) => i.description,
+  Task: (i) => i.description,
   browser_navigate: (i) => i.url,
   browser_click: (i) => i.target,
   browser_fill: (i) => `${i.target} = ${JSON.stringify(i.value ?? '')}`,

@@ -334,6 +334,65 @@ function Servers({ catalog }) {
   );
 }
 
+// The subagents this folder can call on. Read only: nothing in the CLI's
+// settings turns an agent off, so this says what is there rather than
+// pretending to a control it does not have.
+function Agents({ catalog }) {
+  const [query, setQuery] = useState('');
+  const list = catalog.agents || [];
+
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const hit = (a) => !q || a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q);
+    return SOURCES
+      .map(([source, label]) => [label, list.filter((a) => a.source === source && hit(a))])
+      .filter(([, group]) => group.length);
+  }, [list, query]);
+
+  return (
+    <>
+      <div className="flex items-center gap-2 px-1 pb-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search agents"
+          autoFocus
+          className="h-8" />
+        <span className="whitespace-nowrap text-muted-foreground text-xs">{list.length} on disk</span>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {groups.length === 0 && (
+          <p className="px-1 py-6 text-center text-muted-foreground text-sm">
+            {list.length ? 'Nothing matches that.' : 'No agents in this folder or your home directory yet.'}
+          </p>
+        )}
+        {groups.map(([label, group]) => (
+          <div key={label} className="mb-3">
+            <div className="px-1 pb-1 text-muted-foreground text-xs">{label}</div>
+            {group.map((a) => (
+              <div key={a.name} className="flex items-baseline gap-2.5 rounded-md px-1 py-1.5 hover:bg-accent/50">
+                <span className="shrink-0 font-mono text-[13px]">{a.name}</span>
+                <span className="truncate text-muted-foreground text-xs" title={a.description}>
+                  {a.description}
+                </span>
+                <span className="ml-auto shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  {a.model || 'inherit'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <p className="border-t px-1 pt-2 text-muted-foreground text-xs">
+        Agents come from .claude/agents here, ~/.claude/agents, and the plugins you have on. The agent
+        picks one for itself; ask for a named agent in a message and it will use that one.
+      </p>
+    </>
+  );
+}
+
 export function CatalogDialog({ catalog, open, onOpenChange }) {
   const [tab, setTab] = useState('skills');
 
@@ -355,6 +414,9 @@ export function CatalogDialog({ catalog, open, onOpenChange }) {
             <Tab on={tab === 'skills'} count={catalog.skills.length} onClick={() => setTab('skills')}>
               Skills
             </Tab>
+            <Tab on={tab === 'agents'} count={(catalog.agents || []).length} onClick={() => setTab('agents')}>
+              Agents
+            </Tab>
             <Tab on={tab === 'mcp'} count={catalog.mcp.length} onClick={() => setTab('mcp')}>
               MCP servers
             </Tab>
@@ -367,7 +429,9 @@ export function CatalogDialog({ catalog, open, onOpenChange }) {
           </p>
         )}
 
-        {tab === 'skills' ? <Skills catalog={catalog} /> : <Servers catalog={catalog} />}
+        {tab === 'skills' ? <Skills catalog={catalog} />
+          : tab === 'agents' ? <Agents catalog={catalog} />
+            : <Servers catalog={catalog} />}
       </DialogContent>
     </Dialog>
   );

@@ -1,27 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ListChecksIcon, BugIcon, MonitorIcon } from 'lucide-react';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
 import { ToolRow, Pre, toolSummary } from '@/components/tool-row';
-import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion';
+import { AgentRow } from '@/components/agent-row';
+import { FleetStrip } from '@/components/fleet-strip';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
+import { SettingsDialog } from '@/components/settings-dialog';
+import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
-
-const STARTERS = [
-  { icon: ListChecksIcon, title: 'Start with a plan', sub: 'Agree on the approach before code',
-    prompt: 'Read the project and explain how it is put together, then propose a plan before writing any code.' },
-  { icon: BugIcon, title: 'Debug an issue', sub: 'Find the root cause first',
-    prompt: 'Something is broken. Reproduce it, find the root cause, and tell me what you find before fixing anything.' },
-  { icon: MonitorIcon, title: 'Drive the preview', sub: 'Load the page and look at it',
-    prompt: 'Open the app in the preview, snapshot the page, and tell me what is on screen and what looks wrong.' },
-];
+import { useSettings, useUpdates } from './useSettings';
+import { toast } from '../app.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -71,6 +66,11 @@ const imageSrc = (b) => (b.path
 export default function App() {
   const agent = useAgent();
   const catalog = useCatalog();
+  const { settings, set, reset } = useSettings();
+  const updates = useUpdates();
+  // null when closed; otherwise the section to land on, so Help → Check for
+  // updates opens the page already showing updates.
+  const [settingsAt, setSettingsAt] = useState(null);
   // A half-typed message belongs to the chat it was typed in, so drafts are
   // kept per chat rather than following you around the rail.
   const [drafts, setDrafts] = useState({});
@@ -94,9 +94,49 @@ export default function App() {
     window.addAttachment = (hit, shotPath) =>
       setAttachments((a) => [...a, { id: `el${Date.now()}`, kind: 'element', hit, shotPath }]);
     window.sendToAgent = (t) => agent.send(t);
-    window.pbaChat = { open: agent.open, newChat: agent.reset };
-    return () => { window.addAttachment = null; window.sendToAgent = null; window.pbaChat = null; };
-  }, [agent.send, agent.open, agent.reset]);
+    window.tandemChat = {
+      open: agent.open,
+      newChat: agent.reset,
+      // The folder changed under us, so every chat here goes with it.
+      clearChats: agent.clear,
+      settings: (at) => setSettingsAt(typeof at === 'string' ? at : 'appearance'),
+    };
+    return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
+  }, [agent.send, agent.open, agent.reset, agent.clear]);
+
+  // News, once. A version the person has already been shown and ignored is not
+  // worth a second interruption, so the version each toast named is written to
+  // the settings file before it goes up.
+  useEffect(() => {
+    if (!settings?.startup.checkUpdates) return;
+    const told = settings.notices;
+
+    if (updates.app.behind && told.app !== updates.app.latest) {
+      set({ notices: { app: updates.app.latest } });
+      toast(`Tandem ${updates.app.latest} is out`, `You are on ${updates.app.current}`, [
+        { label: 'Update', primary: true, run: () => setSettingsAt('updates') },
+        { label: 'Later' },
+      ]);
+    }
+
+    // The bundled CLI moving is Tandem's problem, not the person's. What is
+    // worth interrupting for is a newer claude already sitting on their PATH.
+    const c = updates.claude;
+    if (c?.canSwitch && told.claude !== c.system.version) {
+      set({ notices: { claude: c.system.version } });
+      toast(
+        `Claude ${c.system.version} is on your PATH`,
+        `The agent is running ${c.running?.version || 'the bundled build'}`,
+        [
+          { label: 'Use it', primary: true, run: () => set({ claude: { binary: 'path' } }) },
+          { label: 'Not now' },
+        ],
+      );
+    }
+  }, [
+    updates.app.behind, updates.app.latest, updates.claude?.canSwitch,
+    settings?.startup.checkUpdates, settings?.notices.app, settings?.notices.claude,
+  ]);
 
   // Enter while the agent is working parks the message instead of losing it.
   // Enter on an empty box is the second half of that gesture: it hands
@@ -130,11 +170,16 @@ export default function App() {
           {empty ? (
             <h1 className="py-6 text-center font-medium text-2xl tracking-tight">What should change?</h1>
           ) : (
-            agent.items.map((item) => <Item key={item.id} item={item} onDecide={agent.decide} />)
+            agent.items.map((item) => <Item key={item.id} item={item} agent={agent} />)
           )}
         </ConversationContent>
         {!empty && <ConversationScrollButton />}
       </Conversation>
+
+      <FleetStrip
+        agents={agent.running}
+        onStop={agent.stopAgent}
+        onShow={(a) => document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })} />
 
       <Composer
         agent={agent}
@@ -145,29 +190,41 @@ export default function App() {
         setAttachments={setAttachments}
         onSubmit={submit} />
 
-      {empty && (
-        <div className="mx-auto mb-auto w-full max-w-3xl flex-none px-4 pb-8">
-          <Suggestions className="flex-col items-stretch gap-0">
-            {STARTERS.map((s) => (
-              <Suggestion
-                key={s.title}
-                suggestion={s.prompt}
-                onClick={(p) => agent.send(p)}
-                variant="ghost"
-                className="h-auto justify-start gap-3 rounded-lg border-b px-3 py-2.5 last:border-b-0">
-                <s.icon className="size-4 text-muted-foreground" />
-                <span className="text-sm">{s.title}</span>
-                <span className="truncate text-muted-foreground text-sm">{s.sub}</span>
-              </Suggestion>
-            ))}
-          </Suggestions>
-        </div>
-      )}
+      <SettingsDialog
+        open={settingsAt !== null}
+        section={settingsAt || 'appearance'}
+        onOpenChange={(o) => { if (!o) setSettingsAt(null); }}
+        settings={settings}
+        set={set}
+        reset={reset}
+        agent={agent}
+        updates={updates} />
+
+      {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
+      {empty && <div className="mb-auto flex-none" />}
     </div>
   );
 }
 
-function Item({ item, onDecide }) {
+function Item({ item, agent }) {
+  const onDecide = agent.decide;
+
+  // An agent owns whatever it did, so its rows are drawn inside it rather than
+  // loose in the transcript where they would interleave with everyone else's.
+  if (item.kind === 'agent') {
+    return (
+      <div id={`row-${item.id}`}>
+        <AgentRow
+          item={item}
+          onStop={agent.stopAgent}
+          onBackground={agent.backgroundAgent}
+          onOpen={agent.openAgent}>
+          {(item.children || []).map((kid) => <Item key={kid.id} item={kid} agent={agent} />)}
+        </AgentRow>
+      </div>
+    );
+  }
+
   if (item.kind === 'user') {
     return (
       <Message from="user">
@@ -184,7 +241,7 @@ function Item({ item, onDecide }) {
               ))}
             </div>
           )}
-          {item.text}
+          <TokenText text={item.text} />
         </MessageContent>
       </Message>
     );
@@ -282,8 +339,20 @@ function Item({ item, onDecide }) {
     return (
       <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {/* Which agent is stuck on this. Without it a subagent's request
+              reads as though the main thread asked. */}
+          {item.agent && (
+            <button
+              type="button"
+              title="Show the agent that asked"
+              onClick={() => document.getElementById(`row-${item.agent.toolUseId}`)
+                ?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-700 dark:text-amber-500">
+              {item.agent.label}
+            </button>
+          )}
           <span className="text-[13px]">
-            Allow <span className="font-mono font-medium">{label}</span>?
+            {item.title || <>Allow <span className="font-mono font-medium">{label}</span>?</>}
           </span>
           <span className="truncate font-mono text-muted-foreground text-xs">
             {toolSummary(label, item.input)}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-const pba = () => window.pba;
-const EMPTY = { skills: [], mcp: [], live: false, connectors: true };
+const tandem = () => window.tandem;
+const EMPTY = { skills: [], agents: [], mcp: [], live: false, connectors: true };
 
 // The skills and MCP servers this folder has. Main reads them off disk, so the
 // lists are there on first paint; a running session corrects them through
@@ -17,6 +17,7 @@ export function useCatalog() {
     if (next.skills) {
       setData({
         skills: next.skills,
+        agents: next.agents || [],
         mcp: next.mcp || [],
         live: !!next.live,
         connectors: next.connectors !== false,
@@ -25,9 +26,9 @@ export function useCatalog() {
   }, []);
 
   useEffect(() => {
-    pba().catalog.info().then(take).catch(() => {});
-    const off = pba().catalog.onChanged(take);
-    const offProject = pba().project.onChanged(() => { pba().catalog.info().then(take).catch(() => {}); });
+    tandem().catalog.info().then(take).catch(() => {});
+    const off = tandem().catalog.onChanged(take);
+    const offProject = tandem().project.onChanged(() => { tandem().catalog.info().then(take).catch(() => {}); });
     return () => { off?.(); offProject?.(); };
   }, [take]);
 
@@ -38,18 +39,18 @@ export function useCatalog() {
   return {
     ...data,
     error,
-    refresh: () => run(() => pba().catalog.refresh()),
-    setSkill: (name, enabled) => run(() => pba().catalog.skill(name, enabled)),
-    setConnectors: (enabled) => run(() => pba().catalog.connectors(enabled)),
-    toggleMcp: (name, enabled) => run(() => pba().catalog.mcpToggle(name, enabled)),
-    reconnectMcp: (name) => run(() => pba().catalog.mcpReconnect(name)),
+    refresh: () => run(() => tandem().catalog.refresh()),
+    setSkill: (name, enabled) => run(() => tandem().catalog.skill(name, enabled)),
+    setConnectors: (enabled) => run(() => tandem().catalog.connectors(enabled)),
+    toggleMcp: (name, enabled) => run(() => tandem().catalog.mcpToggle(name, enabled)),
+    reconnectMcp: (name) => run(() => tandem().catalog.mcpReconnect(name)),
     loginMcp: async (name) => {
-      const res = await pba().catalog.mcpLogin(name);
+      const res = await tandem().catalog.mcpLogin(name);
       if (res.error) { setError(res.error); return null; }
       setError(null);
       return res.command;
     },
-    addMcp: (server) => run(() => pba().catalog.mcpAdd(server)),
-    removeMcp: (name, scope) => run(() => pba().catalog.mcpRemove(name, scope)),
+    addMcp: (server) => run(() => tandem().catalog.mcpAdd(server)),
+    removeMcp: (name, scope) => run(() => tandem().catalog.mcpRemove(name, scope)),
   };
 }

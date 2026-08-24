@@ -3,13 +3,15 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
   createIcons,
-  AppWindow, ArrowLeft, ArrowRight, Binary, Camera, ChevronDown, ChevronRight,
-  ChevronUp, CodeXml, Copy, Crosshair, ExternalLink, Eye, EyeOff, File, FileCode,
-  FileImage, FileJson, FileText, Folder, FolderOpen, FolderTree, Globe, Hexagon,
-  Laptop, Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor,
-  Moon, PanelBottom, PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles,
-  Square, SquarePen, SquareTerminal, Sun, Tablet, X,
+  AppWindow, ArrowLeft, ArrowRight, Binary, Camera, Check, ChevronDown,
+  ChevronRight, ChevronUp, CodeXml, Copy, Crosshair, EllipsisVertical,
+  ExternalLink, Eye, EyeOff, File, FileCode, FileImage, FileJson, FileText,
+  Folder, FolderOpen, FolderTree, Globe, Hexagon, Laptop, Maximize2,
+  MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor, Moon, PanelBottom,
+  PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles, Square,
+  SquarePen, SquareTerminal, Sun, Tablet, X,
 } from 'lucide';
+import { showMenu, closeMenu } from './menu-pop.js';
 
 export const $ = (sel) => document.querySelector(sel);
 export const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -22,12 +24,13 @@ export const el = (tag, cls, text) => { const n = document.createElement(tag); i
 // were landing in the entry chunk to draw these twenty. Adding an icon here
 // means adding its PascalCase name too.
 const USED = {
-  AppWindow, ArrowLeft, ArrowRight, Binary, Camera, ChevronDown, ChevronRight,
-  ChevronUp, CodeXml, Copy, Crosshair, ExternalLink, Eye, EyeOff, File, FileCode,
-  FileImage, FileJson, FileText, Folder, FolderOpen, FolderTree, Globe, Hexagon,
-  Laptop, Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor,
-  Moon, PanelBottom, PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles,
-  Square, SquarePen, SquareTerminal, Sun, Tablet, X,
+  AppWindow, ArrowLeft, ArrowRight, Binary, Camera, Check, ChevronDown,
+  ChevronRight, ChevronUp, CodeXml, Copy, Crosshair, EllipsisVertical,
+  ExternalLink, Eye, EyeOff, File, FileCode, FileImage, FileJson, FileText,
+  Folder, FolderOpen, FolderTree, Globe, Hexagon, Laptop, Maximize2,
+  MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor, Moon, PanelBottom,
+  PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles, Square,
+  SquarePen, SquareTerminal, Sun, Tablet, X,
 };
 
 export const icons = () => { try { createIcons({ icons: USED }); } catch {} };
@@ -50,9 +53,40 @@ const state = {
   lastError: null,
 };
 
-// ------------------------------------------------------------------ theme
+// ------------------------------------------------------------- preferences
 
-const THEME_KEY = 'pba.theme';
+// The settings file, read synchronously through the preload bridge so the first
+// paint is already the right theme at the right size. Main owns the file; this
+// is a copy that is replaced whenever it changes, from here or from the
+// settings page.
+let prefs = {
+  appearance: { theme: 'system', zoom: 1 },
+  terminal: { fontSize: 13, fontFamily: 'ui-monospace, monospace' },
+};
+try { prefs = window.tandem.settings.snapshot() || prefs; } catch {}
+
+const save = (partial) => { try { window.tandem.settings.set(partial); } catch {} };
+
+// Theme and zoom used to live in localStorage. Carry whatever is there into the
+// settings file once, then drop the old keys so this never runs again. Without
+// it, upgrading silently resets someone's dark mode.
+(function adoptOldPrefs() {
+  try {
+    const theme = localStorage.getItem('tandem.theme');
+    const zoom = Number(localStorage.getItem('tandem.zoom'));
+    if (!theme && !zoom) return;
+    const appearance = {};
+    if (theme === 'light' || theme === 'dark') appearance.theme = theme;
+    if (zoom > 0) appearance.zoom = zoom;
+    localStorage.removeItem('tandem.theme');
+    localStorage.removeItem('tandem.zoom');
+    if (!Object.keys(appearance).length) return;
+    prefs = { ...prefs, appearance: { ...prefs.appearance, ...appearance } };
+    save({ appearance });
+  } catch {}
+}());
+
+// ------------------------------------------------------------------ theme
 
 // xterm allocates the cell buffer per line as output arrives, so scrollback is
 // a real ceiling on memory, not a reservation: 20000 lines at 120 columns is
@@ -60,11 +94,23 @@ const THEME_KEY = 'pba.theme';
 // back through a build log and cheap enough to open several tabs.
 const SCROLLBACK = 5000;
 
-function applyTheme(name) {
+const systemDark = () => { try { return matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; } };
+
+// 'system' is a preference, not a colour. What the page and the terminal get is
+// always one of the two real answers.
+const resolvedTheme = () => {
+  const pref = prefs.appearance.theme;
+  return pref === 'system' ? (systemDark() ? 'dark' : 'light') : pref;
+};
+
+function applyTheme() {
+  const name = resolvedTheme();
   document.documentElement.dataset.theme = name;
   const btn = $('#theme-toggle');
   btn.replaceChildren(iconMark(name === 'dark' ? 'moon' : 'sun'));
-  btn.title = name === 'dark' ? 'Switch to light' : 'Switch to dark';
+  btn.title = prefs.appearance.theme === 'system'
+    ? `Following the system (${name}). Click to pin the other one`
+    : name === 'dark' ? 'Switch to light' : 'Switch to dark';
   icons();
   // xterm draws its own colours, so it has to be told separately.
   for (const t of state.tabs) t.term.options.theme = termTheme();
@@ -81,15 +127,18 @@ function termTheme() {
   };
 }
 
-let theme = 'light';
-try { theme = localStorage.getItem(THEME_KEY) || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch {}
-applyTheme(theme);
+applyTheme();
 
-function toggleTheme() {
-  theme = theme === 'dark' ? 'light' : 'dark';
-  try { localStorage.setItem(THEME_KEY, theme); } catch {}
-  applyTheme(theme);
-}
+// Following the system means following it while the window is open, not only at
+// launch. Desktops that switch at sunset do it without telling the app twice.
+try {
+  matchMedia('(prefers-color-scheme: dark)')
+    .addEventListener('change', () => { if (prefs.appearance.theme === 'system') applyTheme(); });
+} catch {}
+
+// The toolbar button is two-state, so it pins whichever one is not showing.
+// Getting back to following the system is the settings page's job.
+const toggleTheme = () => save({ appearance: { theme: resolvedTheme() === 'dark' ? 'light' : 'dark' } });
 
 $('#theme-toggle').onclick = toggleTheme;
 
@@ -98,20 +147,24 @@ $('#theme-toggle').onclick = toggleTheme;
 // One zoom for the whole app shell. The preview pane is its own web contents
 // and keeps whatever zoom the page has; what changes here is the chrome around
 // it, which is the part people squint at.
-const ZOOM_KEY = 'pba.zoom';
-const ZOOM_STEPS = [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
+export const ZOOM_STEPS = [0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
 let zoom = 1;
 
-function applyZoom(next) {
+// Draws the zoom without writing it down. applyZoom is the one that remembers,
+// which keeps a settings change echoing back here from being saved twice.
+function drawZoom(next) {
   zoom = ZOOM_STEPS.reduce((best, z) => (Math.abs(z - next) < Math.abs(best - next) ? z : best), 1);
-  window.pba.win.zoom(zoom);
-  const label = `${Math.round(zoom * 100)}%`;
-  $('#zoom-level').textContent = label;
+  window.tandem.win.zoom(zoom);
+  $('#zoom-level').textContent = `${Math.round(zoom * 100)}%`;
   $('#zoom').classList.toggle('off', zoom === 1);
-  try { localStorage.setItem(ZOOM_KEY, String(zoom)); } catch {}
   // Every measurement the layout makes is in CSS pixels, which just changed
   // size, so the terminal and the pane both need telling.
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
+}
+
+function applyZoom(next) {
+  drawZoom(next);
+  save({ appearance: { zoom } });
 }
 
 function stepZoom(dir) {
@@ -120,11 +173,33 @@ function stepZoom(dir) {
   if (next !== zoom) applyZoom(next);
 }
 
-try { zoom = Number(localStorage.getItem(ZOOM_KEY)) || 1; } catch {}
+drawZoom(prefs.appearance.zoom || 1);
 
 $('#zoom-in').onclick = () => stepZoom(1);
 $('#zoom-out').onclick = () => stepZoom(-1);
 $('#zoom-level').onclick = () => applyZoom(1);
+
+// One place the settings page and the toolbar both land, whichever made the
+// change: main writes the file, then says so, and the shell redraws from that.
+window.tandem.settings.onChanged((next) => {
+  if (!next) return;
+  const before = prefs;
+  prefs = next;
+  if (next.appearance.theme !== before.appearance.theme) applyTheme();
+  if (next.appearance.zoom !== zoom) drawZoom(next.appearance.zoom || 1);
+  if (next.terminal.fontSize !== before.terminal.fontSize
+    || next.terminal.fontFamily !== before.terminal.fontFamily) applyTerminalFont();
+});
+
+// Font changes reflow every line xterm has buffered, so the tab has to be
+// measured again afterwards or the shell keeps writing to the old grid.
+function applyTerminalFont() {
+  for (const t of state.tabs) {
+    t.term.options.fontFamily = prefs.terminal.fontFamily;
+    t.term.options.fontSize = prefs.terminal.fontSize;
+  }
+  requestAnimationFrame(resizeActive);
+}
 
 // --------------------------------------------------------------- terminals
 
@@ -134,8 +209,8 @@ function newTerminalTab(command) {
   $('#terms').appendChild(host);
 
   const term = new Terminal({
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace',
-    fontSize: 13,
+    fontFamily: prefs.terminal.fontFamily,
+    fontSize: prefs.terminal.fontSize,
     lineHeight: 1.25,
     cursorBlink: true,
     allowProposedApi: true,
@@ -151,19 +226,19 @@ function newTerminalTab(command) {
   const tab = { id: null, term, fit, host, title: 'shell', node: null };
   state.tabs.push(tab);
 
-  window.pba.term.create({ cols: term.cols, rows: term.rows }).then(({ id, shell }) => {
+  window.tandem.term.create({ cols: term.cols, rows: term.rows }).then(({ id, shell }) => {
     tab.id = id;
     if (shell) tab.title = shell;
-    term.onData((d) => window.pba.term.input(id, d));
-    term.onResize(({ cols, rows }) => window.pba.term.resize(id, cols, rows));
+    term.onData((d) => window.tandem.term.input(id, d));
+    term.onResize(({ cols, rows }) => window.tandem.term.resize(id, cols, rows));
     activate(tab);
     term.write(
-      '\x1b[38;5;103m  pba  \x1b[0m\x1b[90mYour shell. \x1b[0m\x1b[36mpba go 3000\x1b[90m opens a page in the preview, ' +
+      '\x1b[38;5;103m  tandem  \x1b[0m\x1b[90mYour shell. \x1b[0m\x1b[36mtandem go 3000\x1b[90m opens a page in the preview, ' +
       'from here or from the agent.\x1b[0m\r\n',
     );
     // Sent as keystrokes rather than run for you: the line is visible, and an
     // interactive flow like `claude mcp login` needs a real terminal anyway.
-    if (command) window.pba.term.input(id, command + '\n');
+    if (command) window.tandem.term.input(id, command + '\n');
     setTimeout(() => resizeActive(), 30);
   });
 
@@ -226,7 +301,7 @@ function activate(tab) {
 }
 
 function closeTab(tab) {
-  if (tab.id) window.pba.term.kill(tab.id);
+  if (tab.id) window.tandem.term.kill(tab.id);
   tab.term.dispose();
   tab.host.remove();
   state.tabs = state.tabs.filter((t) => t !== tab);
@@ -250,17 +325,17 @@ export function resetTerminals() {
   if (wasOpen) { openPanel(); requestAnimationFrame(() => state.active?.term.focus()); }
 }
 
-window.pba.term.onData(({ id, data }) => {
+window.tandem.term.onData(({ id, data }) => {
   const tab = state.tabs.find((t) => t.id === id);
   tab?.term.write(data);
 });
 
-window.pba.term.onExit(({ id }) => {
+window.tandem.term.onExit(({ id }) => {
   const tab = state.tabs.find((t) => t.id === id);
   if (tab) { tab.title = 'exited'; renderStrip(); tab.term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n'); }
 });
 
-window.pba.term.onUrl(({ url }) => {
+window.tandem.term.onUrl(({ url }) => {
   if (state.autoOpen) { openInPane(url); return; }
   toastDetected(url);
 });
@@ -335,7 +410,7 @@ function syncBounds() {
   if (previewParked || !state.rightOpen || state.rightView !== 'browser') {
     // Park it just outside the window instead of hiding it. A hidden view stops
     // laying out, and the agent would get a 0x0 page while the pane is closed.
-    window.pba.browser.setBounds(inWindowPixels({
+    window.tandem.browser.setBounds(inWindowPixels({
       x: window.innerWidth + 40, y: 40,
       width: window.innerWidth * 0.5,
       height: Math.max(240, window.innerHeight - 96),
@@ -343,7 +418,7 @@ function syncBounds() {
     return;
   }
   const r = $('#paneslot').getBoundingClientRect();
-  window.pba.browser.setBounds(inWindowPixels({ x: r.x, y: r.y, width: r.width, height: r.height }));
+  window.tandem.browser.setBounds(inWindowPixels({ x: r.x, y: r.y, width: r.width, height: r.height }));
 }
 
 // Open the right column on one of its two views. Switching between them keeps
@@ -358,11 +433,11 @@ function showRight(view) {
   $('#browser-view').hidden = view !== 'browser';
   $('#files-view').hidden = view !== 'files';
   renderStrip();
-  if (view === 'files') window.pbaFiles?.activate();
+  if (view === 'files') window.tandemFiles?.activate();
   requestAnimationFrame(() => {
     syncBounds();
     resizeActive();
-    if (view === 'browser') window.pba.browser.setVisible(true);
+    if (view === 'browser') window.tandem.browser.setVisible(true);
   });
   return already;
 }
@@ -404,30 +479,28 @@ function setPreviewFull(on) {
   state.previewFull = next;
   if (next) showRight(state.rightView);
   $('#panes').classList.toggle('preview-full', next);
-  // Both views carry their own expand button and both mean the same thing.
-  for (const btn of document.querySelectorAll('[data-expand]')) {
-    const noun = btn.id === 'files-expand' ? 'Files' : 'Preview';
-    btn.classList.toggle('armed', next);
-    btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : `${noun} at full width (Ctrl+Shift+F)`;
-    btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
-  }
+  // The files view keeps a button for this; the preview keeps it in its menu.
+  const btn = $('#files-expand');
+  btn.classList.toggle('armed', next);
+  btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : 'Files at full width (Ctrl+Shift+F)';
+  btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
   icons();
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
 }
 
-for (const btn of document.querySelectorAll('[data-expand]')) btn.onclick = () => setPreviewFull();
+$('#files-expand').onclick = () => setPreviewFull();
 $('#close-files').onclick = () => closeRight();
 
 async function openInPane(url) {
   $('#url').value = url;
   openPreview();
-  await window.pba.browser.action('navigate', url);
+  await window.tandem.browser.action('navigate', url);
 }
 
 function showPane(live) {
   state.paneLive = live;
   $('#placeholder').classList.toggle('hidden', live || !!state.lastError);
-  window.pba.browser.setVisible(true); // hiding is done by parking it offscreen
+  window.tandem.browser.setVisible(true); // hiding is done by parking it offscreen
   if (live) syncBounds();
 }
 
@@ -460,7 +533,7 @@ $('#pe-ask').onclick = () => {
 
 $('#pe-details').onclick = async () => {
   state.drawerTab = 'network';
-  state.network = await window.pba.browser.action('network');
+  state.network = await window.tandem.browser.action('network');
   for (const b of $('#drawer-tabs').querySelectorAll('[data-tab]')) b.classList.toggle('active', b.dataset.tab === 'network');
   $('#drawer').classList.remove('collapsed');
   renderDrawer();
@@ -468,7 +541,7 @@ $('#pe-details').onclick = async () => {
   syncBounds();
 };
 
-window.pba.browser.onState((s) => {
+window.tandem.browser.onState((s) => {
   if (document.activeElement !== $('#url') && s.url && s.url !== 'about:blank') {
     const m = /^(https?:\/\/)(.*)$/.exec(s.url);
     $('#url-scheme').textContent = m ? (m[1] === 'https://' ? '' : 'http://') : '';
@@ -495,7 +568,7 @@ function queueDrawer() {
   requestAnimationFrame(() => { drawerQueued = false; renderDrawer(); });
 }
 
-window.pba.browser.onConsole((c) => {
+window.tandem.browser.onConsole((c) => {
   state.console.push(c);
   if (state.console.length > 500) state.console.shift();
   if (state.drawerTab === 'console') queueDrawer();
@@ -518,43 +591,82 @@ $('#url').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { openInPane(($('#url-scheme').textContent + $('#url').value).trim()); $('#url').blur(); }
   if (e.key === 'Escape') { $('#url').blur(); }
 });
-$('#back').onclick = () => window.pba.browser.action('back');
-$('#forward').onclick = () => window.pba.browser.action('forward');
-$('#reload').onclick = () => window.pba.browser.action('reload');
-$('#devtools').onclick = () => window.pba.browser.action('devtools');
-$('#shot').onclick = async () => {
-  const r = await window.pba.browser.action('screenshot', { fullPage: true });
-  toast('Screenshot saved', r.path, [{ label: 'ok', primary: true }]);
-};
-$('#viewport').addEventListener('click', (e) => {
-  const btn = e.target.closest('.seg');
-  if (!btn) return;
-  for (const b of $('#viewport').children) {
-    const on = b === btn;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', String(on));
-  }
-  const size = btn.dataset.size;
-  if (!size) return window.pba.browser.action('setViewport', null);
+$('#back').onclick = () => window.tandem.browser.action('back');
+$('#forward').onclick = () => window.tandem.browser.action('forward');
+$('#reload').onclick = () => window.tandem.browser.action('reload');
+// Everything the pane can do beyond navigating lives in one menu. The bar kept
+// nine icons in a row and none of them said what they were.
+const SIZES = [
+  { size: '', label: 'Fit the pane', icon: 'scan' },
+  { size: '390x844', label: 'Phone', note: '390 × 844', icon: 'smartphone' },
+  { size: '768x1024', label: 'Tablet', note: '768 × 1024', icon: 'tablet' },
+  { size: '1280x800', label: 'Laptop', note: '1280 × 800', icon: 'laptop' },
+  { size: '1920x1080', label: 'Desktop', note: '1920 × 1080', icon: 'monitor' },
+];
+let paneSize = '';
+
+function setViewport(size) {
+  paneSize = size;
+  if (!size) return window.tandem.browser.action('setViewport', null);
   const [w, h] = size.split('x').map(Number);
-  window.pba.browser.action('setViewport', { width: w, height: h });
-});
-$('#pick').onclick = () => pickElement();
-$('#close-preview').onclick = () => closePreview();
+  window.tandem.browser.action('setViewport', { width: w, height: h });
+}
+
+function paneMenuItems() {
+  const items = [{ header: 'Viewport' }];
+  for (const s of SIZES) {
+    items.push({ label: s.label, note: s.note, ltr: true, icon: s.icon, on: paneSize === s.size, run: () => setViewport(s.size) });
+  }
+  items.push(
+    { sep: true },
+    { label: 'Point at an element', icon: 'crosshair', hint: '^⇧E', run: () => pickElement() },
+    { label: 'Screenshot to disk', icon: 'camera', run: () => screenshot() },
+    { label: 'DevTools', icon: 'code-xml', run: () => window.tandem.browser.action('devtools') },
+    {
+      label: state.previewFull ? 'Back to the chat' : 'Preview at full width',
+      icon: state.previewFull ? 'minimize-2' : 'maximize-2',
+      hint: '^⇧F',
+      run: () => setPreviewFull(),
+    },
+    { sep: true },
+    { label: 'Hide the preview', icon: 'x', hint: '^⇧B', danger: true, run: () => closePreview() },
+  );
+  return items;
+}
+
+let paneMenuOpen = false;
+const paneTrigger = $('#pane-menu');
+paneTrigger.onclick = (e) => {
+  e.stopPropagation();
+  if (paneMenuOpen) return closeMenu();
+  showMenu(paneTrigger, paneMenuItems(), {
+    id: 'pane',
+    align: 'right',
+    onClose: () => { paneMenuOpen = false; paneTrigger.classList.remove('on'); paneTrigger.setAttribute('aria-expanded', 'false'); },
+  });
+  paneMenuOpen = true;
+  paneTrigger.classList.add('on');
+  paneTrigger.setAttribute('aria-expanded', 'true');
+};
+
+async function screenshot() {
+  const r = await window.tandem.browser.action('screenshot', { fullPage: true });
+  toast('Screenshot saved', r.path, [{ label: 'ok', primary: true }]);
+}
 
 // ----------------------------------------------------------- element pick
 
 async function pickElement() {
   if (!state.paneLive) return toast('Nothing to point at', 'Load a page in the preview first.', [{ label: 'ok', primary: true }]);
-  $('#pick').classList.add('armed');
+  paneTrigger.classList.add('armed');
   let hit = null;
-  try { hit = await window.pba.browser.action('pick'); } finally { $('#pick').classList.remove('armed'); }
+  try { hit = await window.tandem.browser.action('pick'); } finally { paneTrigger.classList.remove('armed'); }
   if (!hit) return;
 
   // Grab the element itself so the agent can look at it, not just read about it.
   let shotPath = null;
   try {
-    const shot = await window.pba.browser.action('screenshot', { target: hit.ref, name: `pick-${Date.now()}` });
+    const shot = await window.tandem.browser.action('screenshot', { target: hit.ref, name: `pick-${Date.now()}` });
     shotPath = shot?.path || null;
   } catch {}
 
@@ -571,7 +683,7 @@ $('#drawer-tabs').addEventListener('click', async (e) => {
   state.drawerTab = t;
   for (const b of $('#drawer-tabs').querySelectorAll('[data-tab]')) b.classList.toggle('active', b.dataset.tab === t);
   $('#drawer').classList.remove('collapsed');
-  if (t === 'network') state.network = await window.pba.browser.action('network');
+  if (t === 'network') state.network = await window.tandem.browser.action('network');
   renderDrawer();
   updateBadges();
   syncBounds();
@@ -621,7 +733,7 @@ function toastDetected(url) {
 
 // ------------------------------------------------------------- agent feed
 
-window.pba.agent.onActivity(({ tool, args }) => {
+window.tandem.agent.onActivity(({ tool, args }) => {
   const a = $('#activity');
   const detail = args?.url || args?.target || args?.ref || args?.selector || args?.key || args?.text || '';
   a.textContent = `${tool}${detail ? ' ' + String(detail).slice(0, 40) : ''}`;
@@ -631,6 +743,24 @@ window.pba.agent.onActivity(({ tool, args }) => {
   // The agent loading a page is a request to be looked at.
   if (tool === 'navigate') openPreview();
 });
+
+// One pane, several agents that want it. The chip says who has it so a page
+// changing under you is explained rather than mysterious, and clicking takes
+// the pane back: the next agent to ask waits for you instead.
+function showDriver(holder) {
+  const b = $('#pane-driver');
+  if (!b) return;
+  if (!holder || holder.id === 'human' || String(holder.id).startsWith('main:')) {
+    b.hidden = true;
+    return;
+  }
+  b.hidden = false;
+  b.textContent = `${holder.label} is driving`;
+}
+
+window.tandem.browser.onDriver?.(({ holder }) => showDriver(holder));
+window.tandem.browser.driver?.().then(({ holder }) => showDriver(holder)).catch(() => {});
+$('#pane-driver').onclick = () => { window.tandem.browser.seize?.(); showDriver(null); };
 
 // ------------------------------------------------------------- commands
 
@@ -662,7 +792,7 @@ export function runCommand(name, arg) {
     case 'openFile':
       if (!arg) return undefined;
       showRight('files');
-      return window.pbaFiles?.open(String(arg));
+      return window.tandemFiles?.open(String(arg));
     case 'zoomIn': return stepZoom(1);
     case 'zoomOut': return stepZoom(-1);
     case 'zoomReset': return applyZoom(1);
@@ -672,10 +802,13 @@ export function runCommand(name, arg) {
     case 'rail': return toggleRail();
     case 'drawer': return toggleDrawer();
     case 'theme': return toggleTheme();
+    // Both live in the React half, which registers them on window.tandemChat.
+    case 'settings': return window.tandemChat?.settings?.(arg);
+    case 'updates': return window.tandemChat?.settings?.('updates');
     case 'newChat': return $('#new-chat').click();
     case 'copyMcp': return copyMcpCommand();
     case 'about': return toast(
-      'Preview Browser for Agent',
+      'Tandem',
       state.mcpCommand ? `bridge ${state.bridgeUrl}` : '',
       [{ label: 'ok', primary: true }],
     );
@@ -683,7 +816,7 @@ export function runCommand(name, arg) {
   }
 }
 
-window.pba.onCommand(({ name, open }) => runCommand(name, open));
+window.tandem.onCommand(({ name, open }) => runCommand(name, open));
 
 // ------------------------------------------------------------- splitters
 
@@ -757,8 +890,8 @@ window.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------- boot
 
 (async () => {
-  const info = await window.pba.bridgeInfo();
-  state.mcpCommand = `claude mcp add pba -- node ${info.mcp}`;
+  const info = await window.tandem.bridgeInfo();
+  state.mcpCommand = `claude mcp add tandem -- node ${info.mcp}`;
   state.bridgeUrl = info.url;
   $('#bridge-status').textContent = `bridge ${info.url.replace('http://127.0.0.1', 'loopback')}`;
   $('#bridge-dot').className = 'dot';

@@ -7,7 +7,7 @@ const on = (channel) => (cb) => {
   return () => ipcRenderer.off(channel, handler);
 };
 
-contextBridge.exposeInMainWorld('pba', {
+contextBridge.exposeInMainWorld('tandem', {
   bridgeInfo: () => ipcRenderer.invoke('bridge:info'),
 
   win: {
@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld('pba', {
     action: (action, arg) => ipcRenderer.invoke('browser:action', { action, arg }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),
+    // Which agent is currently driving the pane, and taking it back off them.
+    driver: () => ipcRenderer.invoke('preview:driver'),
+    seize: () => ipcRenderer.invoke('preview:seize'),
+    onDriver: on('preview:driver'),
   },
 
   // The project folder as a tree. Reads only: nothing here writes to disk.
@@ -65,10 +69,15 @@ contextBridge.exposeInMainWorld('pba', {
     onActivity: on('agent:activity'),
     send: (chat, session, text, images) => ipcRenderer.invoke('agent:send', { chat, session, text, images }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
+    // One subagent, by the id task_started gave it.
+    stopTask: (chat, id) => ipcRenderer.invoke('agent:stopTask', { chat, id }),
+    background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
+    subagent: (session, agentId) => ipcRenderer.invoke('agent:subagent', { session, agentId }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: () => ipcRenderer.invoke('agent:models'),
     setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
+    usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
     transcript: (id) => ipcRenderer.invoke('agent:transcript', { id }),
@@ -110,6 +119,31 @@ contextBridge.exposeInMainWorld('pba', {
     mcpAdd: (server) => ipcRenderer.invoke('catalog:mcpAdd', server),
     mcpRemove: (name, scope) => ipcRenderer.invoke('catalog:mcpRemove', { name, scope }),
     onChanged: on('agent:catalog'),
+  },
+
+  // The one blocking read in the app: the shell needs the theme and the
+  // terminal font before its first paint, and an async round trip would show a
+  // frame of the wrong one. Everything else here is async.
+  settings: {
+    snapshot: () => ipcRenderer.sendSync('settings:sync'),
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (partial) => ipcRenderer.invoke('settings:set', partial),
+    reset: () => ipcRenderer.invoke('settings:reset'),
+    paths: () => ipcRenderer.invoke('settings:paths'),
+    reveal: () => ipcRenderer.invoke('settings:reveal'),
+    onChanged: on('settings:changed'),
+  },
+
+  // Whether a newer Tandem or a newer Claude CLI exists, and fetching the one
+  // that matches how this copy was installed.
+  updates: {
+    info: () => ipcRenderer.invoke('updates:info'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    download: () => ipcRenderer.invoke('updates:download'),
+    install: (path) => ipcRenderer.invoke('updates:install', { path }),
+    openPage: () => ipcRenderer.invoke('updates:openPage'),
+    onProgress: on('updates:progress'),
+    onChanged: on('updates:changed'),
   },
 
   onCommand: on('app:command'),

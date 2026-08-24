@@ -12,11 +12,11 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const state = require('../cli/state');
 
 function connection() {
-  if (process.env.PBA_BRIDGE_URL && process.env.PBA_TOKEN) {
-    return { url: process.env.PBA_BRIDGE_URL, token: process.env.PBA_TOKEN };
+  if (process.env.TANDEM_BRIDGE_URL && process.env.TANDEM_TOKEN) {
+    return { url: process.env.TANDEM_BRIDGE_URL, token: process.env.TANDEM_TOKEN };
   }
   const s = state.find(process.cwd());
-  if (!s) throw new Error('no pba window open for this folder. Run `pba .` first.');
+  if (!s) throw new Error('no tandem window open for this folder. Run `tandem .` first.');
   return { url: s.url, token: s.token };
 }
 
@@ -24,7 +24,7 @@ async function call(tool, args = {}) {
   const { url, token } = connection();
   const res = await fetch(`${url}/tool/${tool}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-pba-token': token },
+    headers: { 'content-type': 'application/json', 'x-tandem-token': token },
     body: JSON.stringify(args),
   });
   const body = await res.json().catch(() => ({ error: `bad response (${res.status})` }));
@@ -35,7 +35,7 @@ async function call(tool, args = {}) {
 const text = (v) => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
 
 const server = new McpServer(
-  { name: 'preview-browser', version: '0.1.0' },
+  { name: 'tandem', version: '0.1.0' },
   { instructions: 'Controls the preview browser pane sitting next to this terminal. Call browser_snapshot first: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept. Use browser_console and browser_network to see what the page reported after an action.' },
 );
 
@@ -137,6 +137,6 @@ server.registerTool('browser_highlight',
   wrap(async (a) => text(await call('highlight', a))));
 
 server.connect(new StdioServerTransport()).catch((e) => {
-  process.stderr.write(`pba mcp: ${e.message}\n`);
+  process.stderr.write(`tandem mcp: ${e.message}\n`);
   process.exit(1);
 });

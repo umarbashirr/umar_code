@@ -13,15 +13,15 @@ function apply({ maximized }) {
 }
 
 for (const btn of document.querySelectorAll('[data-win]')) {
-  btn.onclick = () => window.pba.win.action(btn.dataset.win);
+  btn.onclick = () => window.tandem.win.action(btn.dataset.win);
 }
 
 // Frameless windows do not get the double-click-to-maximise the desktop gives
 // every other window, so the drag strip has to offer it.
 $('#titlebar').addEventListener('dblclick', (e) => {
   if (e.target.closest('button, input, nav')) return;
-  window.pba.win.action('maximize');
+  window.tandem.win.action('maximize');
 });
 
-window.pba.win.onState(apply);
-window.pba.win.state().then(apply).catch(() => {});
+window.tandem.win.onState(apply);
+window.tandem.win.state().then(apply).catch(() => {});

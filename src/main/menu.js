@@ -49,6 +49,8 @@ function buildMenu({ recents = [], actions }) {
         command('New Chat', 'newChat'),
         command('New Terminal', 'newTerminal', 'CmdOrCtrl+Shift+T'),
         { type: 'separator' },
+        hotkey('Settings…', 'settings', 'CmdOrCtrl+,'),
+        { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },
@@ -85,6 +87,7 @@ function buildMenu({ recents = [], actions }) {
       label: '&Help',
       submenu: [
         command('Copy MCP Command', 'copyMcp'),
+        command('Check for Updates…', 'updates'),
         command('About', 'about'),
       ],
     },

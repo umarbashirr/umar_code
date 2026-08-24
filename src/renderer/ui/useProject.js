@@ -9,9 +9,9 @@ export function useProject() {
 
   useEffect(() => {
     let alive = true;
-    const load = () => window.pba.project.info().then((i) => alive && setInfo(i)).catch(() => {});
+    const load = () => window.tandem.project.info().then((i) => alive && setInfo(i)).catch(() => {});
     load();
-    const off = window.pba.project.onChanged((i) => alive && setInfo(i));
+    const off = window.tandem.project.onChanged((i) => alive && setInfo(i));
     // Nothing tells this window when the branch changes: it happens in a shell,
     // or in another terminal entirely. Main reads one file to answer, so asking
     // every few seconds costs less than watching the ref would.

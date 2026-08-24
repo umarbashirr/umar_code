@@ -18,7 +18,7 @@ export const shortPath = (p) => {
 // -------------------------------------------------------------- switching
 
 export async function openFolder(opts = {}) {
-  const res = await window.pba.project.open(opts);
+  const res = await window.tandem.project.open(opts);
   if (res?.error) toast('Could not open that folder', res.error, [{ label: 'ok', primary: true }]);
   else if (res?.focused) toast('Already open', 'Raised the window already on that folder.', [{ label: 'ok', primary: true }]);
   return res;
@@ -68,19 +68,18 @@ $('#wel-open').onclick = () => openFolder();
 $('#wel-new').onclick = () => openFolder({ newWindow: true });
 $('#wel-skip').onclick = () => openFolder({ dir: project.home });
 
-window.pba.project.onChanged((info) => {
+window.tandem.project.onChanged((info) => {
   const moved = info.dir !== project.dir;
   apply(info);
   if (!moved) return;
 
   // The agent, the shells and the chat list all belonged to the old folder.
   resetTerminals();
-  window.pbaChat?.newChat();
-  window.pbaRail?.setCurrent(null);
-  window.pbaRail?.refresh();
+  window.tandemChat?.clearChats();
+  window.tandemRail?.refresh();
   toast('Opened folder', shortPath(info.dir), [{ label: 'ok', primary: true }]);
 });
 
 (async () => {
-  apply(await window.pba.project.info());
+  apply(await window.tandem.project.info());
 })();

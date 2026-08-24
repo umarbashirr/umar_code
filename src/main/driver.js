@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const shellEnv = require('./shell-path');
 
 const PROBE_TIMEOUT_MS = 4000;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -19,7 +20,7 @@ const TTL_MS = 6 * 60 * 60 * 1000;
 // path lands in app.asar, which child_process cannot execute, so look for the
 // unpacked copy first. require.resolve is no help: the package's exports map
 // hides its internals.
-function claudeBinary() {
+function bundledBinary() {
   let appPath = __dirname;
   try { appPath = require('electron').app.getAppPath(); } catch {}
 
@@ -41,6 +42,45 @@ function claudeBinary() {
     try { if (fs.existsSync(candidate)) return candidate; } catch {}
   }
   return null;
+}
+
+// A claude the person installed themselves. The bundled copy only moves when the
+// app does, so someone who runs `claude` in a terminal every day usually has a
+// newer one than the release they are on. Settings can point the agent at it.
+function systemBinary() {
+  const name = process.platform === 'win32' ? 'claude.exe' : 'claude';
+  const bundled = bundledBinary();
+  const dirs = (shellEnv.cached() || '').split(path.delimiter);
+
+  for (const dir of dirs) {
+    if (!dir) continue;
+    const candidate = path.join(dir, name);
+    try {
+      if (!fs.existsSync(candidate)) continue;
+      // Resolve first: a shim in ~/.local/bin that points back into the app is
+      // the bundled binary wearing a different name, not a second install.
+      const real = fs.realpathSync(candidate);
+      if (bundled && real === fs.realpathSync(bundled)) continue;
+      return real;
+    } catch {}
+  }
+  return null;
+}
+
+// Which binary the agent actually starts. Settings sets this once at boot and
+// again whenever the choice changes; null means the bundled one.
+let preferred = null;
+
+function preferBinary(p) {
+  preferred = p && fs.existsSync(p) ? p : null;
+  return preferred;
+}
+
+function claudeBinary() {
+  if (preferred) {
+    try { if (fs.existsSync(preferred)) return preferred; } catch {}
+  }
+  return bundledBinary();
 }
 
 // Models the picker offers, and the CLI version each one needs. A binary older
@@ -179,4 +219,7 @@ class Driver {
   }
 }
 
-module.exports = { Driver, claudeBinary, modelsFor, compareVersions, parseVersion, CATALOG };
+module.exports = {
+  Driver, claudeBinary, bundledBinary, systemBinary, preferBinary,
+  modelsFor, compareVersions, parseVersion, probeVersion, CATALOG,
+};

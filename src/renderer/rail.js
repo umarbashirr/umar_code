@@ -1,16 +1,24 @@
 /* The session rail. Stays vanilla: it is a list, not a chat. It talks to the
-   React pane through window.pbaChat and is told what to highlight through
-   window.pbaRail. */
+   React pane through window.tandemChat and is told what is open through
+   window.tandemRail. */
 'use strict';
 import { $, el, icons, iconMark } from './app.js';
 
-// `pending` is the chat you just started. Claude writes its jsonl a beat after
-// the first message goes out, so until then there is nothing on disk for the
-// listing to find and the rail would sit empty on the chat you are looking at.
-const PENDING = '__pending__';
-// `working` holds the session ids with a turn in flight. The React pane owns
-// that fact, because it is the half reading the message stream.
-const railState = { sessions: [], current: null, filter: '', pending: null, working: new Set(), pendingWorking: false };
+// Two sources, merged every render. `sessions` is what claude has written to
+// ~/.claude/projects; `live` is every chat open in the React pane, including
+// the ones claude has not written yet. A chat is on screen the moment you type
+// in it and on disk a beat later, so a rail built on either half alone drops
+// rows for a second or two and puts them back.
+const railState = { sessions: [], live: [], activeKey: null, filter: '' };
+
+// A live chat has no mtime until it lands on disk, and reading the clock at
+// render time would slide it between the Today/Yesterday groups. First sight
+// wins, and the disk row takes over once there is one.
+const firstSeen = new Map();
+const seenAt = (key) => {
+  if (!firstSeen.has(key)) firstSeen.set(key, Date.now());
+  return firstSeen.get(key);
+};
 
 const rel = (ms) => {
   const s = (Date.now() - ms) / 1000;
@@ -30,14 +38,36 @@ function bucket(ms) {
   return 'Earlier';
 }
 
-// The placeholder drops out the moment the real transcript appears under the
-// same id, so a chat never shows up twice.
+// One row per chat. A live chat claude has already written keeps its place in
+// the stored list and only picks up the live half's badges; one it has not is
+// pushed on top, which is where a chat you just started belongs anyway.
 function visibleRows() {
-  const list = railState.sessions.slice();
-  const p = railState.pending;
-  if (p && !list.some((s) => s.id === p.id)) list.unshift(p);
+  const stored = railState.sessions.map((s) => ({ ...s }));
+  const bySession = new Map(stored.map((s) => [s.id, s]));
+  const fresh = [];
+
+  for (const c of railState.live) {
+    const row = (c.session && bySession.get(c.session)) || null;
+    if (row) {
+      row.key = c.key;
+      row.busy = c.busy;
+      row.agents = c.agents;
+      continue;
+    }
+    fresh.push({
+      id: c.session || c.key,
+      key: c.key,
+      title: c.title,
+      at: seenAt(c.key),
+      busy: c.busy,
+      agents: c.agents,
+    });
+  }
+
+  fresh.sort((a, b) => b.at - a.at);
+  const rows = [...fresh, ...stored];
   const q = railState.filter.toLowerCase();
-  return q ? list.filter((s) => s.title.toLowerCase().includes(q)) : list;
+  return q ? rows.filter((s) => s.title.toLowerCase().includes(q)) : rows;
 }
 
 function render() {
@@ -58,15 +88,14 @@ function render() {
     const b = bucket(s.at);
     if (b !== group) { group = b; box.appendChild(el('div', 'sess-group', b)); }
 
-    const current = s.id === railState.current;
-    const working = s.id === PENDING ? railState.pendingWorking : railState.working.has(s.id);
+    const current = !!s.key && s.key === railState.activeKey;
     const row = el('div', 'sess' + (current ? ' current' : ''));
     row.appendChild(iconMark(current ? 'message-square-dot' : 'message-square'));
     row.appendChild(el('span', 'sess-title', s.title));
-    if (working) row.appendChild(el('span', 'sess-working', 'working'));
+    if (s.busy) row.appendChild(el('span', 'sess-working', s.agents ? `${s.agents} agents` : 'working'));
     row.appendChild(el('span', 'sess-when', rel(s.at)));
     row.title = s.title;
-    row.onclick = () => { if (!current) window.pbaChat?.open(s); };
+    row.onclick = () => { if (!current) window.tandemChat?.open(s); };
     box.appendChild(row);
   }
   icons();
@@ -74,37 +103,20 @@ function render() {
 
 async function refresh() {
   try {
-    const data = await window.pba.agent.history();
+    const data = await window.tandem.agent.history();
     railState.sessions = data.sessions || [];
   } catch { railState.sessions = []; }
   render();
 }
 
-window.pbaRail = {
+window.tandemRail = {
   refresh,
-  // Called on the first message of a new chat, before there is a session id.
-  begin: (title) => {
-    railState.pending = { id: PENDING, title: String(title).slice(0, 120), at: Date.now() };
-    railState.current = PENDING;
-    render();
-  },
-  // Which chats are mid-turn. Several can be, which is the whole point.
-  setBusy: (ids, pendingWorking) => {
-    const next = new Set(ids || []);
-    const same = next.size === railState.working.size
-      && [...next].every((id) => railState.working.has(id))
-      && !!pendingWorking === railState.pendingWorking;
-    if (same) return;
-    railState.working = next;
-    railState.pendingWorking = !!pendingWorking;
-    render();
-  },
-  // The id arrives with the SDK's init message. Hand it to the placeholder so
-  // the row stays current across the swap to the real listing.
-  setCurrent: (id) => {
-    if (!id) railState.pending = null;
-    else if (railState.pending) railState.pending.id = id;
-    railState.current = id;
+  // The whole set of open chats, sent by the React pane whenever it changes.
+  // It owns which chats exist, which one is on screen and which are mid-turn;
+  // the rail only draws them next to what is on disk.
+  sync: ({ chats, active } = {}) => {
+    railState.live = chats || [];
+    railState.activeKey = active || null;
     render();
   },
 };
@@ -115,8 +127,7 @@ $('#session-search').addEventListener('input', (e) => {
 });
 
 $('#new-chat').onclick = () => {
-  window.pbaChat?.newChat();
-  window.pbaRail.setCurrent(null);
+  window.tandemChat?.newChat();
   document.querySelector('#agent-root textarea')?.focus();
 };
 

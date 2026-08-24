@@ -1,6 +1,7 @@
-# preview-browser-for-agent
+# Tandem
 
-An agent, a terminal, and a browser the agent can drive, in one window.
+An agent, a terminal, and a browser the agent can drive, in one window. Two riders, one machine,
+either one can steer.
 
 Cursor puts an agent next to an editor. This puts one next to a shell and a live browser. The agent
 reads your code, runs commands, loads the page, clicks through it, reads the console, and takes
@@ -21,7 +22,7 @@ time.
    ^⇧A            always there    ^⇧B
 ```
 
-The preview pane starts hidden. It appears when you press `Ctrl+Shift+B`, when you run `pba go 3000`,
+The preview pane starts hidden. It appears when you press `Ctrl+Shift+B`, when you run `tandem go 3000`,
 or when the agent navigates. Close it and the page keeps running at full size, so the agent can carry
 on working on something you are not looking at.
 
@@ -35,24 +36,23 @@ Grab the newest build from [Releases](https://github.com/umarbashirr/umar_code/r
 
 ```sh
 gh release download --repo umarbashirr/umar_code --pattern '*.deb' --dir /tmp --clobber
-sudo apt install /tmp/pba-*-amd64.deb   # recommended: sets up the Chromium sandbox, installs `pba`
+sudo apt install /tmp/tandem-*-amd64.deb   # recommended: sets up the Chromium sandbox, installs `tandem`
 ```
 
 Or run the AppImage, which needs nothing installed:
 
 ```sh
 gh release download --repo umarbashirr/umar_code --pattern '*.AppImage' --dir ~/Apps --clobber
-chmod +x ~/Apps/pba-*.AppImage && ~/Apps/pba-*.AppImage
+chmod +x ~/Apps/tandem-*.AppImage && ~/Apps/tandem-*.AppImage
 ```
 
 The deb is the sandboxed install. The AppImage runs with `--no-sandbox`, because Ubuntu 24.04 and
 later block the unprivileged user namespaces Chromium would otherwise use.
 
-The package installs to `/opt/preview-browser-for-agent`, and `productName` in package.json is
-hyphenated to keep it that way. Chromium's setuid sandbox helper splits its own executable path on
-spaces, so an install directory like `/opt/Preview Browser for Agent` makes the app abort at startup
-with `failed to execvp: /opt/Preview`. The readable name lives in the desktop entry instead, so the
-app still shows up as "Preview Browser for Agent" in the launcher.
+The package installs to `/opt/tandem`, and `productName` in package.json is lowercase and one word to
+keep it that way. Chromium's setuid sandbox helper splits its own executable path on spaces, so an
+install directory with a space in it makes the app abort at startup with `failed to execvp:`. The
+capitalised name lives in the desktop entry, so the app still shows up as "Tandem" in the launcher.
 
 To build them yourself:
 
@@ -72,25 +72,25 @@ The agent uses your existing Claude Code login. If `claude` works in your termin
 
 ## Opening a project
 
-The deb puts `pba` on PATH, so a folder opens the way you would open one in an editor:
+The deb puts `tandem` on PATH, so a folder opens the way you would open one in an editor:
 
 ```sh
-pba .                  # open this folder
-pba ~/code/shop        # open that one
+tandem .                  # open this folder
+tandem ~/code/shop        # open that one
 ```
 
-Each folder gets its own window, its own agent, and its own browser. Run `pba .` again on a folder
+Each folder gets its own window, its own agent, and its own browser. Run `tandem .` again on a folder
 that is already open and the existing window comes forward instead of a second one appearing. The
 window title carries the folder name so a taskbar full of them stays readable.
 
-Every window advertises its bridge under `~/.preview-browser-for-agent/projects/`, keyed by folder,
-so `pba go 3000` in a shell always reaches the window that owns that project rather than whichever
+Every window advertises its bridge under `~/.tandem/projects/`, keyed by folder,
+so `tandem go 3000` in a shell always reaches the window that owns that project rather than whichever
 one happened to start last. It walks up from your working directory, so subfolders resolve too.
 
-Running the AppImage instead of the deb? Point `PBA_APP` at it and `pba .` will use it:
+Running the AppImage instead of the deb? Point `TANDEM_APP` at it and `tandem .` will use it:
 
 ```sh
-export PBA_APP=~/Apps/pba-0.3.0-x86_64.AppImage
+export TANDEM_APP=~/Apps/tandem-0.5.0-x86_64.AppImage
 ```
 
 ## The agent panel
@@ -117,7 +117,7 @@ just that element:
   css: #go
   element: button "Create account"
   ref: e4   size: 129x39 at 48,261
-  screenshot: /tmp/pba-shots/pick-1787310022.png
+  screenshot: /tmp/tandem-shots/pick-1787310022.png
 ```
 
 Then you finish the sentence: "make this the same height as the input". The agent gets a selector and
@@ -175,20 +175,20 @@ Two things it does beyond being a terminal:
 **Dev servers open themselves.** The output is watched for a local URL. When Vite or Django or
 `next dev` prints one, a toast offers to load it in the preview. Say "always" once and it stops asking.
 
-**`pba` is on PATH.** The app injects a loopback bridge URL and a token into every terminal it spawns,
+**`tandem` is on PATH.** The app injects a loopback bridge URL and a token into every terminal it spawns,
 so anything running there can drive the same browser the agent is using:
 
 ```sh
-pba go 3000            # bare ports, hostnames and URLs all work
-pba snapshot           # page outline with [ref=eN] handles
-pba fill e3 "you@example.com"
-pba click e7
-pba console --level error
-pba shot --full
-pba preview close
+tandem go 3000            # bare ports, hostnames and URLs all work
+tandem snapshot           # page outline with [ref=eN] handles
+tandem fill e3 "you@example.com"
+tandem click e7
+tandem console --level error
+tandem shot --full
+tandem preview close
 ```
 
-`pba snapshot` is the entry point:
+`tandem snapshot` is the entry point:
 
 ```
 url: http://localhost:3000/
@@ -203,16 +203,16 @@ viewport: 795x860  scroll: 0/860
 ```
 
 Every `eN` feeds `click`, `fill`, `hover`, `select` and `highlight`. Refs are dropped on navigation, so
-snapshot again after a page load. `pba help` lists the rest.
+snapshot again after a page load. `tandem help` lists the rest.
 
 ## Using it from another agent
 
 The panel is not the only way in. Any agent that speaks MCP can have the same 22 browser tools:
 
 ```sh
-pba setup project      # writes ./.mcp.json
+tandem setup project      # writes ./.mcp.json
 # or
-claude mcp add pba -- node /path/to/preview-browser-for-agent/mcp/server.js
+claude mcp add tandem -- node /path/to/tandem/mcp/server.js
 ```
 
 Screenshots come back as images, so the model sees the layout instead of a description of it.
@@ -239,7 +239,7 @@ rest go to your shell, so tmux keeps working.
 
 ```
   agent panel ──┐
-  pba CLI ──────┼──▶ tool dispatch ──▶ WebContentsView (the preview)
+  tandem CLI ───┼──▶ tool dispatch ──▶ WebContentsView (the preview)
   MCP server ───┘         │
                           └── bridge on 127.0.0.1, token in the terminal env
 ```

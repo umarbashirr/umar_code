@@ -7,16 +7,19 @@ const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { runTool } = require('./tools');
 const { AgentSession, SHOT_NOTE } = require('./agent');
-const { Driver, claudeBinary } = require('./driver');
+const { Driver, claudeBinary, preferBinary, systemBinary } = require('./driver');
 const { Catalog } = require('./catalog');
+const { Settings } = require('./settings');
+const { Updates } = require('./updates');
 const shellEnv = require('./shell-path');
-const { listSessions, readSession } = require('./history');
+const { listSessions, readSession, readSubagent, listSubagents } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
 const { DEFAULT_MODE, isMode } = require('./modes');
+const { PaneLease } = require('./pane-lease');
 const bridgeState = require('../../cli/state');
 
 const fs = require('fs');
@@ -34,16 +37,24 @@ const sessions = new Map();
 let bridge = null;
 let driver = null;
 let catalog = null;
-let chosenModel = null;   // survives the agent it was picked for
-let chosenMode = DEFAULT_MODE;  // and so does the mode
+// Read before the window exists: the terminal font, the theme and which claude
+// to run are all settled by the time anything paints.
+const settings = new Settings();
+let updates = null;
+let chosenModel = settings.get('agent').model || null;   // survives the agent it was picked for
+let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
 const terms = new Map();
 
-// Which chat the panel is showing. `pba ask` from a terminal has to land in
+// Which chat the panel is showing. `tandem ask` from a terminal has to land in
 // the chat the human is looking at rather than opening one they cannot see.
 let activeChat = { chat: 'main', session: null };
+
+// One pane, and now more than one agent that wants to drive it. See
+// pane-lease.js for why looking is free and changing the page is not.
+const lease = new PaneLease({ onChange: (holder) => send('preview:driver', { holder }) });
 
 const liveSessions = () => [...sessions.values()].filter((a) => !a.closed);
 // Anything that asks the CLI a question rather than driving one chat: any live
@@ -55,12 +66,14 @@ function stopChat(chat) {
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
+  lease.releaseChat(chat);
   return true;
 }
 
 function stopAllChats() {
   for (const a of sessions.values()) a.stop();
   sessions.clear();
+  lease.stop();
 }
 
 function send(channel, payload) {
@@ -96,7 +109,7 @@ const os = require('os');
 // The folder everything in this window is rooted at: the agent, the shells, the
 // chat history and the bridge file the CLI looks up. See projects.js for how it
 // is picked at startup.
-let project = projects.startProject();
+let project = projects.startProject({ reopen: settings.get('startup').reopenProject });
 const agentCwd = () => project.dir;
 
 const projectInfo = () => ({
@@ -120,6 +133,19 @@ function refreshMenu() {
   });
 }
 
+// Point the agent at the claude the settings page picked. Chats already running
+// keep the binary they started with; a new one gets this. The driver cache is
+// re-probed because the model list is filtered by the CLI's version, and the
+// two binaries are rarely the same version.
+async function applyClaudeBinary() {
+  const wanted = settings.get('claude').binary === 'path' ? systemBinary() : null;
+  preferBinary(wanted);
+  if (!driver) return null;
+  const d = await driver.refresh().catch(() => null);
+  if (d) send('agent:driver', d);
+  return d;
+}
+
 // Switching folders in place. The agent, the shells and the chat history all
 // belong to the old folder, so they go with it; the window, the preview pane and
 // the bridge port stay.
@@ -138,7 +164,7 @@ function setProject(dir) {
   projects.remember(target);
   catalog.invalidate();
   bridge?.setCwd(target);
-  if (win && !win.isDestroyed()) win.setTitle(`${path.basename(target)} · pba`);
+  if (win && !win.isDestroyed()) win.setTitle(`${path.basename(target)} · Tandem`);
   refreshMenu();
   send('project:changed', projectInfo());
   send('agent:catalog', catalog.current(target));
@@ -170,7 +196,7 @@ async function openInNewWindow(dir) {
   const open = bridgeState.forDir(target);
   if (open) {
     try {
-      const res = await fetch(`${open.url}/focus`, { method: 'POST', headers: { 'x-pba-token': open.token } });
+      const res = await fetch(`${open.url}/focus`, { method: 'POST', headers: { 'x-tandem-token': open.token } });
       if (res.ok) return { ok: true, focused: true, dir: target };
     } catch { /* dead or wedged: start a new one */ }
   }
@@ -179,10 +205,10 @@ async function openInNewWindow(dir) {
   const bin = viaAppImage ? process.env.APPIMAGE : process.execPath;
   const args = !viaAppImage && process.defaultApp ? [app.getAppPath()] : [];
 
-  const env = { ...process.env, PBA_CWD: target };
-  delete env.PBA_BRIDGE_URL;
-  delete env.PBA_TOKEN;
-  delete env.PBA_MCP_SERVER;
+  const env = { ...process.env, TANDEM_CWD: target };
+  delete env.TANDEM_BRIDGE_URL;
+  delete env.TANDEM_TOKEN;
+  delete env.TANDEM_MCP_SERVER;
   delete env.ELECTRON_RUN_AS_NODE;
 
   try {
@@ -250,15 +276,37 @@ async function ensureAgent({ chat = 'main', resume } = {}) {
     cwd: agentCwd(),
     settings: catalog.sessionSettings(agentCwd()),
     mcpOff: catalog.offAtRuntime(agentCwd()),
-    invoke: async (tool, args) => {
-      if (tool === 'navigate') showPreview(true);
-      send('agent:activity', { tool, args, t: Date.now() });
-      return runTool(tool, args, toolContext());
+    invoke: async (tool, args, actor) => {
+      // Two chats each have a main thread, so the chat key is part of who this
+      // is. Without it the two would look like the same driver and neither
+      // would ever wait for the other.
+      const who = actor?.id && actor.id !== 'main'
+        ? { ...actor, chat }
+        : { id: `main:${chat}`, label: 'the main thread', chat };
+      // Whoever is driving keeps driving until they stop. A second agent that
+      // wants to change the page waits here rather than pulling the rug out
+      // from under the first one's refs.
+      const busy = await lease.acquire(tool, who);
+      if (busy) throw new Error(busy);
+      try {
+        if (tool === 'navigate') showPreview(true);
+        send('agent:activity', { tool, args, t: Date.now(), actor: who });
+        return await runTool(tool, args, toolContext());
+      } finally {
+        lease.done(tool, who);
+      }
     },
   });
   sessions.set(chat, agent);
 
-  agent.on('message', (m) => send('agent:message', { chat, msg: lighten(m) }));
+  agent.on('message', (m) => {
+    // A subagent that finishes has stopped touching the page, whether or not
+    // the turn around it has, so hand the pane on at that point rather than
+    // making the next agent wait out the idle timer.
+    if (m?.type === 'system' && m.subtype === 'task_notification') lease.release(m.task_id);
+    if (m?.type === 'result') lease.releaseChat(chat);
+    send('agent:message', { chat, msg: lighten(m) });
+  });
   agent.on('ready', (r) => {
     send('agent:ready', { ...r, chat });
     // A running session knows the account's real entitlements; the catalogue in
@@ -295,7 +343,7 @@ async function createWindow() {
     width: 1600,
     height: 980,
     backgroundColor: '#0b0d12',
-    title: `${path.basename(agentCwd())} · pba`,
+    title: `${path.basename(agentCwd())} · Tandem`,
     // The window draws its own title bar: the menu, the folder, the view tabs
     // and the three window buttons all live in one strip at the top.
     frame: false,
@@ -369,11 +417,11 @@ function registerIpc() {
       id, cwd: cwd || agentCwd(), cols, rows, shell: sh,
       env: {
         ...bridge.env(),
-        PBA_CWD: agentCwd(),
-        PBA_MCP_SERVER: path.join(ROOT, 'mcp', 'server.js'),
-        // `pba` first, then whatever the user's shell has, then the node shim.
+        TANDEM_CWD: agentCwd(),
+        TANDEM_MCP_SERVER: path.join(ROOT, 'mcp', 'server.js'),
+        // `tandem` first, then whatever the user's shell has, then the node shim.
         PATH: shellEnv.merge([extraPath], [...shellEnv.cached().split(path.delimiter), nodeShimDir()]),
-        PBA_NODE: process.env.PBA_NODE || 'node',
+        TANDEM_NODE: process.env.TANDEM_NODE || 'node',
       },
     });
     t.on('data', (data) => send('term:data', { id, data }));
@@ -397,11 +445,25 @@ function registerIpc() {
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
     await sessions.get(chat)?.interrupt();
+    lease.releaseChat(chat);
     return { ok: true };
   });
+  // Stopping one agent, not the turn it belongs to. `id` is the task id, which
+  // is what task_started and the permission callback both call the agent.
+  ipcMain.handle('agent:stopTask', async (_e, { chat, id } = {}) => {
+    lease.release(id);
+    return sessions.get(chat)?.stopTask(id) ?? { error: 'that chat is not running' };
+  });
+  // Hand a blocking agent to the background so the turn carries on without it.
+  ipcMain.handle('agent:background', async (_e, { chat, toolUseId } = {}) =>
+    sessions.get(chat)?.background(toolUseId) ?? { error: 'that chat is not running' });
+  // The human taking the preview back off whichever agent is driving it.
+  ipcMain.handle('preview:seize', () => { lease.seize(); return { ok: true }; });
+  ipcMain.handle('preview:driver', () => ({ holder: lease.current() }));
   ipcMain.handle('agent:mode', async (_e, { chat, mode }) => {
-    // The last mode picked is what the next new chat starts on.
-    if (isMode(mode)) chosenMode = mode;
+    // The last mode picked is what the next new chat starts on, and it outlives
+    // the window: settings owns the same value the composer is showing.
+    if (isMode(mode)) { chosenMode = mode; settings.patch({ agent: { mode } }); }
     return { mode: await sessions.get(chat)?.setMode(mode) ?? chosenMode };
   });
   // Answered from the driver cache. Asking the SDK would mean starting a
@@ -418,12 +480,85 @@ function registerIpc() {
   });
   ipcMain.handle('agent:setModel', async (_e, { model }) => {
     chosenModel = model || null;
+    settings.patch({ agent: { model: chosenModel || '' } });
     // Every chat follows the picker, and a cold one starts on the choice.
     await Promise.all(liveSessions().map((a) => a.setModel(model)));
     return { model: chosenModel };
   });
+  // The two reports the meter opens onto. Both come off the live session, and
+  // both are asked for only when someone opens the panel: the running totals it
+  // draws first come from the message stream and cost nothing.
+  ipcMain.handle('agent:usage', async (_e, { chat } = {}) => {
+    const a = sessions.get(chat);
+    if (!a) return { context: null, plan: null };
+    const [context, plan] = await Promise.all([a.contextUsage(), a.planUsage()]);
+    return { context, plan };
+  });
   // Closing one chat, not the window. Whatever else is running stays running.
   ipcMain.handle('agent:reset', (_e, { chat } = {}) => ({ ok: stopChat(chat) }));
+
+  // --- settings ---
+  // The shell wants the theme, the zoom and the terminal font before it paints
+  // anything, and a round trip through invoke() would show one frame of the
+  // wrong theme. This is the one blocking read in the app.
+  ipcMain.on('settings:sync', (e) => { e.returnValue = settings.all(); });
+  ipcMain.handle('settings:get', () => settings.all());
+  // Where all of this actually lives, for the About panel and for anyone who
+  // would rather edit the file than click.
+  ipcMain.handle('settings:paths', () => ({
+    settings: settings.file,
+    userData: app.getPath('userData'),
+    downloads: app.getPath('downloads'),
+    claude: claudeBinary(),
+  }));
+  ipcMain.handle('settings:reveal', () => {
+    shell.showItemInFolder(settings.file);
+    return { ok: true };
+  });
+  ipcMain.handle('settings:set', async (_e, partial) => {
+    const next = settings.patch(partial || {});
+    // A change to how freely the agent may act, or to which model it runs,
+    // belongs to the sessions already up rather than only to the next one.
+    if (partial?.agent?.mode && isMode(partial.agent.mode)) {
+      chosenMode = partial.agent.mode;
+      await Promise.all(liveSessions().map((a) => a.setMode(chosenMode)));
+      send('agent:mode', { mode: chosenMode });
+    }
+    if (partial?.agent?.model !== undefined) {
+      chosenModel = partial.agent.model || null;
+      await Promise.all(liveSessions().map((a) => a.setModel(chosenModel)));
+    }
+    if (partial?.claude?.binary !== undefined) await applyClaudeBinary();
+    send('settings:changed', next);
+    return next;
+  });
+  ipcMain.handle('settings:reset', async () => {
+    const next = settings.reset();
+    await applyClaudeBinary();
+    send('settings:changed', next);
+    return next;
+  });
+
+  // --- updates ---
+  ipcMain.handle('updates:info', () => updates.current());
+  ipcMain.handle('updates:check', () => updates.check());
+  ipcMain.handle('updates:download', async () => {
+    try {
+      const res = await updates.download((p) => send('updates:progress', p));
+      return res;
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('updates:install', (_e, { path: file } = {}) => {
+    if (!file) return { error: 'nothing downloaded yet' };
+    return updates.install(file);
+  });
+  ipcMain.handle('updates:openPage', () => {
+    const page = updates.snapshot().app?.page;
+    if (page) shell.openExternal(page);
+    return { ok: !!page };
+  });
 
   // --- attachments ---
   ipcMain.handle('attach:pick', () => attachments.pick(win));
@@ -504,7 +639,15 @@ function registerIpc() {
     sessions: listSessions(agentCwd()),
     running: liveSessions().map((a) => a.sessionId).filter(Boolean),
   }));
-  ipcMain.handle('agent:transcript', (_e, { id }) => readSession(agentCwd(), id));
+  ipcMain.handle('agent:transcript', async (_e, { id }) => {
+    const dir = agentCwd();
+    const t = await readSession(dir, id);
+    // Which agents ran, so a replayed chat draws their rows straight away. The
+    // transcripts behind them are only read if someone opens one.
+    return { ...t, subagents: listSubagents(dir, id) };
+  });
+  ipcMain.handle('agent:subagent', (_e, { session, agentId }) =>
+    readSubagent(agentCwd(), session, agentId));
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
     activeChat = { chat: chat || 'main', session: session || null };
   });
@@ -587,9 +730,13 @@ app.whenReady().then(async () => {
   // background if that file is stale. Nothing long-lived is started.
   // One `$SHELL -lic 'echo $PATH'`, so the agent and its MCP servers see the
   // directories the user's own shell sees.
-  shellEnv.shellPath().catch(() => {});
+  // systemBinary() reads this, so the claude preference is applied after it
+  // lands rather than against the launcher's stunted PATH.
+  shellEnv.shellPath().then(() => applyClaudeBinary()).catch(() => {});
   driver = new Driver({ cacheDir: app.getPath('userData') });
   catalog = new Catalog({ cacheDir: app.getPath('userData') });
+  updates = new Updates({ usingSystem: () => settings.get('claude').binary === 'path' });
+  updates.on('changed', (snap) => send('updates:changed', snap));
   driverReady = driver.refresh().then((d) => { send('agent:driver', d); return d; }).catch(() => null);
   if (project.chosen) projects.remember(project.dir);
   bridge = new Bridge({
@@ -623,7 +770,7 @@ app.whenReady().then(async () => {
     captureWindow: async () => {
       if (!win) return { error: 'no window' };
       const img = await win.webContents.capturePage();
-      const file = path.join(require('os').tmpdir(), 'pba-shots', `window-${Date.now()}.png`);
+      const file = path.join(require('os').tmpdir(), 'tandem-shots', `window-${Date.now()}.png`);
       require('fs').mkdirSync(path.dirname(file), { recursive: true });
       require('fs').writeFileSync(file, img.toPNG());
       return { path: file, ...img.getSize() };
@@ -632,7 +779,16 @@ app.whenReady().then(async () => {
   await bridge.start();
   registerIpc();
   await createWindow();
-  console.log(`[pba] bridge listening on ${bridge.url}`);
+  console.log(`[tandem] bridge listening on ${bridge.url}`);
+
+  // One GitHub call and one npm call, after the window is up, and only if the
+  // person left the launch check on. The answer is cached for six hours, so
+  // opening several windows in an afternoon costs one round trip.
+  if (settings.get('startup').checkUpdates) {
+    updates.check()
+      .then((snap) => send('updates:changed', snap))
+      .catch(() => {});
+  }
 
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

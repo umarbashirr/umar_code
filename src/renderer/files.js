@@ -56,7 +56,7 @@ async function loadDir(rel) {
   if (tree.loading.has(rel)) { stale.add(rel); return; }
   tree.loading.add(rel);
   render();
-  const res = await window.pba.files.list(rel);
+  const res = await window.tandem.files.list(rel);
   tree.loading.delete(rel);
   tree.kids.set(rel, res);
   render();
@@ -75,7 +75,7 @@ function toggleDir(rel) {
 
 // Main keeps one watch per expanded folder. Sending the whole set on every
 // change is cheaper than tracking the difference on this side.
-const syncWatch = () => window.pba.files.watch([...tree.open]);
+const syncWatch = () => window.tandem.files.watch([...tree.open]);
 
 // Reload everything already on screen. Folders that were collapsed are dropped
 // so a refresh does not quietly keep a stale listing around for later.
@@ -168,7 +168,7 @@ async function runSearch(query) {
   if (!same) search.result = null;
   if (!query) { search.result = null; render(); return; }
 
-  const res = await window.pba.files.search(query);
+  const res = await window.tandem.files.search(query);
   if (seq !== search.seq || search.query !== query) return; // a later keystroke won
   search.result = res;
   render();
@@ -219,7 +219,7 @@ async function openFile(rel, { keepScroll = false } = {}) {
 
   let data;
   try {
-    data = await window.pba.files.read(rel);
+    data = await window.tandem.files.read(rel);
   } catch (e) {
     data = { error: e.message || 'could not read that file' };
   }
@@ -340,7 +340,7 @@ function renderFile() {
       ? 'This is a binary file, so there is nothing useful to show.'
       : `This file is ${size(d.size)}, past what this pane will read into memory.`));
     const open = el('button', 'fv-action', 'Open with the system app');
-    open.onclick = () => window.pba.files.openExternal(view.path);
+    open.onclick = () => window.tandem.files.openExternal(view.path);
     wrap.appendChild(open);
     box.replaceChildren(wrap);
     icons();
@@ -443,12 +443,12 @@ $('#file-copy').onclick = async () => {
 };
 
 $('#file-reveal').onclick = async () => {
-  const res = await window.pba.files.reveal(view.path);
+  const res = await window.tandem.files.reveal(view.path);
   if (res?.error) toast('Could not show that file', res.error, [{ label: 'ok', primary: true }]);
 };
 
 $('#file-external').onclick = async () => {
-  const res = await window.pba.files.openExternal(view.path);
+  const res = await window.tandem.files.openExternal(view.path);
   if (res?.error) toast('Nothing on this machine opens that', res.error, [{ label: 'ok', primary: true }]);
 };
 
@@ -460,7 +460,7 @@ $('#file-ask').onclick = () => {
 // A folder changing on disk only matters for the folders that are on screen.
 // Main debounces the burst an editor makes when it saves, so this is one call
 // per real change.
-window.pba.files.onChanged(({ dir }) => {
+window.tandem.files.onChanged(({ dir }) => {
   if (tree.open.has(dir)) loadDir(dir);
   if (search.query) runSearch(search.query);
 
@@ -474,7 +474,7 @@ window.pba.files.onChanged(({ dir }) => {
 
 // Switching project folder invalidates the whole tree: different root, different
 // files, and main has already dropped its watches.
-window.pba.project.onChanged(() => {
+window.tandem.project.onChanged(() => {
   tree.open = new Set(['']);
   tree.kids.clear();
   tree.selected = null;
@@ -490,7 +490,7 @@ window.pba.project.onChanged(() => {
 
 // Nothing is read until the pane is first shown. app.js calls this when the
 // Files tab takes the right column.
-window.pbaFiles = {
+window.tandemFiles = {
   activate() {
     if (started) return;
     started = true;

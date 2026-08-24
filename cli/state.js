@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const DIR = path.join(os.homedir(), '.preview-browser-for-agent');
+const DIR = path.join(os.homedir(), '.tandem');
 const PROJECTS = path.join(DIR, 'projects');
 const LAST = path.join(DIR, 'bridge.json');
 

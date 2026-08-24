@@ -53,9 +53,10 @@ function* parseHead(file, bytes) {
     fs.closeSync(fd);
     buf = buf.subarray(0, read);
   } catch { return; }
-  const lines = buf.toString('utf8').split('\n');
-  lines.pop(); // may be a partial line
-  for (const line of lines) {
+  // No pop of the last line: a JSON.parse that fails is already skipped below,
+  // and dropping it unread loses a chat whose only line was caught before its
+  // newline landed. That chat then vanished from the rail until the next write.
+  for (const line of buf.toString('utf8').split('\n')) {
     if (!line.trim()) continue;
     try { yield JSON.parse(line); } catch { /* skip */ }
   }
@@ -82,7 +83,29 @@ function humanText(o) {
   return text;
 }
 
-function listSessions(cwd, limit = 40) {
+// A title comes out of the head of the file and never changes once it is there,
+// so each transcript is read once rather than on every refresh. A file nothing
+// was found in is read again only after it has grown.
+const titles = new Map(); // path -> { title, size }
+
+function titleOf(full, size) {
+  const hit = titles.get(full);
+  if (hit && (hit.title || hit.size === size)) return hit.title;
+
+  let title = null;
+  for (const o of parseHead(full, 1 << 17)) {
+    title = humanText(o);
+    if (title) break;
+  }
+  titles.set(full, { title, size });
+  return title;
+}
+
+// The rail groups by day and searches across the lot, so the limit is high on
+// purpose. It used to be 40, and with more transcripts than that the ones near
+// the cut-off dropped off the list every time another chat was written to and
+// came back the next time the order moved.
+function listSessions(cwd, limit = 200) {
   const dir = projectDir(cwd);
   let files = [];
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return []; }
@@ -94,12 +117,9 @@ function listSessions(cwd, limit = 40) {
     try { st = fs.statSync(full); } catch { continue; }
     if (!st.size) continue;
 
-    let title = null;
-    for (const o of parseHead(full, 1 << 17)) {
-      title = humanText(o);
-      if (title) break;
-    }
-    if (!title) continue; // nothing a human said: an aborted or empty session
+    // nothing a human said: an aborted or empty session
+    const title = titleOf(full, st.size);
+    if (!title) continue;
 
     rows.push({ id: f.replace(/\.jsonl$/, ''), title: title.slice(0, 120), at: st.mtimeMs });
   }
@@ -157,7 +177,10 @@ async function readSession(cwd, id) {
     if (o.type !== 'user' && o.type !== 'assistant') continue;
     if (!o.message) continue;
     if (o.type === 'user' && !humanText(o) && !hasToolResult(o)) continue;
-    out.push({ type: o.type, message: o.message, at: o.timestamp });
+    // What an Agent call came back with: how long it ran, how much it did, and
+    // what it concluded. Cheaper and more exact than parsing the result text.
+    const agent = o.toolUseResult?.agentId ? summarise(o.toolUseResult) : null;
+    out.push({ type: o.type, message: o.message, at: o.timestamp, ...(agent ? { agent } : {}) });
   }
 
   const budget = { images: MAX_IMAGES };
@@ -172,4 +195,69 @@ async function readSession(cwd, id) {
 const hasToolResult = (o) =>
   Array.isArray(o.message?.content) && o.message.content.some((b) => b.type === 'tool_result');
 
-module.exports = { listSessions, readSession, projectDir };
+// The parts of an Agent tool's result worth drawing. The rest is usage
+// accounting the panel has nowhere to put.
+const summarise = (r) => ({
+  id: r.agentId,
+  type: r.agentType || 'agent',
+  tools: r.totalToolUseCount ?? 0,
+  ms: r.totalDurationMs ?? 0,
+  tokens: r.totalTokens ?? 0,
+  stats: r.toolStats || null,
+  status: r.status || 'completed',
+});
+
+// Each subagent gets its own file next to the session, with a meta.json naming
+// it. Listing the metas is enough to draw every agent row on a replayed chat
+// without reading a single transcript.
+function subagentDir(cwd, session) {
+  return path.join(projectDir(cwd), session, 'subagents');
+}
+
+function listSubagents(cwd, session) {
+  const dir = subagentDir(cwd, session);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.meta.json')); } catch { return []; }
+  const out = [];
+  for (const name of names) {
+    let meta;
+    try { meta = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')); } catch { continue; }
+    out.push({
+      id: name.replace(/^agent-/, '').replace(/\.meta\.json$/, ''),
+      type: meta.agentType || 'agent',
+      description: meta.description || '',
+      toolUseId: meta.toolUseId || null,
+      depth: meta.spawnDepth || 1,
+    });
+  }
+  return out;
+}
+
+// One subagent's own transcript, read only when someone opens its row. Nobody
+// pays for the ten agents they did not click on.
+async function readSubagent(cwd, session, agentId) {
+  const file = path.join(subagentDir(cwd, session), `agent-${agentId}.jsonl`);
+  if (!fs.existsSync(file)) throw new Error(`no transcript for agent ${agentId}`);
+
+  const out = [];
+  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (o.isMeta) continue;
+    if (o.type !== 'user' && o.type !== 'assistant') continue;
+    if (!o.message) continue;
+    out.push({ type: o.type, message: o.message, at: o.timestamp });
+  }
+
+  const budget = { images: MAX_IMAGES };
+  const tail = out.slice(-MAX_MESSAGES);
+  const slimmed = [];
+  for (let i = tail.length - 1; i >= 0; i--) slimmed[i] = slim(tail[i], budget);
+  // The first line is the prompt the parent handed it, which the Agent row
+  // already shows as its summary.
+  return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
+}
+
+module.exports = { listSessions, readSession, readSubagent, listSubagents, projectDir };

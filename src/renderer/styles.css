@@ -22,6 +22,16 @@
   --ring: 240 10% 3.9%;
   --radius: 0.5rem;
 
+  /* A prompt holds three things that are not prose: the skill it starts with,
+     a file it points at, and whatever was clipped to it. One hue each, kept
+     apart from the greys so none of them reads as ordinary text. */
+  --token-skill: 262 83% 58%;
+  --token-skill-fg: 262 62% 42%;
+  --token-path: 205 90% 45%;
+  --token-path-fg: 205 82% 34%;
+  --token-element: 32 92% 48%;
+  --token-element-fg: 26 80% 34%;
+
   /* aliases used throughout this stylesheet */
   --bg: hsl(var(--background));
   --bg-2: hsl(var(--card));
@@ -69,6 +79,15 @@
   --input: 240 3.7% 15.9%;
   --ring: 240 4.9% 83.9%;
   --shadow: 0 8px 24px hsl(0 0% 0% / .55);
+
+  /* Lighter and less saturated against the dark ground, and the fill drops to
+     a tint so a badge is outlined rather than a bright block of colour. */
+  --token-skill: 262 83% 66%;
+  --token-skill-fg: 264 90% 82%;
+  --token-path: 205 90% 60%;
+  --token-path-fg: 203 90% 78%;
+  --token-element: 38 92% 58%;
+  --token-element-fg: 40 92% 74%;
 }
 
 * { box-sizing: border-box; }
@@ -83,7 +102,6 @@ svg.lucide:not(#agent-root svg) { width: 16px; height: 16px; stroke-width: 1.75;
 .icon svg.lucide, .c-btn svg.lucide { width: 15px; height: 15px; }
 .ghost.pill svg.lucide, .sess svg.lucide, .rail-search svg.lucide { width: 14px; height: 14px; }
 .c-send svg.lucide { width: 15px; height: 15px; stroke-width: 2.25; }
-.starter svg.lucide { width: 15px; height: 15px; color: var(--fg-dim); }
 .ph-mark svg.lucide, #page-error svg.lucide { width: 26px; height: 26px; }
 
 html, body {
@@ -208,11 +226,25 @@ kbd {
 .menu-item:hover { background: var(--bg-3); }
 .menu-item:disabled { color: var(--fg-faint); background: none; cursor: default; }
 .menu-item kbd { margin-left: auto; }
+.menu-item.on { color: var(--fg); }
+.menu-item.danger:hover { background: var(--err-soft); color: var(--err); }
+/* The leading glyph, and the tick on a checked row. The glyph sits in a fixed
+   slot so labels line up whether or not a row has one.
+   Both carry the :not(#agent-root svg) guard from the base icon rule: an id
+   inside :not() counts toward specificity, so a plain class selector loses to
+   it and the sizes here would never land. */
+.menu-item > svg.lucide:not(#agent-root svg) { width: 13px; height: 13px; margin-left: auto; color: var(--fg-dim); }
+.menu-note + svg.lucide:not(#agent-root svg) { margin-left: 6px; }
+.menu-icon { width: 15px; flex: none; display: grid; place-items: center; color: var(--fg-dim); }
+.menu-icon svg.lucide:not(#agent-root svg) { width: 15px; height: 15px; }
+.menu-item:hover .menu-icon, .menu-item.on .menu-icon { color: var(--fg); }
+.menu-item.danger .menu-icon { color: var(--err); }
 .menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .menu-note {
   margin-left: auto; font: 10.5px var(--mono); color: var(--fg-faint);
   direction: rtl; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20ch;
 }
+.menu-note.ltr { direction: ltr; }
 .menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
 .menu-header {
   font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
@@ -226,6 +258,23 @@ kbd {
 .ghost.pill .glyph { font-size: 11px; opacity: .75; }
 .ghost.pill.on { color: var(--on-accent); background: var(--accent); border-color: transparent; }
 .ghost.pill.on kbd { background: rgba(0,0,0,.18); border-color: transparent; color: inherit; }
+
+/* Who has the preview pane. Outlined rather than filled: it is a statement of
+   fact sitting in a toolbar, not a call to action. */
+.driver {
+  display: flex; align-items: center; gap: 6px;
+  font: 11px var(--mono); color: var(--fg);
+  padding: 3px 9px; border-radius: 99px;
+  border: 1px solid hsl(var(--ring) / .3); background: none;
+  max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.driver::before {
+  content: ''; width: 6px; height: 6px; border-radius: 99px; flex: none;
+  background: var(--ok); animation: driver-pulse 1.6s ease-in-out infinite;
+}
+.driver:hover { background: var(--bg-3); }
+@keyframes driver-pulse { 50% { opacity: .3 } }
+@media (prefers-reduced-motion: reduce) { .driver::before { animation: none } }
 
 .activity {
   font: 11px var(--mono); color: var(--accent-2);
@@ -402,6 +451,7 @@ body.dragging.row { cursor: row-resize; }
 .icon:hover { background: var(--bg-3); color: var(--fg); }
 .icon:disabled { opacity: .3; cursor: default; background: none; }
 .icon.armed { background: var(--accent-2); color: var(--on-accent); }
+.icon.on { background: var(--bg-4); color: var(--fg); }
 .icon.danger:hover { background: var(--err-soft); color: var(--err); }
 
 .urlwrap {
@@ -414,25 +464,6 @@ body.dragging.row { cursor: row-resize; }
 .scheme { font: 11px var(--mono); color: var(--fg-faint); flex: none; }
 #url { flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none; color: var(--fg); font: 12px var(--mono); }
 #url::placeholder { color: var(--fg-faint); }
-
-/* Viewport sizes, as a row of device icons. A dropdown hid the current size
-   behind a click; here the raised chip says which one is on. */
-.segmented {
-  display: flex; align-items: center; gap: 1px; flex: none;
-  padding: 2px; background: var(--bg-3); border-radius: var(--r);
-}
-.seg {
-  width: 24px; height: 24px; border-radius: calc(var(--r) - 3px);
-  color: var(--fg-faint); display: grid; place-items: center;
-}
-.seg svg.lucide { width: 14px; height: 14px; }
-/* The device icons carry their own scale: a phone reads smaller than a monitor
-   at the same stroke, which is the point of the row. */
-.seg[data-size="390x844"] svg.lucide { width: 12px; height: 12px; }
-.seg[data-size="768x1024"] svg.lucide { width: 13px; height: 13px; }
-.seg[data-size="1280x800"] svg.lucide, .seg[data-size="1920x1080"] svg.lucide { width: 15px; height: 15px; }
-.seg:hover { color: var(--fg); }
-.seg.on { background: var(--bg); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px hsl(240 10% 3.9% / .06); }
 
 #stage { position: relative; flex: 1; min-height: 0; background: var(--bg); }
 #paneslot { position: absolute; inset: 0; }
@@ -593,11 +624,14 @@ body.dragging.row { cursor: row-resize; }
 
 #status {
   display: flex; align-items: center; gap: 10px;
-  height: 24px; padding: 0 12px;
+  flex: none; height: 24px; padding: 0 12px;
   background: var(--rail); border-top: 1px solid var(--line);
   font-size: 11px; color: var(--fg-dim);
 }
-.seg { display: flex; align-items: center; gap: 6px; }
+/* Everything in the bar holds its line. The page title is the only piece that
+   gives way, and it ellipsizes rather than wrapping the bar open. */
+#status > *:not(.spacer) { flex: none; }
+#status .seg { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 #status .dot { width: 6px; height: 6px; border-radius: 99px; background: var(--ok); }
 #status .dot.warn { background: var(--warn); }
 #status .dot.err { background: var(--err); }
@@ -618,7 +652,7 @@ body.dragging.row { cursor: row-resize; }
 .zlevel { font: 10px var(--mono); color: var(--fg); padding: 0 5px; border-radius: 4px; min-width: 5ch; }
 .zlevel:hover { background: var(--bg-3); }
 .zoom.off .zlevel { color: var(--fg-faint); }
-#page-status { font-family: var(--mono); max-width: 50ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#page-status { font-family: var(--mono); flex: 0 1 auto; min-width: 0; max-width: 50ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- toasts */
 
