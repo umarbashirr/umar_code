@@ -8,7 +8,9 @@ import { $, el, icons, iconMark } from './app.js';
 // the first message goes out, so until then there is nothing on disk for the
 // listing to find and the rail would sit empty on the chat you are looking at.
 const PENDING = '__pending__';
-const railState = { sessions: [], current: null, filter: '', pending: null };
+// `working` holds the session ids with a turn in flight. The React pane owns
+// that fact, because it is the half reading the message stream.
+const railState = { sessions: [], current: null, filter: '', pending: null, working: new Set(), pendingWorking: false };
 
 const rel = (ms) => {
   const s = (Date.now() - ms) / 1000;
@@ -57,9 +59,11 @@ function render() {
     if (b !== group) { group = b; box.appendChild(el('div', 'sess-group', b)); }
 
     const current = s.id === railState.current;
+    const working = s.id === PENDING ? railState.pendingWorking : railState.working.has(s.id);
     const row = el('div', 'sess' + (current ? ' current' : ''));
     row.appendChild(iconMark(current ? 'message-square-dot' : 'message-square'));
     row.appendChild(el('span', 'sess-title', s.title));
+    if (working) row.appendChild(el('span', 'sess-working', 'working'));
     row.appendChild(el('span', 'sess-when', rel(s.at)));
     row.title = s.title;
     row.onclick = () => { if (!current) window.pbaChat?.open(s); };
@@ -72,7 +76,6 @@ async function refresh() {
   try {
     const data = await window.pba.agent.history();
     railState.sessions = data.sessions || [];
-    if (data.current) railState.current = data.current;
   } catch { railState.sessions = []; }
   render();
 }
@@ -83,6 +86,17 @@ window.pbaRail = {
   begin: (title) => {
     railState.pending = { id: PENDING, title: String(title).slice(0, 120), at: Date.now() };
     railState.current = PENDING;
+    render();
+  },
+  // Which chats are mid-turn. Several can be, which is the whole point.
+  setBusy: (ids, pendingWorking) => {
+    const next = new Set(ids || []);
+    const same = next.size === railState.working.size
+      && [...next].every((id) => railState.working.has(id))
+      && !!pendingWorking === railState.pendingWorking;
+    if (same) return;
+    railState.working = next;
+    railState.pendingWorking = !!pendingWorking;
     render();
   },
   // The id arrives with the SDK's init message. Hand it to the placeholder so

@@ -27,7 +27,10 @@ const isDev = process.argv.includes('--dev');
 
 let win = null;
 let pane = null;
-let agent = null;
+// One AgentSession per chat, keyed by whatever the panel calls that chat. A
+// chat that is working keeps working while you read another one, which is the
+// whole reason this is a map and not a single session.
+const sessions = new Map();
 let bridge = null;
 let driver = null;
 let catalog = null;
@@ -37,6 +40,28 @@ let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
 const terms = new Map();
+
+// Which chat the panel is showing. `pba ask` from a terminal has to land in
+// the chat the human is looking at rather than opening one they cannot see.
+let activeChat = { chat: 'main', session: null };
+
+const liveSessions = () => [...sessions.values()].filter((a) => !a.closed);
+// Anything that asks the CLI a question rather than driving one chat: any live
+// session can answer, and the cache answers when none is up.
+const anySession = () => liveSessions()[0] || null;
+
+function stopChat(chat) {
+  const a = sessions.get(chat);
+  if (!a) return false;
+  a.stop();
+  sessions.delete(chat);
+  return true;
+}
+
+function stopAllChats() {
+  for (const a of sessions.values()) a.stop();
+  sessions.clear();
+}
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -103,8 +128,7 @@ function setProject(dir) {
   if (!projects.isDir(target)) return { error: `${target} is not a folder` };
   if (target === project.dir && project.chosen) return projectInfo();
 
-  agent?.stop();
-  agent = null;
+  stopAllChats();
   for (const t of terms.values()) t.kill();
   terms.clear();
   fileWatcher?.clear();
@@ -211,12 +235,15 @@ function lighten(msg) {
   return touched ? { ...msg, message: { ...msg.message, content: mapped } } : msg;
 }
 
-async function ensureAgent({ resume } = {}) {
-  // A resume has to replace whatever is running: the session id is fixed when
-  // the query starts and cannot be changed afterwards.
-  if (resume && agent) { agent.stop(); agent = null; }
-  if (agent && !agent.closed) return agent;
-  agent = new AgentSession({
+// `chat` is the panel's name for one conversation and outlives the session
+// under it: a chat the panel parked is resumed on the next message, under the
+// same key. Every event carries the key back so the panel knows which chat it
+// belongs to.
+async function ensureAgent({ chat = 'main', resume } = {}) {
+  const live = sessions.get(chat);
+  if (live && !live.closed) return live;
+
+  const agent = new AgentSession({
     resume: resume || null,
     model: chosenModel,
     mode: chosenMode,
@@ -229,9 +256,11 @@ async function ensureAgent({ resume } = {}) {
       return runTool(tool, args, toolContext());
     },
   });
-  agent.on('message', (m) => send('agent:message', lighten(m)));
+  sessions.set(chat, agent);
+
+  agent.on('message', (m) => send('agent:message', { chat, msg: lighten(m) }));
   agent.on('ready', (r) => {
-    send('agent:ready', r);
+    send('agent:ready', { ...r, chat });
     // A running session knows the account's real entitlements; the catalogue in
     // driver.js can only infer them from a version number.
     agent.models().then((m) => driver.learn(m)).catch(() => {});
@@ -239,11 +268,11 @@ async function ensureAgent({ resume } = {}) {
     // commands or whether a server actually came up, but a session can.
     learnCatalog();
   });
-  agent.on('permission', (p) => send('agent:permission', p));
-  agent.on('mode', (m) => send('agent:mode', m));
-  agent.on('error', (e) => send('agent:error', { error: e }));
-  agent.on('closed', () => send('agent:closed', {}));
-  agent.on('stderr', (d) => send('agent:stderr', { data: String(d).slice(0, 2000) }));
+  agent.on('permission', (p) => send('agent:permission', { ...p, chat }));
+  agent.on('mode', (m) => send('agent:mode', { ...m, chat }));
+  agent.on('error', (e) => send('agent:error', { error: e, chat }));
+  agent.on('closed', () => send('agent:closed', { chat }));
+  agent.on('stderr', (d) => send('agent:stderr', { data: String(d).slice(0, 2000), chat }));
   await agent.start();
   return agent;
 }
@@ -252,7 +281,8 @@ async function ensureAgent({ resume } = {}) {
 // listing, and push the result at the panel.
 async function learnCatalog() {
   const dir = agentCwd();
-  if (!agent || agent.closed) return catalog.current(dir);
+  const agent = anySession();
+  if (!agent) return catalog.current(dir);
   const [commands, mcp] = await Promise.all([agent.commands(), agent.mcpStatus()]);
   catalog.learn(dir, { commands, mcp });
   const next = catalog.current(dir);
@@ -357,15 +387,22 @@ function registerIpc() {
   ipcMain.on('term:kill', (_e, { id }) => { terms.get(id)?.kill(); terms.delete(id); });
 
   // --- agent ---
-  ipcMain.handle('agent:send', async (_e, { text, images }) => {
-    const a = await ensureAgent();
+  // `session` is what the chat was last known as. A chat parked while idle has
+  // no session under it any more, so the first message back resumes that
+  // transcript rather than opening a second one beside it.
+  ipcMain.handle('agent:send', async (_e, { chat, session, text, images }) => {
+    const a = await ensureAgent({ chat, resume: session });
     a.send(text, images);
     return { ok: true, sessionId: a.sessionId };
   });
-  ipcMain.handle('agent:interrupt', async () => { await agent?.interrupt(); return { ok: true }; });
-  ipcMain.handle('agent:mode', async (_e, { mode }) => {
+  ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
+    await sessions.get(chat)?.interrupt();
+    return { ok: true };
+  });
+  ipcMain.handle('agent:mode', async (_e, { chat, mode }) => {
+    // The last mode picked is what the next new chat starts on.
     if (isMode(mode)) chosenMode = mode;
-    return { mode: await agent?.setMode(mode) ?? chosenMode };
+    return { mode: await sessions.get(chat)?.setMode(mode) ?? chosenMode };
   });
   // Answered from the driver cache. Asking the SDK would mean starting a
   // session, and the picker is drawn before anyone has said anything.
@@ -373,7 +410,7 @@ function registerIpc() {
     const d = driver.current();
     return {
       models: d.models,
-      current: chosenModel || agent?.model || d.models[0]?.value || '',
+      current: chosenModel || anySession()?.model || d.models[0]?.value || '',
       installed: d.installed,
       version: d.version,
       message: d.message,
@@ -381,11 +418,12 @@ function registerIpc() {
   });
   ipcMain.handle('agent:setModel', async (_e, { model }) => {
     chosenModel = model || null;
-    // Only a live session needs telling; a cold one is started on the choice.
-    if (agent && !agent.closed) return { model: await agent.setModel(model) };
+    // Every chat follows the picker, and a cold one starts on the choice.
+    await Promise.all(liveSessions().map((a) => a.setModel(model)));
     return { model: chosenModel };
   });
-  ipcMain.handle('agent:reset', () => { agent?.stop(); agent = null; return { ok: true }; });
+  // Closing one chat, not the window. Whatever else is running stays running.
+  ipcMain.handle('agent:reset', (_e, { chat } = {}) => ({ ok: stopChat(chat) }));
 
   // --- attachments ---
   ipcMain.handle('attach:pick', () => attachments.pick(win));
@@ -403,23 +441,20 @@ function registerIpc() {
     const next = catalog.setConnectors(agentCwd(), enabled);
     // The setting is read when a session starts, so a running one is told
     // separately; either way the next chat starts the way the switch says.
-    if (agent && !agent.closed) {
-      await agent.setConnectors(enabled, catalog.offAtRuntime(agentCwd()));
-    }
+    await Promise.all(liveSessions().map((a) => a.setConnectors(enabled, catalog.offAtRuntime(agentCwd()))));
     return next;
   });
   ipcMain.handle('catalog:skill', async (_e, { name, enabled }) => {
     const next = catalog.setSkill(agentCwd(), name, enabled);
-    if (agent && !agent.closed) {
-      await agent.setSkillOverrides(catalog.sessionSettings(agentCwd()).skillOverrides || {});
-    }
+    const overrides = catalog.sessionSettings(agentCwd()).skillOverrides || {};
+    await Promise.all(liveSessions().map((a) => a.setSkillOverrides(overrides)));
     return next;
   });
   ipcMain.handle('catalog:mcpToggle', async (_e, { name, enabled }) => {
     const runtime = catalog.runtimeName(agentCwd(), name);
     const next = catalog.setMcp(agentCwd(), name, enabled);
-    const res = agent && !agent.closed ? await agent.toggleMcp(runtime, enabled) : {};
-    return { ...next, error: res.error || null };
+    const done = await Promise.all(liveSessions().map((a) => a.toggleMcp(runtime, enabled)));
+    return { ...next, error: done.find((r) => r?.error)?.error || null };
   });
   // An HTTP or SSE server behind OAuth cannot be authenticated from inside a
   // session: the SDK has no control request for it. The CLI does, so hand back
@@ -435,7 +470,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
-    const res = agent && !agent.closed
+    const agent = anySession();
+    const res = agent
       ? await agent.reconnectMcp(catalog.runtimeName(agentCwd(), name))
       : { error: 'no chat is running yet' };
     const next = await learnCatalog();
@@ -447,7 +483,8 @@ function registerIpc() {
     } catch (e) {
       return { error: e.message };
     }
-    const res = agent && !agent.closed ? await agent.addMcpServer(name, config) : {};
+    const done = await Promise.all(liveSessions().map((a) => a.addMcpServer(name, config)));
+    const res = done.find((r) => r?.error) || {};
     const next = catalog.current(agentCwd());
     return { ...next, error: res.error || null };
   });
@@ -458,28 +495,35 @@ function registerIpc() {
     } catch (e) {
       return { error: e.message };
     }
-    if (agent && !agent.closed) await agent.removeMcpServer(runtime);
+    await Promise.all(liveSessions().map((a) => a.removeMcpServer(runtime)));
     return catalog.current(agentCwd());
   });
 
   // --- agent history ---
   ipcMain.handle('agent:history', () => ({
     sessions: listSessions(agentCwd()),
-    current: agent?.sessionId || null,
+    running: liveSessions().map((a) => a.sessionId).filter(Boolean),
   }));
   ipcMain.handle('agent:transcript', (_e, { id }) => readSession(agentCwd(), id));
-  ipcMain.handle('agent:resume', async (_e, { id }) => {
-    const a = await ensureAgent({ resume: id });
+  ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
+    activeChat = { chat: chat || 'main', session: session || null };
+  });
+  ipcMain.handle('agent:resume', async (_e, { chat, id }) => {
+    const a = await ensureAgent({ chat, resume: id });
     return { ok: true, sessionId: a.sessionId || id };
   });
-  ipcMain.on('agent:decide', (_e, { id, decision, input }) => agent?.decide(id, decision, input));
-  ipcMain.handle('agent:info', () => ({
-    cwd: agentCwd(),
-    chosen: project.chosen,
-    running: !!(agent && !agent.closed),
-    sessionId: agent?.sessionId || null,
-    mode: agent?.mode || chosenMode,
-  }));
+  ipcMain.on('agent:decide', (_e, { chat, id, decision, input }) =>
+    sessions.get(chat)?.decide(id, decision, input));
+  ipcMain.handle('agent:info', (_e, { chat } = {}) => {
+    const a = sessions.get(chat);
+    return {
+      cwd: agentCwd(),
+      chosen: project.chosen,
+      running: !!(a && !a.closed),
+      sessionId: a?.sessionId || null,
+      mode: a?.mode || chosenMode,
+    };
+  });
 
   // --- project files ---
   // The tree reads on demand: one folder per call, and a watch on each folder
@@ -562,6 +606,7 @@ app.whenReady().then(async () => {
     command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },
     // Development aid: answer the oldest pending permission prompt.
     decide: (decision) => {
+      const agent = liveSessions().find((a) => a.pending.size);
       const id = agent && [...agent.pending.keys()][0];
       if (!id) return { error: 'nothing pending' };
       agent.decide(id, decision);
@@ -569,8 +614,9 @@ app.whenReady().then(async () => {
       return { ok: true, id, decision };
     },
     ask: async (text) => {
-      const a = await ensureAgent();
-      send('agent:echo', { text });
+      const { chat, session } = activeChat;
+      const a = await ensureAgent({ chat, resume: session });
+      send('agent:echo', { text, chat });
       a.send(text);
       return { ok: true, sessionId: a.sessionId };
     },
@@ -592,4 +638,4 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { agent?.stop(); bridge?.stop(); });
+app.on('before-quit', () => { stopAllChats(); bridge?.stop(); });

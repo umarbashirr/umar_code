@@ -299,6 +299,28 @@ body.dragging.row { cursor: row-resize; }
 .sess.current > svg.lucide { color: var(--fg); }
 .sess-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sess-when { font: 10px var(--mono); color: var(--fg-faint); flex: none; }
+
+/* A chat with a turn in flight, whether or not it is the one on screen. The
+   sweep is the only moving thing in the rail, so it reads as "still going"
+   without a spinner shouting for attention. */
+.sess-working {
+  flex: none;
+  font: 9px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 6px; border-radius: 99px;
+  border: 1px solid var(--line);
+  color: var(--fg-dim);
+  background:
+    linear-gradient(100deg, transparent 20%, var(--accent-soft) 45%, transparent 70%) 0 0 / 220% 100% no-repeat,
+    var(--bg-2);
+  animation: sess-sweep 1.6s linear infinite;
+}
+.sess.current .sess-working { border-color: var(--line-soft); }
+
+@keyframes sess-sweep { to { background-position: -220% 0, 0 0 } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sess-working { animation: none; }
+}
 .sess-empty { padding: 12px 10px; font-size: 12px; color: var(--fg-dim); line-height: 1.6; }
 
 .rail-foot {

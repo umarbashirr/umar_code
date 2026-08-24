@@ -62,6 +62,8 @@ const toolText = (output) => {
 const toolImages = (output) =>
   (Array.isArray(output) ? output : []).filter((b) => b.type === 'image' && (b.path || b.source?.data));
 
+const EMPTY_DRAFT = { text: '', attachments: [] };
+
 const imageSrc = (b) => (b.path
   ? `file://${encodeURI(b.path)}`
   : `data:${b.source.media_type || 'image/png'};base64,${b.source.data}`);
@@ -69,8 +71,22 @@ const imageSrc = (b) => (b.path
 export default function App() {
   const agent = useAgent();
   const catalog = useCatalog();
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState([]);
+  // A half-typed message belongs to the chat it was typed in, so drafts are
+  // kept per chat rather than following you around the rail.
+  const [drafts, setDrafts] = useState({});
+  const key = agent.activeKey;
+  const draft = drafts[key] || EMPTY_DRAFT;
+  const text = draft.text;
+  const attachments = draft.attachments;
+
+  const editDraft = useCallback((field, next) => {
+    setDrafts((all) => {
+      const cur = all[key] || EMPTY_DRAFT;
+      return { ...all, [key]: { ...cur, [field]: typeof next === 'function' ? next(cur[field]) : next } };
+    });
+  }, [key]);
+  const setText = useCallback((next) => editDraft('text', next), [editDraft]);
+  const setAttachments = useCallback((next) => editDraft('attachments', next), [editDraft]);
 
   // Bridge to the vanilla half: the picker pushes here, the preview's error
   // card sends straight through.
