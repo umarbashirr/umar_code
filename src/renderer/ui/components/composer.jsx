@@ -21,16 +21,21 @@ import { cn } from '@/lib/utils';
 import { useProject, shortPath } from '../useProject';
 import { spoken } from '../useAgent';
 import { fromBlob, fromPaths, sizeLabel, toAttachments } from '@/lib/attachments';
-// The panes are the vanilla half's business; this is the one call into it.
-import { runCommand } from '../../app.js';
 
+// How freely the agent may act, loosest first, which is also the order Shift+Tab
+// walks. Four of these are the SDK's own permission modes; Ask, Debug and Auto
+// are this app's, enforced in main/modes.js, which holds the matching ids.
 export const MODES = [
-  ['default', 'Ask first'],
-  ['auto', 'Auto'],
-  ['acceptEdits', 'Accept edits'],
-  ['plan', 'Plan only'],
-  ['bypassPermissions', 'Yolo'],
+  ['plan', 'Plan', 'Work out an approach and stop before touching anything'],
+  ['ask', 'Ask', 'Asks before writing a file or running a command'],
+  ['debug', 'Debug', 'Reproduce and isolate before fixing. Asks like Ask does'],
+  ['auto', 'Auto', 'Edits and ordinary commands run. Stops on anything destructive'],
+  ['acceptEdits', 'Accept edits', 'Edits run without asking. Commands still ask'],
+  ['always', 'Ask confirmation always', 'Asks before every tool, reads included'],
+  ['bypass', 'Full bypass', 'Nothing asks. Nothing is checked'],
 ];
+
+const MODE_LABEL = Object.fromEntries(MODES.map(([v, label]) => [v, label]));
 
 const cleanModelName = (m) =>
   (m.displayName || m.value).replace(/\s*\((recommended|default)\)\s*$/i, '');
@@ -200,11 +205,11 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
     box.current?.querySelector('textarea')?.focus();
   }, [setText]);
 
-  // Shift+Tab drops into planning and back out again, which is the switch worth
-  // having under a key. The other modes are a deliberate trip to the menu: none
-  // of them should be one stray keystroke away.
-  const togglePlan = useCallback(() => {
-    agent.changeMode(agent.mode === 'plan' ? 'default' : 'plan');
+  // Shift+Tab walks the list and wraps. Full bypass sits at the far end, so
+  // reaching it from Plan takes six deliberate presses rather than one.
+  const cycleMode = useCallback(() => {
+    const i = MODES.findIndex(([v]) => v === agent.mode);
+    agent.changeMode(MODES[(i + 1) % MODES.length][0]);
   }, [agent]);
 
   // Stopping the turn empties the queue. The parked text goes back into the
@@ -221,8 +226,8 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
       if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); return pick(matches[cursor]); }
       if (e.key === 'Escape') { e.preventDefault(); return setDismissed(true); }
     }
-    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); togglePlan(); }
-  }, [menu, matches, cursor, pick, togglePlan]);
+    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); }
+  }, [menu, matches, cursor, pick, cycleMode]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
@@ -274,8 +279,8 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
             <PromptInputSelectValue />
           </PromptInputSelectTrigger>
           <PromptInputSelectContent>
-            {MODES.map(([value, label]) => (
-              <PromptInputSelectItem key={value} value={value}>{label}</PromptInputSelectItem>
+            {MODES.map(([value, label, note]) => (
+              <PromptInputSelectItem key={value} value={value} title={note}>{label}</PromptInputSelectItem>
             ))}
           </PromptInputSelectContent>
         </PromptInputSelect>
@@ -417,11 +422,13 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 px-1">
-        <Chip active={agent.mode === 'plan'} shortcut="⇧Tab" onClick={togglePlan} title="Work out an approach before touching anything">
-          Plan first
+        <Chip
+          active={agent.mode !== 'ask'}
+          shortcut="⇧Tab"
+          onClick={cycleMode}
+          title={MODES.find(([v]) => v === agent.mode)?.[2]}>
+          {MODE_LABEL[agent.mode] || agent.mode}
         </Chip>
-        <Chip shortcut="^⇧E" onClick={() => window.pickElement?.()}>Point at element</Chip>
-        <Chip shortcut="^⇧B" onClick={() => runCommand('preview')}>Show preview</Chip>
       </div>
     </div>
   );

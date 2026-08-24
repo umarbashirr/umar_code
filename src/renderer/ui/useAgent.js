@@ -12,7 +12,7 @@ export function useAgent() {
   const [title, setTitle] = useState('New chat');
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
-  const [mode, setMode] = useState('default');
+  const [mode, setMode] = useState('ask');
   const [driver, setDriver] = useState(null);
   // Messages typed while a turn is running. They park here, in order, until
   // something hands them to the agent.
@@ -122,15 +122,21 @@ export function useAgent() {
       }
     }));
 
-    offs.push(pba().agent.onReady(({ sessionId, model: m, permissionMode }) => {
+    offs.push(pba().agent.onReady(({ sessionId, model: m, mode: sessionMode }) => {
       setLiveSession(sessionId);
       if (m) setModel((cur) => cur || m);
-      if (permissionMode) setMode(permissionMode);
+      // One of ours, not one of the SDK's four: the session is the one holding
+      // the answer after a resume.
+      if (sessionMode) setMode(sessionMode);
       window.pbaRail?.setCurrent(sessionId);
       window.pbaRail?.refresh();
     }));
 
     offs.push(pba().agent.onPermission((p) => push({ ...p, id: p.id, kind: 'perm' })));
+
+    // The session can move the mode on its own: approving a plan leaves plan
+    // mode whether or not anyone touched the picker.
+    offs.push(pba().agent.onMode?.(({ mode: m }) => setMode(m)) ?? (() => {}));
 
     offs.push(pba().agent.onDecided?.(({ id, decision }) => patch(id, { decided: decision })) ?? (() => {}));
 
@@ -217,9 +223,10 @@ export function useAgent() {
     if (!busy && queued.length) flushQueue();
   }, [busy, queued, flushQueue]);
 
-  const decide = useCallback((id, decision) => {
-    pba().agent.decide(id, decision);
-    patch(id, { decided: decision });
+  const decide = useCallback((id, decision, input) => {
+    pba().agent.decide(id, decision, input);
+    // answers, when there are any, so the settled card can show what was picked
+    patch(id, { decided: decision, answers: input?.answers });
   }, [patch]);
 
   // Stopping the turn also empties the queue, and the parked text is handed

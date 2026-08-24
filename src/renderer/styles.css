@@ -161,14 +161,6 @@ kbd {
 }
 .brand .dot { width: 7px; height: 7px; border-radius: 99px; background: var(--accent); }
 
-.project {
-  font: 12px/1 ui-sans-serif, system-ui, sans-serif; color: var(--fg-dim);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
-  padding: 5px 8px; border-radius: var(--r);
-}
-.project:hover { color: var(--fg); background: var(--bg-3); }
-.project.empty { color: var(--warn); }
-
 /* --------------------------------------------------------------- view strip */
 
 /* The preview, the files and every shell, as one row of tabs. The panes they

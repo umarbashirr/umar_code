@@ -16,6 +16,7 @@ const git = require('./git');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
+const { DEFAULT_MODE, isMode } = require('./modes');
 const bridgeState = require('../../cli/state');
 
 const fs = require('fs');
@@ -31,6 +32,7 @@ let bridge = null;
 let driver = null;
 let catalog = null;
 let chosenModel = null;   // survives the agent it was picked for
+let chosenMode = DEFAULT_MODE;  // and so does the mode
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
@@ -217,6 +219,7 @@ async function ensureAgent({ resume } = {}) {
   agent = new AgentSession({
     resume: resume || null,
     model: chosenModel,
+    mode: chosenMode,
     cwd: agentCwd(),
     settings: catalog.sessionSettings(agentCwd()),
     mcpOff: catalog.offAtRuntime(agentCwd()),
@@ -237,6 +240,7 @@ async function ensureAgent({ resume } = {}) {
     learnCatalog();
   });
   agent.on('permission', (p) => send('agent:permission', p));
+  agent.on('mode', (m) => send('agent:mode', m));
   agent.on('error', (e) => send('agent:error', { error: e }));
   agent.on('closed', () => send('agent:closed', {}));
   agent.on('stderr', (d) => send('agent:stderr', { data: String(d).slice(0, 2000) }));
@@ -359,7 +363,10 @@ function registerIpc() {
     return { ok: true, sessionId: a.sessionId };
   });
   ipcMain.handle('agent:interrupt', async () => { await agent?.interrupt(); return { ok: true }; });
-  ipcMain.handle('agent:mode', async (_e, { mode }) => ({ mode: await agent?.setPermissionMode(mode) ?? mode }));
+  ipcMain.handle('agent:mode', async (_e, { mode }) => {
+    if (isMode(mode)) chosenMode = mode;
+    return { mode: await agent?.setMode(mode) ?? chosenMode };
+  });
   // Answered from the driver cache. Asking the SDK would mean starting a
   // session, and the picker is drawn before anyone has said anything.
   ipcMain.handle('agent:models', () => {
@@ -465,13 +472,13 @@ function registerIpc() {
     const a = await ensureAgent({ resume: id });
     return { ok: true, sessionId: a.sessionId || id };
   });
-  ipcMain.on('agent:decide', (_e, { id, decision }) => agent?.decide(id, decision));
+  ipcMain.on('agent:decide', (_e, { id, decision, input }) => agent?.decide(id, decision, input));
   ipcMain.handle('agent:info', () => ({
     cwd: agentCwd(),
     chosen: project.chosen,
     running: !!(agent && !agent.closed),
     sessionId: agent?.sessionId || null,
-    mode: agent?.permissionMode || 'default',
+    mode: agent?.mode || chosenMode,
   }));
 
   // --- project files ---

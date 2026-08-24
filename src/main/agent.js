@@ -6,6 +6,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const { browserTools, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary } = require('./driver');
+const { SDK_MODE, DEFAULT_MODE, isMode, decide, DEBUG_PREFACE } = require('./modes');
 const shellEnv = require('./shell-path');
 
 // How a screenshot tool result announces where the file landed. index.js reads
@@ -14,11 +15,8 @@ const shellEnv = require('./shell-path');
 const shotNote = (r) => `${r.width}x${r.height} saved to ${r.path}`;
 const SHOT_NOTE = /^(\d+)x(\d+) saved to (.+)$/;
 
-// Tools that only read; asking permission for these is noise.
-const AUTO_ALLOW = new Set(['Read', 'Glob', 'Grep', 'NotebookRead', 'TodoWrite', 'WebFetch', 'WebSearch']);
-
 class AgentSession extends EventEmitter {
-  constructor({ cwd, invoke, resume, model, settings, mcpOff }) {
+  constructor({ cwd, invoke, resume, model, mode, settings, mcpOff }) {
     super();
     this.cwd = cwd;
     this.invoke = invoke;              // (bridgeTool, args) => Promise<result>
@@ -28,7 +26,13 @@ class AgentSession extends EventEmitter {
     this.closed = false;
     this.busy = false;
     this.pending = new Map();          // permission id -> resolve
-    this.permissionMode = 'default';
+    // The mode the composer shows. The SDK only understands four of the seven,
+    // so modes.js keeps both halves: what the SDK is told, and what this class
+    // enforces on top. `preface` is how a mode gets a word in before the next
+    // thing the human types.
+    this.mode = isMode(mode) ? mode : DEFAULT_MODE;
+    this.permissionMode = SDK_MODE[this.mode];
+    this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
     // Chosen from the cached catalogue before any session existed, so the first
     // query starts on the right model instead of switching after it is up.
     this.model = model || null;
@@ -93,6 +97,7 @@ class AgentSession extends EventEmitter {
         env: { ...process.env, PATH: shellEnv.cached() },
         mcpServers: { preview },
         systemPrompt: { type: 'preset', preset: 'claude_code', append: INSTRUCTIONS },
+        permissionMode: this.permissionMode,
         ...(this.settings ? { settings: this.settings } : {}),
         ...(this.model ? { model: this.model } : {}),
         canUseTool: (name, input, opts) => this.#permission(name, input, opts),
@@ -131,12 +136,17 @@ class AgentSession extends EventEmitter {
       for await (const msg of this.query) {
         if (msg.type === 'system' && msg.subtype === 'init') {
           this.sessionId = msg.session_id;
-          this.permissionMode = msg.permissionMode || this.permissionMode;
+          // A resumed session comes back on whatever mode it was saved with.
+          // The composer is showing ours, so put ours back rather than let the
+          // two drift apart with nobody the wiser.
+          if (msg.permissionMode && msg.permissionMode !== this.permissionMode) {
+            this.query?.setPermissionMode(this.permissionMode)?.catch?.(() => {});
+          }
           this.model = msg.model || this.model;
           this.emit('ready', {
             sessionId: msg.session_id,
             model: msg.model,
-            permissionMode: this.permissionMode,
+            mode: this.mode,
             tools: msg.tools?.length,
           });
           this.#dropDisabledServers();
@@ -153,24 +163,36 @@ class AgentSession extends EventEmitter {
   }
 
   #permission(name, input, { suggestions } = {}) {
-    if (name.startsWith('mcp__preview__') || AUTO_ALLOW.has(name)) {
+    const verdict = decide(this.mode, name, input);
+    if (verdict.action === 'allow') {
       return Promise.resolve({ behavior: 'allow', updatedInput: input });
     }
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     return new Promise((resolve) => {
-      this.pending.set(id, { resolve, input, suggestions });
-      this.emit('permission', { id, tool: name, input });
+      this.pending.set(id, { resolve, input, suggestions, tool: name });
+      this.emit('permission', { id, tool: name, input, reason: verdict.reason });
     });
   }
 
-  decide(id, decision) {
+  // `input` is how an answer gets back to a tool that asked for one:
+  // AskUserQuestion reads its own answers off the input it is handed.
+  decide(id, decision, input) {
     const entry = this.pending.get(id);
     if (!entry) return false;
     this.pending.delete(id);
-    if (decision === 'allow') entry.resolve({ behavior: 'allow', updatedInput: entry.input });
+    const updatedInput = input && typeof input === 'object' ? input : entry.input;
+    if (decision === 'allow') entry.resolve({ behavior: 'allow', updatedInput });
     else if (decision === 'always') {
-      entry.resolve({ behavior: 'allow', updatedInput: entry.input, updatedPermissions: entry.suggestions });
+      entry.resolve({ behavior: 'allow', updatedInput, updatedPermissions: entry.suggestions });
     } else entry.resolve({ behavior: 'deny', message: 'The human declined this action.' });
+
+    // Approving the plan is how the SDK leaves plan mode. It does not tell us,
+    // so the composer would go on claiming Plan while writes sailed through.
+    if (entry.tool === 'ExitPlanMode' && decision !== 'deny' && this.mode === 'plan') {
+      this.mode = 'ask';
+      this.permissionMode = SDK_MODE.ask;
+      this.emit('mode', { mode: this.mode });
+    }
     return true;
   }
 
@@ -178,6 +200,7 @@ class AgentSession extends EventEmitter {
   // only look at a picture whose bytes came with the message.
   send(text, images) {
     this.busy = true;
+    if (this.preface) { text = `${this.preface}\n\n${text}`; this.preface = null; }
     this.queue.push(images?.length ? { text, images } : text);
     if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
   }
@@ -283,10 +306,18 @@ class AgentSession extends EventEmitter {
     }
   }
 
-  async setPermissionMode(mode) {
-    this.permissionMode = mode;
-    try { await this.query?.setPermissionMode(mode); } catch {}
-    return mode;
+  // Takes one of our seven, not one of the SDK's four.
+  async setMode(mode) {
+    if (!isMode(mode)) return this.mode;
+    const was = this.mode;
+    this.mode = mode;
+    this.permissionMode = SDK_MODE[mode];
+    // Said once on the way in rather than stapled to every message, so a long
+    // debugging session does not pay for it on every turn.
+    if (mode === 'debug' && was !== 'debug') this.preface = DEBUG_PREFACE;
+    if (mode !== 'debug') this.preface = null;
+    try { await this.query?.setPermissionMode(this.permissionMode); } catch {}
+    return this.mode;
   }
 
   stop() {

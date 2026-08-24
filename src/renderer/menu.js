@@ -127,16 +127,6 @@ for (const menu of MENUS) {
   bar.appendChild(btn);
 }
 
-// The folder label, when the title bar shows one, doubles as the Project menu.
-const projectLabel = $('#project');
-if (projectLabel) {
-  projectLabel.onclick = (e) => {
-    e.stopPropagation();
-    const menu = MENUS[0];
-    open === menu.id ? close() : show(menu, projectLabel);
-  };
-}
-
 window.addEventListener('click', close);
 // Focus moving to the preview pane never reaches this document as a click.
 window.addEventListener('blur', close);

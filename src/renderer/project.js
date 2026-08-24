@@ -32,13 +32,6 @@ export const openInNewWindow = (dir) => openFolder({ dir, newWindow: true });
 function apply(info) {
   Object.assign(project, info);
 
-  const label = $('#project');
-  if (label) {
-    label.textContent = info.chosen ? info.name : 'no folder';
-    label.title = info.chosen ? info.dir : 'No folder open. Pick one to start.';
-    label.classList.toggle('empty', !info.chosen);
-  }
-
   $('#agent-cwd').textContent = shortPath(info.dir);
   $('#agent-cwd').title = info.dir;
 

@@ -8,6 +8,7 @@ import { ToolRow, Pre, toolSummary } from '@/components/tool-row';
 import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
+import { QuestionCard } from '@/components/question-card';
 import { Button } from '@/components/ui/button';
 
 import { useAgent } from './useAgent';
@@ -234,10 +235,32 @@ function Item({ item, onDecide }) {
   if (item.kind === 'perm') {
     const label = item.tool.replace(/^mcp__[^_]+__/, '');
     if (item.decided) {
+      // A question that was answered says what the answer was; there is nothing
+      // useful in telling someone they allowed their own reply.
+      if (item.answers) {
+        return (
+          <div className="px-2 text-muted-foreground text-xs">
+            {Object.entries(item.answers).map(([q, a]) => (
+              <div key={q} className="truncate"><span className="text-foreground">{a}</span> — {q}</div>
+            ))}
+          </div>
+        );
+      }
       return (
         <div className="px-2 text-muted-foreground text-xs">
           {label}: {item.decided === 'deny' ? 'denied' : `allowed (${item.decided})`}
         </div>
+      );
+    }
+
+    // A question is not a permission, whatever the transport says.
+    if (item.tool === 'AskUserQuestion') {
+      return (
+        <QuestionCard
+          input={item.input}
+          onAnswer={(answers, annotations) =>
+            onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
+          onSkip={() => onDecide(item.id, 'deny')} />
       );
     }
     return (
@@ -249,6 +272,10 @@ function Item({ item, onDecide }) {
           <span className="truncate font-mono text-muted-foreground text-xs">
             {toolSummary(label, item.input)}
           </span>
+          {/* Why this one stopped when the mode lets other calls through. */}
+          {item.reason && (
+            <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
+          )}
           <div className="ml-auto flex gap-1.5">
             <Button size="sm" className="h-7" onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
             <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
