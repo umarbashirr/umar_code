@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 import {
-  PromptInput, PromptInputBody, PromptInputTextarea, PromptInputFooter,
+  PromptInput, PromptInputBody, PromptInputHeader, PromptInputTextarea, PromptInputFooter,
   PromptInputTools, PromptInputSubmit,
   PromptInputSelect, PromptInputSelectTrigger, PromptInputSelectContent,
   PromptInputSelectItem, PromptInputSelectValue,
@@ -15,6 +15,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { AttachmentPreview } from '@/components/attachment-preview';
 import { CatalogDialog } from '@/components/catalog-dialog';
 import { SlashMenu, matchSkills, slashQuery } from '@/components/slash-menu';
 import { cn } from '@/lib/utils';
@@ -77,21 +78,34 @@ function Chip({ active, shortcut, children, ...props }) {
 }
 
 // One chip per attached thing. A picture shows itself, because a filename is a
-// poor way to notice you attached the wrong screenshot.
-function Attachment({ item, onRemove }) {
+// poor way to notice you attached the wrong screenshot, and the whole chip
+// opens the full-size preview for the same reason.
+function Attachment({ item, onOpen, onRemove }) {
   const remove = (
     <button type="button" onClick={onRemove} className="opacity-60 hover:opacity-100" title="Remove">
       <XIcon className="size-3" />
     </button>
   );
 
+  // The chip body, not the chip, is the button: the remove control sits beside
+  // it rather than inside it.
+  const open = (className, children, title) => (
+    <button type="button" onClick={onOpen} title={title} className={cn('flex min-w-0 items-center gap-1.5', className)}>
+      {children}
+    </button>
+  );
+
   if (item.kind === 'image') {
     return (
-      <span
-        className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-secondary/60 py-0 pr-2 pl-0 text-xs"
-        title={`${item.name} · ${item.width}×${item.height} · ${sizeLabel(item.size)}`}>
-        <img src={item.preview} alt="" className="h-8 w-8 rounded-l-md border-border border-r object-cover" />
-        <span className="max-w-[16ch] truncate">{item.name}</span>
+      <span className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-secondary/60 py-0 pr-2 pl-0 text-xs">
+        {open(
+          'h-8',
+          <>
+            <img src={item.preview} alt="" className="h-8 w-8 rounded-l-md border-border border-r object-cover" />
+            <span className="max-w-[16ch] truncate">{item.name}</span>
+          </>,
+          `${item.name} · ${item.width}×${item.height} · ${sizeLabel(item.size)} · click to see it`,
+        )}
         {remove}
       </span>
     );
@@ -100,7 +114,7 @@ function Attachment({ item, onRemove }) {
   if (item.kind === 'error') {
     return (
       <Badge variant="secondary" className="gap-1 font-normal text-destructive">
-        {item.name}: {item.error}
+        {open('', <>{item.name}: {item.error}</>, 'Click for the details')}
         {remove}
       </Badge>
     );
@@ -108,10 +122,16 @@ function Attachment({ item, onRemove }) {
 
   if (item.kind === 'file') {
     return (
-      <Badge variant="secondary" className="gap-1 font-normal" title={item.note ? `${item.path} — ${item.note}` : item.path}>
-        <FileIcon className="size-3 opacity-70" />
-        <span className="max-w-[22ch] truncate">{item.name}</span>
-        <span className="text-muted-foreground">{sizeLabel(item.size)}</span>
+      <Badge variant="secondary" className="gap-1 font-normal">
+        {open(
+          '',
+          <>
+            <FileIcon className="size-3 opacity-70" />
+            <span className="max-w-[22ch] truncate">{item.name}</span>
+            <span className="text-muted-foreground">{sizeLabel(item.size)}</span>
+          </>,
+          item.note ? `${item.path} — ${item.note}` : `${item.path} · click for the details`,
+        )}
         {remove}
       </Badge>
     );
@@ -120,7 +140,11 @@ function Attachment({ item, onRemove }) {
   const { hit } = item;
   return (
     <Badge variant="secondary" className="gap-1 font-normal">
-      {hit.role === 'generic' ? hit.tag : hit.role} {(hit.name || hit.text || '').slice(0, 28)}
+      {open(
+        '',
+        <>{hit.role === 'generic' ? hit.tag : hit.role} {(hit.name || hit.text || '').slice(0, 28)}</>,
+        'Click for the selector and the box it was in',
+      )}
       {remove}
     </Badge>
   );
@@ -129,6 +153,9 @@ function Attachment({ item, onRemove }) {
 export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onSubmit }) {
   const project = useProject();
   const [showCatalog, setShowCatalog] = useState(false);
+  // Which attachment the preview dialog is showing, by id, so removing it while
+  // it is up closes the dialog instead of freezing a copy of it.
+  const [previewing, setPreviewing] = useState(null);
   // A slash menu that has been dismissed stays dismissed until the box changes
   // again, so Escape means Escape.
   const [dismissed, setDismissed] = useState(false);
@@ -295,14 +322,9 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
       </div>
 
       <CatalogDialog catalog={catalog} open={showCatalog} onOpenChange={setShowCatalog} />
-
-      {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1.5 px-1">
-          {attachments.map((a) => (
-            <Attachment key={a.id} item={a} onRemove={() => drop(a.id)} />
-          ))}
-        </div>
-      )}
+      <AttachmentPreview
+        item={attachments.find((a) => a.id === previewing) || null}
+        onOpenChange={(open) => { if (!open) setPreviewing(null); }} />
 
       {agent.queued.length > 0 && (
         <div className="mb-2 px-1">
@@ -350,6 +372,19 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
           onSubmit={onSubmit}
           className="[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:shadow-sm">
           <PromptInputBody>
+            {/* Inside the box, above what you are typing: an attachment belongs
+                to this message, so it sits in the same container as the text. */}
+            {attachments.length > 0 && (
+              <PromptInputHeader className="gap-1.5 px-4 pt-3 pb-0">
+                {attachments.map((a) => (
+                  <Attachment
+                    key={a.id}
+                    item={a}
+                    onOpen={() => setPreviewing(a.id)}
+                    onRemove={() => drop(a.id)} />
+                ))}
+              </PromptInputHeader>
+            )}
             <PromptInputTextarea
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -358,7 +393,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               placeholder={agent.busy
                 ? 'Working. Enter parks this, Enter again sends it into this turn'
                 : 'Plan, build, or ask about this project'}
-              className="min-h-[76px] px-4 pt-3.5 text-[13.5px]" />
+              className={cn('min-h-[76px] px-4 text-[13.5px]', attachments.length > 0 ? 'pt-2' : 'pt-3.5')} />
           </PromptInputBody>
 
           <PromptInputFooter className="px-3 pb-3">

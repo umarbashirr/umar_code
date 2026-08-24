@@ -1,0 +1,137 @@
+import { useEffect, useState } from 'react';
+import { CheckIcon, CopyIcon, CrosshairIcon, FileIcon, TriangleAlertIcon } from 'lucide-react';
+
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+import { sizeLabel } from '@/lib/attachments';
+// The preview pane is a native view sitting above this document, so it has to
+// move out of the way while a dialog is up.
+import { parkPreview } from '../../app.js';
+
+function PathRow({ label, path }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(t);
+  }, [copied]);
+
+  return (
+    <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+      <span className="shrink-0 text-muted-foreground text-xs">{label}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>{path}</span>
+      <button
+        type="button"
+        title="Copy the path"
+        onClick={() => { navigator.clipboard?.writeText(path); setCopied(true); }}
+        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground">
+        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+const Field = ({ label, children, mono }) => (
+  <div className="flex gap-3 text-xs">
+    <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
+    <span className={cn('min-w-0 flex-1 break-words', mono && 'font-mono')}>{children}</span>
+  </div>
+);
+
+// The picture at the size it was shrunk to, which is also the size the agent
+// sees. A filename tells you nothing about which screenshot you grabbed.
+function Body({ item }) {
+  if (item.kind === 'image') {
+    return (
+      <div className="flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted/40 p-2">
+        {/* Pinned to the viewport rather than to the dialog: a percentage cap
+            resolves against an auto height and does nothing. The subtraction is
+            the header, the path row and the padding around them, so a tall
+            picture ends up scaled instead of scrolled. */}
+        <img src={item.preview} alt={item.name} className="max-h-[calc(82vh-9rem)] w-auto max-w-full object-contain" />
+      </div>
+    );
+  }
+
+  if (item.kind === 'element') {
+    const { hit, shotPath } = item;
+    return (
+      <div className="space-y-2.5">
+        <Field label="element">{hit.role === 'generic' ? hit.tag : hit.role}</Field>
+        {(hit.name || hit.text) && <Field label="text">{hit.name || hit.text}</Field>}
+        <Field label="css" mono>{hit.css}</Field>
+        <Field label="ref" mono>{hit.ref}</Field>
+        {hit.rect && (
+          <Field label="box" mono>{hit.rect.w}×{hit.rect.h} at {hit.rect.x},{hit.rect.y}</Field>
+        )}
+        {shotPath && <PathRow label="shot" path={shotPath} />}
+      </div>
+    );
+  }
+
+  if (item.kind === 'error') {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-destructive text-sm">
+        <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
+        <span>{item.error}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2.5">
+        <FileIcon className="size-5 text-muted-foreground" />
+        <div className="min-w-0">
+          <div className="truncate text-sm">{item.name}</div>
+          <div className="text-muted-foreground text-xs">{sizeLabel(item.size)}</div>
+        </div>
+      </div>
+      {item.note && <p className="text-muted-foreground text-xs">{item.note}</p>}
+      <p className="text-muted-foreground text-xs">
+        Files go across as a path. The agent opens this one itself when you send the message.
+      </p>
+    </div>
+  );
+}
+
+const subtitle = (item) => {
+  if (item.kind === 'image') return `${item.width}×${item.height} · ${sizeLabel(item.size)}`;
+  if (item.kind === 'file') return sizeLabel(item.size);
+  if (item.kind === 'element') return 'picked in the preview';
+  return 'could not be attached';
+};
+
+export function AttachmentPreview({ item, onOpenChange }) {
+  const open = !!item;
+
+  useEffect(() => {
+    parkPreview(open);
+    return () => parkPreview(false);
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[82vh] max-w-3xl flex-col gap-3 p-4 sm:max-w-3xl">
+        {item && (
+          <>
+            <DialogHeader className="space-y-0 text-left">
+              <DialogTitle className="flex items-center gap-2 truncate pr-6 text-sm">
+                {item.kind === 'element' && <CrosshairIcon className="size-4 shrink-0 text-muted-foreground" />}
+                <span className="truncate">{item.kind === 'element' ? 'Element from the page' : item.name}</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs">{subtitle(item)}</DialogDescription>
+            </DialogHeader>
+
+            <Body item={item} />
+
+            {item.path && <PathRow label="file" path={item.path} />}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
