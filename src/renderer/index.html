@@ -83,13 +83,13 @@
                 <input id="url" spellcheck="false" placeholder="localhost:3000, a URL, or a search" />
               </div>
               <div class="nav">
-                <select id="viewport" title="Emulate a viewport size">
-                  <option value="">fit</option>
-                  <option value="390x844">phone</option>
-                  <option value="768x1024">tablet</option>
-                  <option value="1280x800">laptop</option>
-                  <option value="1920x1080">desktop</option>
-                </select>
+                <div id="viewport" class="segmented" role="group" aria-label="Emulate a viewport size">
+                  <button class="seg on" data-size="" title="Fit the pane" aria-pressed="true"><i data-lucide="scan"></i></button>
+                  <button class="seg" data-size="390x844" title="Phone, 390 × 844"><i data-lucide="smartphone"></i></button>
+                  <button class="seg" data-size="768x1024" title="Tablet, 768 × 1024"><i data-lucide="tablet"></i></button>
+                  <button class="seg" data-size="1280x800" title="Laptop, 1280 × 800"><i data-lucide="laptop"></i></button>
+                  <button class="seg" data-size="1920x1080" title="Desktop, 1920 × 1080"><i data-lucide="monitor"></i></button>
+                </div>
                 <button id="pick" class="icon" title="Point at an element (Ctrl+Shift+E)"><i data-lucide="crosshair"></i></button>
                 <button id="shot" class="icon" title="Screenshot to disk"><i data-lucide="camera"></i></button>
                 <button id="devtools" class="icon" title="DevTools"><i data-lucide="code-xml"></i></button>

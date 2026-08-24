@@ -380,7 +380,7 @@ body.dragging.row { cursor: row-resize; }
 
 /* --------------------------------------------------------- preview pane */
 
-#right { display: flex; flex-direction: column; flex: none; width: 42%; min-width: 360px; background: var(--bg-2); border-left: 1px solid var(--line); }
+#right { display: flex; flex-direction: column; flex: none; width: 42%; min-width: 420px; background: var(--bg-2); border-left: 1px solid var(--line); }
 #right.closed { display: none; }
 
 /* Full width: the chat and its splitter go away and the preview takes the whole
@@ -415,13 +415,24 @@ body.dragging.row { cursor: row-resize; }
 #url { flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none; color: var(--fg); font: 12px var(--mono); }
 #url::placeholder { color: var(--fg-faint); }
 
-#viewport {
-  height: 28px; padding: 0 6px;
-  background: var(--bg); color: var(--fg-dim);
-  border: 1px solid var(--line); border-radius: var(--r);
-  font: 11px var(--mono); outline: none;
+/* Viewport sizes, as a row of device icons. A dropdown hid the current size
+   behind a click; here the raised chip says which one is on. */
+.segmented {
+  display: flex; align-items: center; gap: 1px; flex: none;
+  padding: 2px; background: var(--bg-3); border-radius: var(--r);
 }
-#viewport:hover { color: var(--fg); }
+.seg {
+  width: 24px; height: 24px; border-radius: calc(var(--r) - 3px);
+  color: var(--fg-faint); display: grid; place-items: center;
+}
+.seg svg.lucide { width: 14px; height: 14px; }
+/* The device icons carry their own scale: a phone reads smaller than a monitor
+   at the same stroke, which is the point of the row. */
+.seg[data-size="390x844"] svg.lucide { width: 12px; height: 12px; }
+.seg[data-size="768x1024"] svg.lucide { width: 13px; height: 13px; }
+.seg[data-size="1280x800"] svg.lucide, .seg[data-size="1920x1080"] svg.lucide { width: 15px; height: 15px; }
+.seg:hover { color: var(--fg); }
+.seg.on { background: var(--bg); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px hsl(240 10% 3.9% / .06); }
 
 #stage { position: relative; flex: 1; min-height: 0; background: var(--bg); }
 #paneslot { position: absolute; inset: 0; }

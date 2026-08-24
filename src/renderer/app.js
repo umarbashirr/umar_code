@@ -6,9 +6,9 @@ import {
   AppWindow, ArrowLeft, ArrowRight, Binary, Camera, ChevronDown, ChevronRight,
   ChevronUp, CodeXml, Copy, Crosshair, ExternalLink, Eye, EyeOff, File, FileCode,
   FileImage, FileJson, FileText, Folder, FolderOpen, FolderTree, Globe, Hexagon,
-  Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Moon, PanelBottom,
-  PanelLeft, Plus, RotateCw, Search, Sparkles, Square, SquarePen, SquareTerminal,
-  Sun, X,
+  Laptop, Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor,
+  Moon, PanelBottom, PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles,
+  Square, SquarePen, SquareTerminal, Sun, Tablet, X,
 } from 'lucide';
 
 export const $ = (sel) => document.querySelector(sel);
@@ -25,9 +25,9 @@ const USED = {
   AppWindow, ArrowLeft, ArrowRight, Binary, Camera, ChevronDown, ChevronRight,
   ChevronUp, CodeXml, Copy, Crosshair, ExternalLink, Eye, EyeOff, File, FileCode,
   FileImage, FileJson, FileText, Folder, FolderOpen, FolderTree, Globe, Hexagon,
-  Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Moon, PanelBottom,
-  PanelLeft, Plus, RotateCw, Search, Sparkles, Square, SquarePen, SquareTerminal,
-  Sun, X,
+  Laptop, Maximize2, MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor,
+  Moon, PanelBottom, PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles,
+  Square, SquarePen, SquareTerminal, Sun, Tablet, X,
 };
 
 export const icons = () => { try { createIcons({ icons: USED }); } catch {} };
@@ -526,12 +526,19 @@ $('#shot').onclick = async () => {
   const r = await window.pba.browser.action('screenshot', { fullPage: true });
   toast('Screenshot saved', r.path, [{ label: 'ok', primary: true }]);
 };
-$('#viewport').onchange = (e) => {
-  const v = e.target.value;
-  if (!v) return window.pba.browser.action('setViewport', null);
-  const [w, h] = v.split('x').map(Number);
+$('#viewport').addEventListener('click', (e) => {
+  const btn = e.target.closest('.seg');
+  if (!btn) return;
+  for (const b of $('#viewport').children) {
+    const on = b === btn;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  const size = btn.dataset.size;
+  if (!size) return window.pba.browser.action('setViewport', null);
+  const [w, h] = size.split('x').map(Number);
   window.pba.browser.action('setViewport', { width: w, height: h });
-};
+});
 $('#pick').onclick = () => pickElement();
 $('#close-preview').onclick = () => closePreview();
 
