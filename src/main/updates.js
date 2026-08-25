@@ -274,19 +274,68 @@ class Updates extends EventEmitter {
     }
   }
 
-  // .deb goes to the desktop's package installer, which is the thing that can
-  // ask for a password. An AppImage is just a file: showing it in the file
-  // manager is more honest than pretending we replaced the running one.
-  install(file) {
+  // An AppImage is just a file: showing it in the file manager is more honest
+  // than pretending we replaced the running one.
+  //
+  // A .deb needs root, and Tandem does not have it. Handing the file to the
+  // desktop's default handler used to be the polite way to ask for it, but on
+  // Ubuntu 24.04 that handler is App Center, which matches the package name,
+  // sees the copy you are running, greys out its own button and stops. Every
+  // upgrade dead-ended there, which is to say it dead-ended for exactly the
+  // people the update flow is for.
+  //
+  // pkexec puts the same question to polkit instead. The prompt is still the
+  // system's and Tandem still never sees the password, but apt-get on the other
+  // side of it can actually replace an installed package. Desktops without
+  // pkexec keep the old handoff, because it is still better than nothing.
+  async install(file) {
     const { shell } = require('electron');
     if (installKind() === 'appimage') {
       shell.showItemInFolder(file);
       return { ok: true, action: 'revealed' };
     }
-    shell.openPath(file);
-    return { ok: true, action: 'opened' };
+
+    const handOff = () => { shell.openPath(file); return { ok: true, action: 'opened' }; };
+    if (!which('pkexec')) return handOff();
+
+    const res = await aptInstall(file);
+    // 127 is pkexec failing to run at all, which on a desktop usually means no
+    // authentication agent is listening. Nothing was asked, so ask the old way.
+    if (res.code === 127) return handOff();
+    if (res.code === 126) return { error: 'The password prompt was dismissed, so nothing was installed.' };
+    if (res.code !== 0) return { error: aptError(res) };
+    return { ok: true, action: 'installed' };
   }
 }
+
+const which = (cmd) => {
+  for (const dir of (process.env.PATH || '').split(':')) {
+    if (!dir) continue;
+    try { fs.accessSync(path.join(dir, cmd), fs.constants.X_OK); return true; } catch {}
+  }
+  return false;
+};
+
+// apt reads a bare name as a package to fetch, so the file has to arrive as a
+// path. It is absolute already; passing it through resolve says so out loud.
+function aptInstall(file) {
+  const { execFile } = require('child_process');
+  return new Promise((resolve) => {
+    execFile(
+      'pkexec',
+      ['apt-get', 'install', '-y', path.resolve(file)],
+      { env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' }, maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, stdout, stderr }),
+    );
+  });
+}
+
+// apt says what went wrong on its E: lines and pads the rest with progress.
+const aptError = ({ stderr, stdout }) => {
+  const lines = `${stderr || ''}\n${stdout || ''}`.split('\n').map((l) => l.trim()).filter(Boolean);
+  const said = lines.filter((l) => l.startsWith('E:'));
+  return (said.length ? said : lines.slice(-1)).join(' ') || 'The installer failed and said nothing about why.';
+};
 
 function pipe(url, dest, onProgress, redirects = 5) {
   return new Promise((resolve, reject) => {

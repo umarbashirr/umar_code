@@ -46,6 +46,8 @@ export function useUpdates() {
   // landed at once it is here.
   const [progress, setProgress] = useState(null);
   const [file, setFile] = useState(null);
+  const [installing, setInstalling] = useState(false);
+  const [installed, setInstalled] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -82,10 +84,19 @@ export function useUpdates() {
     return res.path;
   }, [info]);
 
+  // apt unpacking a quarter of a gigabyte takes long enough that a button which
+  // does nothing visible reads as a button that did nothing.
   const install = useCallback(async (target) => {
-    const res = await tandem().updates.install(target || file);
-    if (res?.error) setError(res.error);
-    return res;
+    setError(null);
+    setInstalling(true);
+    try {
+      const res = await tandem().updates.install(target || file);
+      if (res?.error) setError(res.error);
+      else if (res?.action === 'installed') setInstalled(true);
+      return res;
+    } finally {
+      setInstalling(false);
+    }
   }, [file]);
 
   return {
@@ -93,6 +104,8 @@ export function useUpdates() {
     checking,
     progress,
     file,
+    installing,
+    installed,
     error: error || info.error,
     check,
     download,

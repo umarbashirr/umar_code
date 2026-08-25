@@ -319,8 +319,14 @@ function Updates({ settings, set, updates }) {
                 {behind && app.asset && kind !== 'dev' && (
                   file
                     ? (
-                      <Button className="h-9 gap-2" onClick={() => updates.install()}>
-                        <CheckIcon className="size-4" /> Install
+                      <Button
+                        className="h-9 gap-2"
+                        disabled={updates.installing || updates.installed}
+                        onClick={() => updates.install()}>
+                        {updates.installing
+                          ? <RefreshCwIcon className="size-4 animate-spin" />
+                          : <CheckIcon className="size-4" />}
+                        {updates.installed ? 'Installed' : updates.installing ? 'Installing' : 'Install'}
                       </Button>
                     )
                     : (
@@ -340,9 +346,19 @@ function Updates({ settings, set, updates }) {
         </Row>
 
         {file && (
-          <Row label="Downloaded" hint={file}>
-            <Button className="h-9" onClick={() => updates.install()}>
-              {kind === 'appimage' ? 'Show in folder' : 'Run installer'}
+          <Row
+            label="Downloaded"
+            hint={updates.installed
+              ? 'Installed. Restart Tandem to run the new version.'
+              : file}>
+            <Button
+              className="h-9 gap-2"
+              disabled={updates.installing || updates.installed}
+              onClick={() => updates.install()}>
+              {updates.installing && <RefreshCwIcon className="size-4 animate-spin" />}
+              {kind === 'appimage'
+                ? 'Show in folder'
+                : updates.installed ? 'Installed' : updates.installing ? 'Installing' : 'Install'}
             </Button>
           </Row>
         )}
