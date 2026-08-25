@@ -232,10 +232,6 @@ function newTerminalTab(command) {
     term.onData((d) => window.tandem.term.input(id, d));
     term.onResize(({ cols, rows }) => window.tandem.term.resize(id, cols, rows));
     activate(tab);
-    term.write(
-      '\x1b[38;5;103m  tandem  \x1b[0m\x1b[90mYour shell. \x1b[0m\x1b[36mtandem go 3000\x1b[90m opens a page in the preview, ' +
-      'from here or from the agent.\x1b[0m\r\n',
-    );
     // Sent as keystrokes rather than run for you: the line is visible, and an
     // interactive flow like `claude mcp login` needs a real terminal anyway.
     if (command) window.tandem.term.input(id, command + '\n');
@@ -246,12 +242,14 @@ function newTerminalTab(command) {
   return tab;
 }
 
-// The preview and every shell as one row of tabs in the toolbar. The panes
-// themselves are elsewhere in the window, so this row is the only listing of
-// what is open, and it is redrawn whenever one of them opens or closes.
+// Two rows of tabs, redrawn together whenever anything opens or closes. The
+// toolbar names the two panes that live in the right column; the shells are
+// listed inside the panel they run in, the way a terminal names its own tabs.
+// Nothing in the toolbar lists them any more, so the panel toggle next to it is
+// how you get back to a shell you cannot see.
 function renderStrip() {
-  const strip = $('#viewstrip');
-  strip.innerHTML = '';
+  const views = $('#viewstrip');
+  views.innerHTML = '';
 
   const showing = (view) => state.rightOpen && state.rightView === view;
 
@@ -260,17 +258,20 @@ function renderStrip() {
   browser.appendChild(el('span', null, 'Browser'));
   browser.title = 'Preview browser (Ctrl+Shift+B)';
   browser.onclick = () => togglePreview();
-  strip.appendChild(browser);
+  views.appendChild(browser);
 
   const files = el('button', 'vtab' + (showing('files') ? ' on' : ''));
   files.appendChild(iconMark('folder-tree'));
   files.appendChild(el('span', null, 'Files'));
   files.title = 'Project files (Ctrl+Shift+D)';
   files.onclick = () => toggleFiles();
-  strip.appendChild(files);
+  views.appendChild(files);
+
+  const strip = $('#term-tabs');
+  strip.innerHTML = '';
 
   state.tabs.forEach((tab, i) => {
-    const node = el('button', 'vtab' + (state.panelOpen && tab === state.active ? ' on' : ''));
+    const node = el('button', 'vtab' + (tab === state.active ? ' on' : ''));
     node.appendChild(iconMark('square-terminal'));
     node.appendChild(el('span', null, tab.title));
     const close = el('span', 'close');
@@ -278,7 +279,7 @@ function renderStrip() {
     close.onclick = (e) => { e.stopPropagation(); closeTab(tab); };
     node.appendChild(close);
     node.title = `${tab.title} (Ctrl+${i + 1})`;
-    node.onclick = () => { openPanel(); activate(tab); };
+    node.onclick = () => activate(tab);
     tab.node = node;
     strip.appendChild(node);
   });
@@ -850,7 +851,8 @@ drag('#agent-gutter', 'x', (e) => {
 });
 drag('#panel-gutter', 'y', (e) => {
   const max = window.innerHeight - 220;
-  $('#panel').style.height = Math.min(max, Math.max(90, window.innerHeight - e.clientY - 24)) + 'px';
+  // The floor clears the tab row plus a couple of lines of shell under it.
+  $('#panel').style.height = Math.min(max, Math.max(124, window.innerHeight - e.clientY - 24)) + 'px';
 });
 
 window.addEventListener('resize', () => { resizeActive(); syncBounds(); });

@@ -711,6 +711,7 @@ function registerIpc() {
       case 'console': return pane.consoleLog({ limit: 200 });
       case 'network': return pane.networkLog({ limit: 100 });
       case 'screenshot': return pane.screenshot(arg || {});
+      case 'still': return pane.still();
       case 'setViewport': return arg ? pane.setViewport(arg.width, arg.height) : pane.clearViewport();
       case 'openExternal': return shell.openExternal(pane.state().url);
       case 'pick': return pane.pick();

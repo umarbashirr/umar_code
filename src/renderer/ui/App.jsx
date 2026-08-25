@@ -23,6 +23,11 @@ import { toast } from '../app.js';
 // real image bytes and only needs naming here; any other file is named by its
 // path, because the agent can open it itself and a pasted-in log is a waste of
 // the context window.
+// What the person wrote against the attachment, folded onto one line. A block
+// is a head line and its indented continuations, so a note with a newline in it
+// would end the block early and leave the rest as loose prose.
+const noteLine = (a) => (a.note ? `  note: ${String(a.note).replace(/\s+/g, ' ').trim()}` : null);
+
 function attachmentText(list) {
   const lines = [];
 
@@ -35,11 +40,21 @@ function attachmentText(list) {
         `  element: ${hit.role === 'generic' ? hit.tag : hit.role} ${JSON.stringify(hit.name || hit.text || '')}`,
         `  ref: ${hit.ref}   size: ${hit.rect.w}x${hit.rect.h} at ${hit.rect.x},${hit.rect.y}`,
         shotPath ? `  screenshot: ${shotPath}` : null,
+        noteLine(a),
       ].filter(Boolean).join('\n'));
     } else if (a.kind === 'image') {
-      lines.push(`[attached image] ${a.name}${a.path ? `\n  file: ${a.path}` : ''}`);
+      lines.push([
+        `[attached image] ${a.name}`,
+        a.path ? `  file: ${a.path}` : null,
+        noteLine(a),
+      ].filter(Boolean).join('\n'));
     } else if (a.kind === 'file') {
-      lines.push(`[attached file] ${a.name}\n  path: ${a.path}\n  Read it before answering.`);
+      lines.push([
+        `[attached file] ${a.name}`,
+        `  path: ${a.path}`,
+        noteLine(a),
+        '  Read it before answering.',
+      ].filter(Boolean).join('\n'));
     }
   }
 
@@ -87,12 +102,21 @@ export default function App() {
   }, [key]);
   const setText = useCallback((next) => editDraft('text', next), [editDraft]);
   const setAttachments = useCallback((next) => editDraft('attachments', next), [editDraft]);
+  const setNote = useCallback(
+    (id, note) => setAttachments((list) => list.map((a) => (a.id === id ? { ...a, note } : a))),
+    [setAttachments],
+  );
 
   // Bridge to the vanilla half: the picker pushes here, the preview's error
   // card sends straight through.
   useEffect(() => {
+    // The note was written in the page, on a bar anchored to the element, so it
+    // arrives with the hit rather than being asked for once it gets here.
     window.addAttachment = (hit, shotPath) =>
-      setAttachments((a) => [...a, { id: `el${Date.now()}`, kind: 'element', hit, shotPath }]);
+      setAttachments((a) => [
+        ...a,
+        { id: `el${Date.now()}`, kind: 'element', hit, shotPath, note: hit.note || '' },
+      ]);
     window.sendToAgent = (t) => agent.send(t);
     window.tandemChat = {
       open: agent.open,
@@ -144,7 +168,10 @@ export default function App() {
   const submit = useCallback((_message, e) => {
     e?.preventDefault?.();
     const body = text.trim();
-    if (!body) {
+    // An attachment with nothing typed is still a message: a screenshot and a
+    // note say plenty. Only an empty box with nothing clipped to it is nothing
+    // to send, and that is the keystroke that releases a parked queue.
+    if (!body && !attachments.length) {
       if (agent.queued.length) agent.flushQueue();
       return;
     }
@@ -188,6 +215,7 @@ export default function App() {
         setText={setText}
         attachments={attachments}
         setAttachments={setAttachments}
+        onNote={setNote}
         onSubmit={submit} />
 
       <SettingsDialog

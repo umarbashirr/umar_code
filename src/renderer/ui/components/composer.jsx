@@ -145,20 +145,25 @@ function Attachment({ item, onOpen, onRemove }) {
   return (
     <Badge variant="secondary" className="gap-1 font-normal">
       {open(
-        '',
-        <>{hit.role === 'generic' ? hit.tag : hit.role} {(hit.name || hit.text || '').slice(0, 28)}</>,
-        'Click for the selector and the box it was in',
+        'min-w-0',
+        <>
+          <span className="shrink-0">
+            {hit.role === 'generic' ? hit.tag : hit.role} {(hit.name || hit.text || '').slice(0, 28)}
+          </span>
+          {/* Your own words about the thing, on the chip, so the message you
+              are about to send says what you meant without opening anything. */}
+          {item.note && <span className="min-w-0 truncate text-muted-foreground">— {item.note}</span>}
+        </>,
+        item.note ? `${hit.css} — ${item.note}` : 'Click for the selector and the box it was in',
       )}
       {remove}
     </Badge>
   );
 }
 
-export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onSubmit }) {
+export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
   const project = useProject();
   const [showCatalog, setShowCatalog] = useState(false);
-  // Which attachment the preview dialog is showing, by id, so removing it while
-  // it is up closes the dialog instead of freezing a copy of it.
   const [previewing, setPreviewing] = useState(null);
   // A menu that has been dismissed stays dismissed until the box changes
   // again, so Escape means Escape.
@@ -345,8 +350,12 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
       </div>
 
       <CatalogDialog catalog={catalog} open={showCatalog} onOpenChange={setShowCatalog} />
+      {/* Finding it by id rather than holding the object means removing an
+          attachment while its dialog is up closes the dialog, instead of
+          leaving a frozen copy of something that is gone. */}
       <AttachmentPreview
         item={attachments.find((a) => a.id === previewing) || null}
+        onNote={onNote}
         onOpenChange={(open) => { if (!open) setPreviewing(null); }} />
 
       {agent.queued.length > 0 && (
@@ -485,7 +494,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
             <PromptInputSubmit
               className="size-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
-              disabled={!agent.busy && !text.trim()}
+              disabled={!agent.busy && !text.trim() && !attachments.length}
               status={agent.busy ? 'streaming' : undefined}
               onClick={agent.busy ? (e) => { e.preventDefault(); stop(); } : undefined}>
               {agent.busy ? <SquareIcon className="size-3.5 fill-current" /> : <ArrowUpIcon className="size-4" />}

@@ -155,6 +155,18 @@ class BrowserPane extends EventEmitter {
 
   setVisible(v) { this.view.setVisible(v); }
 
+  // A still of the page, for the shell to paint in the pane's place while the
+  // real view is hidden. Nothing lands on disk: this is thrown away seconds
+  // later, and screenshot() is the one that keeps a file.
+  async still() {
+    try {
+      const img = await this.wc.capturePage();
+      return img.isEmpty() ? null : img.toDataURL();
+    } catch {
+      return null;
+    }
+  }
+
   state() {
     return {
       url: this.wc.getURL(),
@@ -219,7 +231,7 @@ class BrowserPane extends EventEmitter {
   }
 
   async click(target, { button = 'left', clickCount = 1, modifiers = [] } = {}) {
-    const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)})`);
+    const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)}, "click")`);
     const base = { x: Math.round(p.x), y: Math.round(p.y), button, modifiers };
     this.wc.sendInputEvent({ type: 'mouseMove', ...base });
     this.wc.sendInputEvent({ type: 'mouseDown', ...base, clickCount });
@@ -229,7 +241,7 @@ class BrowserPane extends EventEmitter {
   }
 
   async hover(target) {
-    const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)})`);
+    const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)}, "move")`);
     this.wc.sendInputEvent({ type: 'mouseMove', x: Math.round(p.x), y: Math.round(p.y) });
     await sleep(80);
     return { ok: true };
@@ -296,6 +308,9 @@ class BrowserPane extends EventEmitter {
   }
 
   async screenshot({ fullPage = false, target, name } = {}) {
+    // The pointer the last action left on the page is for the human watching
+    // the pane, not for whoever reads this file.
+    await this.#js('window.__tandem.cursorHide()').catch(() => {});
     let image;
     if (target) {
       const p = await this.#js(`window.__tandem.point(${JSON.stringify(target)})`);

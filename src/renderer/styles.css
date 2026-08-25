@@ -56,6 +56,12 @@
   --shadow: 0 4px 14px hsl(240 10% 3.9% / .10);
   --scroll: hsl(var(--border));
   --term-bg: #0b0d12;
+  /* The terminal stays dark in both app themes, so anything painted on it
+     needs colours of its own rather than the greys that flip with the theme.
+     These match the xterm palette in termTheme(). */
+  --term-fg: #d7dce6;
+  --term-dim: #79839a;
+  --term-line: #1b2130;
   --r: var(--radius);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Code", monospace;
 }
@@ -467,6 +473,9 @@ body.dragging.row { cursor: row-resize; }
 
 #stage { position: relative; flex: 1; min-height: 0; background: var(--bg); }
 #paneslot { position: absolute; inset: 0; }
+/* A still of the page, standing in for the preview while a menu is open over
+   the pane. Same box as the view it replaces, so the swap does not show. */
+.pane-still { position: absolute; inset: 0; width: 100%; height: 100%; }
 #placeholder, #page-error {
   position: absolute; inset: 0;
   display: grid; align-content: center; justify-items: center; gap: 10px;
@@ -613,8 +622,32 @@ body.dragging.row { cursor: row-resize; }
 
 /* ------------------------------------------------------- terminal panel */
 
-#panel { flex: none; height: 280px; min-height: 90px; display: flex; flex-direction: column; background: var(--term-bg); border-top: 1px solid var(--line); }
+#panel { flex: none; height: 280px; min-height: 124px; display: flex; flex-direction: column; background: var(--term-bg); border-top: 1px solid var(--line); }
 #panel.closed { display: none; }
+
+/* The shells list themselves here rather than in the toolbar, so the row has to
+   hold up against the terminal's own background in either app theme. The open
+   one is ringed rather than filled: a pale tab on a dark pane pulls more
+   attention than the tab deserves.
+   Every selector here carries the id, because the shell's button reset above
+   out-specifies a bare .vtab and would hand these back their inherited colour.
+   The ring is an inset shadow for the same reason: that reset sets
+   border-style: none, so a real border on a button never draws. */
+#term-tabs {
+  flex: none; display: flex; align-items: center; gap: 2px;
+  padding: 5px 6px; border-bottom: 1px solid var(--term-line);
+  overflow-x: auto; scrollbar-width: none;
+}
+#term-tabs::-webkit-scrollbar { display: none; }
+#term-tabs .vtab { height: 24px; }
+#term-tabs .vtab:not(.on) { color: var(--term-dim); }
+#term-tabs .vtab:hover { color: var(--term-fg); background: hsl(225 20% 60% / .10); }
+#term-tabs .vtab.on {
+  color: var(--term-fg); background: none;
+  box-shadow: inset 0 0 0 1px hsl(225 22% 62% / .30);
+}
+#term-tabs .vtab .close:hover { background: hsl(225 20% 60% / .18); }
+
 #terms { flex: 1; position: relative; }
 .term-host { position: absolute; inset: 0; padding: 8px 6px 6px 12px; display: none; }
 .term-host.active { display: block; }

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckIcon, CopyIcon, CrosshairIcon, FileIcon, TriangleAlertIcon } from 'lucide-react';
 
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { sizeLabel } from '@/lib/attachments';
 // The preview pane is a native view sitting above this document, so it has to
@@ -90,10 +91,41 @@ function Body({ item }) {
           <div className="text-muted-foreground text-xs">{sizeLabel(item.size)}</div>
         </div>
       </div>
-      {item.note && <p className="text-muted-foreground text-xs">{item.note}</p>}
       <p className="text-muted-foreground text-xs">
         Files go across as a path. The agent opens this one itself when you send the message.
       </p>
+    </div>
+  );
+}
+
+// A line in your own words, travelling with the thing it is about. The element
+// picker opens this dialog on what it just attached and lands the caret here,
+// so pointing at something and saying what is wrong with it is one gesture
+// rather than a trip back to the message box.
+function Note({ item, onNote }) {
+  const field = useRef(null);
+  const fresh = !item.note;
+
+  useEffect(() => {
+    if (fresh) field.current?.focus();
+    // Only on arrival. Re-focusing on every keystroke would fight the caret.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  // Labelled like the read-only rows above it, so a note already written still
+  // announces itself as the note rather than as a box of unexplained text.
+  return (
+    <div className="flex items-center gap-3 text-xs">
+      <span className="w-16 shrink-0 text-muted-foreground">note</span>
+      <Input
+        ref={field}
+        value={item.note || ''}
+        onChange={(e) => onNote(item.id, e.target.value)}
+        // Enter has nothing left to confirm, the note is already saved, so it
+        // means the same thing here as it does anywhere else: done.
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+        placeholder="Anything the agent should know about this"
+        className="h-8 flex-1 text-sm" />
     </div>
   );
 }
@@ -105,7 +137,7 @@ const subtitle = (item) => {
   return 'could not be attached';
 };
 
-export function AttachmentPreview({ item, onOpenChange }) {
+export function AttachmentPreview({ item, onNote, onOpenChange }) {
   const open = !!item;
 
   useEffect(() => {
@@ -127,6 +159,8 @@ export function AttachmentPreview({ item, onOpenChange }) {
             </DialogHeader>
 
             <Body item={item} />
+
+            {onNote && item.kind !== 'error' && <Note item={item} onNote={onNote} />}
 
             {item.path && <PathRow label="file" path={item.path} />}
           </>

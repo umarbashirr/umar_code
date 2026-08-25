@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Streamdown draws the transcript, and it ships Tailwind class names inside a
+   built package. Tailwind v4 skips node_modules unless told otherwise, so
+   those classes were never generated: its external-link confirmation lost
+   max-w-md and came out as a full-bleed bar across the window. The other
+   @streamdown/* plugins carry no classes of their own. */
+@source "../../../node_modules/streamdown/dist";
+
 /* The app toggles themes with data-theme on <html>, not a .dark class. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
@@ -60,7 +67,9 @@
     padding: 1px 7px 1px 5px;
     border-radius: 999px;
     font-family: var(--mono);
-    font-size: .8125rem;
+    /* A step under the prose it sits in: the badge reads as a label on the
+       sentence rather than a word competing with it. */
+    font-size: .75rem;
     line-height: 1.35;
     white-space: nowrap;
     background: hsl(var(--tok) / .13);
@@ -69,8 +78,8 @@
   }
 
   .tandem-token > svg {
-    width: 11px;
-    height: 11px;
+    width: 10px;
+    height: 10px;
     flex: none;
     opacity: .9;
   }
