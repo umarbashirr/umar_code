@@ -55,6 +55,19 @@ function findApp() {
   return null;
 }
 
+// A copy installed without root has a chrome-sandbox that is not setuid, and
+// Electron aborts rather than quietly running unsandboxed. The launcher script
+// makes the same check for a source checkout; this is it for an installed one.
+function sandboxArgs(bin) {
+  try {
+    const st = fs.statSync(path.join(path.dirname(bin), 'chrome-sandbox'));
+    if (st.uid === 0 && (st.mode & 0o4000) !== 0) return [];
+  } catch {
+    return [];
+  }
+  return ['--no-sandbox'];
+}
+
 async function openProject(target) {
   const dir = path.resolve(expand(target || '.'));
   if (!isDir(dir)) die(`${dir} is not a directory`);
@@ -78,7 +91,8 @@ async function openProject(target) {
   delete env.TANDEM_MCP_SERVER;
   delete env.ELECTRON_RUN_AS_NODE;
 
-  const child = spawn(app.bin, app.args, { cwd: dir, env, detached: true, stdio: 'ignore' });
+  const args = [...app.args, ...sandboxArgs(app.bin)];
+  const child = spawn(app.bin, args, { cwd: dir, env, detached: true, stdio: 'ignore' });
   child.on('error', (e) => die(`could not start ${app.bin}: ${e.message}`));
   child.unref();
   process.stdout.write(`opening ${dir}\n`);

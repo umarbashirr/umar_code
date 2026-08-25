@@ -35,6 +35,7 @@ const THEMES = [
 // than left for the person to find out.
 const HANDOFF = {
   deb: 'Opens in your package installer, which will ask for your password.',
+  tree: 'Unpacks over /opt/tandem after asking for your password.',
   appimage: 'Lands in Downloads and is made executable. Swap it for the one you run.',
   dmg: 'Opens the disk image. Drag Tandem across to replace it.',
   nsis: 'Opens the installer.',

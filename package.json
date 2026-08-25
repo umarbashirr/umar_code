@@ -73,10 +73,12 @@
       "mcp/**/*",
       "bin/**/*",
       "scripts/launch.js",
+      "install.sh",
       "package.json",
       "!**/*.map"
     ],
     "asarUnpack": [
+      "install.sh",
       "cli/**",
       "bin/**",
       "mcp/**",

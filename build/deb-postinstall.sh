@@ -19,6 +19,11 @@ if [ -z "$INSTALL_DIR" ] || [ ! -x "$INSTALL_DIR/tandem" ]; then
   exit 0
 fi
 
+# An earlier install.sh --system unpacked an AppImage over this directory and
+# left a marker saying so. dpkg owns these files now, and the marker would send
+# the updater looking for an AppImage.
+rm -f "$INSTALL_DIR/.tandem-version"
+
 # Chromium's sandbox helper has to be setuid root or the app refuses to start.
 if [ -f "$INSTALL_DIR/chrome-sandbox" ]; then
   chown root:root "$INSTALL_DIR/chrome-sandbox" && chmod 4755 "$INSTALL_DIR/chrome-sandbox" \

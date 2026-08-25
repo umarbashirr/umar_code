@@ -32,29 +32,37 @@ what is running is visible whether or not its pane is showing.
 
 ## Install
 
-Grab the newest build from [Releases](https://github.com/umarbashirr/umar_code/releases/latest):
-
 ```sh
-gh release download --repo umarbashirr/umar_code --pattern '*.deb' --dir /tmp --clobber
-sudo apt install /tmp/tandem-*-amd64.deb   # recommended: sets up the Chromium sandbox, installs `tandem`
+curl -fsSL https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.sh | sh
 ```
 
-Or run the AppImage, which needs nothing installed:
+That is the whole thing. No GitHub account, no `gh`, no node, no downloading a file and working out
+what to do with it. The script reads the newest release off the public API, picks the build that
+matches the machine, installs it, and puts `tandem` on PATH. It asks for your password once, because
+the app lands in `/opt/tandem` and Chromium's sandbox helper has to be owned by root.
+
+On Debian and Ubuntu it installs the .deb through apt, so dependencies come with it. Anywhere else it
+unpacks the AppImage into `/opt/tandem` by hand, which gets you the same layout, the same `tandem`
+command, and the same sandbox, without needing FUSE. Run it again later and it upgrades in place, or
+says there is nothing to do.
+
+A few flags, if you want them:
 
 ```sh
-gh release download --repo umarbashirr/umar_code --pattern '*.AppImage' --dir ~/Apps --clobber
-chmod +x ~/Apps/tandem-*.AppImage && ~/Apps/tandem-*.AppImage
+curl -fsSL .../install.sh | sh -s -- --user        # under ~/.local, no password, no sandbox
+curl -fsSL .../install.sh | sh -s -- --version 0.7.0
+curl -fsSL .../install.sh | sh -s -- --uninstall
 ```
 
-The deb is the sandboxed install. The AppImage runs with `--no-sandbox`, because Ubuntu 24.04 and
-later block the unprivileged user namespaces Chromium would otherwise use.
+`--user` is the escape hatch for a machine where you have no root. Chromium's sandbox helper has to
+be setuid root, and nobody but root can make it so, so that install runs with `--no-sandbox`.
 
-The package installs to `/opt/tandem`, and `productName` in package.json is lowercase and one word to
-keep it that way. Chromium's setuid sandbox helper splits its own executable path on spaces, so an
-install directory with a space in it makes the app abort at startup with `failed to execvp:`. The
-capitalised name lives in the desktop entry, so the app still shows up as "Tandem" in the launcher.
+The install directory is lowercase and one word on purpose: the sandbox helper splits its own
+executable path on spaces, so a space in the path makes the app abort at startup with
+`failed to execvp:`. The capitalised name lives in the desktop entry, so it still shows up as
+"Tandem" in the launcher.
 
-To build them yourself:
+To build the packages yourself:
 
 ```sh
 npm install
@@ -72,7 +80,7 @@ The agent uses your existing Claude Code login. If `claude` works in your termin
 
 ## Opening a project
 
-The deb puts `tandem` on PATH, so a folder opens the way you would open one in an editor:
+The installer puts `tandem` on PATH, so a folder opens the way you would open one in an editor:
 
 ```sh
 tandem .                  # open this folder
@@ -87,10 +95,11 @@ Every window advertises its bridge under `~/.tandem/projects/`, keyed by folder,
 so `tandem go 3000` in a shell always reaches the window that owns that project rather than whichever
 one happened to start last. It walks up from your working directory, so subfolders resolve too.
 
-Running the AppImage instead of the deb? Point `TANDEM_APP` at it and `tandem .` will use it:
+Running an AppImage you downloaded yourself, rather than one the installer unpacked? Point
+`TANDEM_APP` at it and `tandem .` will use that:
 
 ```sh
-export TANDEM_APP=~/Apps/tandem-0.5.0-x86_64.AppImage
+export TANDEM_APP=~/Apps/tandem-0.7.1-x86_64.AppImage
 ```
 
 ## The agent panel

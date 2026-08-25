@@ -72,10 +72,26 @@ function installKind() {
   if (!packaged) return 'dev';
   if (process.platform === 'darwin') return 'dmg';
   if (process.platform === 'win32') return 'nsis';
+  // install.sh unpacks the AppImage into /opt on distros that have no apt, and
+  // leaves this marker behind. Without it this copy would look like a .deb and
+  // try to update itself with a package manager the machine does not have.
+  try {
+    if (fs.existsSync(path.join(path.dirname(process.execPath), '.tandem-version'))) return 'tree';
+  } catch {}
   return 'deb';
 }
 
-const EXT = { appimage: '.appimage', deb: '.deb', dmg: '.dmg', nsis: '.exe' };
+// The installer ships inside the app so an unpacked install can update itself
+// with the same steps that put it there.
+function installerScript() {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'app.asar.unpacked', 'install.sh'),
+    path.join(__dirname, '..', '..', 'install.sh'),
+  ];
+  return candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } }) || null;
+}
+
+const EXT = { appimage: '.appimage', tree: '.appimage', deb: '.deb', dmg: '.dmg', nsis: '.exe' };
 const ARCH_WORDS = {
   x64: ['x86_64', 'amd64', 'x64'],
   arm64: ['arm64', 'aarch64'],
@@ -290,9 +306,24 @@ class Updates extends EventEmitter {
   // pkexec keep the old handoff, because it is still better than nothing.
   async install(file) {
     const { shell } = require('electron');
-    if (installKind() === 'appimage') {
+    const kind = installKind();
+    if (kind === 'appimage') {
       shell.showItemInFolder(file);
       return { ok: true, action: 'revealed' };
+    }
+
+    // An unpacked install has no package manager behind it, so the update runs
+    // the installer that made it, on the file already downloaded.
+    if (kind === 'tree') {
+      const script = installerScript();
+      if (!script) return { error: 'This copy is missing its installer. Reinstall from the command on the release page.' };
+      if (!which('pkexec')) {
+        return { error: 'Replacing /opt/tandem needs root. In a terminal: sudo sh ' + script + ' --file ' + path.resolve(file) };
+      }
+      const res = await runAsRoot(['sh', script, '--file', path.resolve(file)]);
+      if (res.code === 126) return { error: 'The password prompt was dismissed, so nothing was installed.' };
+      if (res.code !== 0) return { error: lastSaid(res) };
+      return { ok: true, action: 'installed' };
     }
 
     const handOff = () => { shell.openPath(file); return { ok: true, action: 'opened' }; };
@@ -316,25 +347,36 @@ const which = (cmd) => {
   return false;
 };
 
-// apt reads a bare name as a package to fetch, so the file has to arrive as a
-// path. It is absolute already; passing it through resolve says so out loud.
-function aptInstall(file) {
+// polkit asks for the password; nothing here ever sees it.
+function runAsRoot(argv) {
   const { execFile } = require('child_process');
   return new Promise((resolve) => {
     execFile(
       'pkexec',
-      ['apt-get', 'install', '-y', path.resolve(file)],
+      argv,
       { env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' }, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, stdout, stderr }),
     );
   });
 }
 
+// apt reads a bare name as a package to fetch, so the file has to arrive as a
+// path. It is absolute already; passing it through resolve says so out loud.
+const aptInstall = (file) => runAsRoot(['apt-get', 'install', '-y', path.resolve(file)]);
+
 // apt says what went wrong on its E: lines and pads the rest with progress.
 const aptError = ({ stderr, stdout }) => {
   const lines = `${stderr || ''}\n${stdout || ''}`.split('\n').map((l) => l.trim()).filter(Boolean);
   const said = lines.filter((l) => l.startsWith('E:'));
   return (said.length ? said : lines.slice(-1)).join(' ') || 'The installer failed and said nothing about why.';
+};
+
+// install.sh prefixes what it has to say with `tandem:`, and pads the rest with
+// progress it wrote for a terminal nobody is looking at.
+const lastSaid = ({ stderr, stdout }) => {
+  const lines = `${stderr || ''}\n${stdout || ''}`.split('\n').map((l) => l.trim()).filter(Boolean);
+  const said = lines.filter((l) => l.startsWith('tandem:'));
+  return (said.length ? said.slice(-1) : lines.slice(-1)).join(' ') || 'The installer failed and said nothing about why.';
 };
 
 function pipe(url, dest, onProgress, redirects = 5) {
@@ -369,4 +411,4 @@ function pipe(url, dest, onProgress, redirects = 5) {
   });
 }
 
-module.exports = { Updates, installKind, repoSlug, pickAsset, currentVersion };
+module.exports = { Updates, installKind, installerScript, repoSlug, pickAsset, currentVersion };

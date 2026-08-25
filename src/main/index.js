@@ -204,6 +204,10 @@ async function openInNewWindow(dir) {
   const viaAppImage = process.env.APPIMAGE && fs.existsSync(process.env.APPIMAGE);
   const bin = viaAppImage ? process.env.APPIMAGE : process.execPath;
   const args = !viaAppImage && process.defaultApp ? [app.getAppPath()] : [];
+  // An install that never had root cannot set up the sandbox helper, so this
+  // window was started with --no-sandbox. The next one has to be told too, or
+  // it aborts on launch instead of opening.
+  if (!viaAppImage && process.argv.includes('--no-sandbox')) args.push('--no-sandbox');
 
   const env = { ...process.env, TANDEM_CWD: target };
   delete env.TANDEM_BRIDGE_URL;
