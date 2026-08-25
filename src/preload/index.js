@@ -63,6 +63,16 @@ contextBridge.exposeInMainWorld('tandem', {
     onChanged: on('files:changed'),
   },
 
+  // What has changed in the working tree and not been committed. The list is
+  // one call, each file's patch is another, because a repo mid-refactor holds
+  // more diff than is worth sending at once.
+  changes: {
+    list: () => ipcRenderer.invoke('changes:list'),
+    // context: 'full' for the whole file with the changes in place, 'hunks' for
+    // the few lines around each one.
+    patch: (path, context) => ipcRenderer.invoke('changes:patch', { path, context }),
+  },
+
   // Everything that drives one conversation takes the panel's key for it, so
   // several can run at once and each event finds its way back.
   agent: {

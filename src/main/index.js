@@ -15,6 +15,7 @@ const shellEnv = require('./shell-path');
 const { listSessions, readSession, readSubagent, listSubagents } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
+const diff = require('./diff');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
@@ -699,6 +700,12 @@ function registerIpc() {
     const abs = files.within(agentCwd(), rel);
     return abs ? { path: abs } : { error: 'that path is outside the project folder' };
   });
+
+  // --- uncommitted changes ---
+  // The list is cheap enough to ask for on a timer while the pane is showing;
+  // the patch for one file is only fetched when that file is opened.
+  ipcMain.handle('changes:list', () => diff.status(agentCwd()));
+  ipcMain.handle('changes:patch', (_e, { path: rel, context } = {}) => diff.patch(agentCwd(), rel, { context }));
 
   // --- browser pane ---
   ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; pane?.setBounds(b); });

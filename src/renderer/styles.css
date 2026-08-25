@@ -599,6 +599,99 @@ body.dragging.row { cursor: row-resize; }
 [data-theme="dark"] #file-view .shiki span { color: var(--shiki-dark) !important; }
 #file-view .shiki.plain .line { color: var(--code); }
 
+/* --------------------------------------------------------------- changes */
+
+/* The list on top, the patch below it. The split is fixed rather than draggable
+   because the list is short by nature: a run that touches forty files is a run
+   you read one file at a time anyway. */
+#changesbar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+#changesbar .ctitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+#changesbar .ctitle svg.lucide { width: 14px; height: 14px; color: var(--fg-faint); flex: none; }
+#changes-summary { font: 11.5px var(--mono); color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The count on the tab is an outline, not a filled pill: a solid badge in dark
+   mode reads as a notification someone has to clear. */
+.vtab .count {
+  flex: none; min-width: 16px; padding: 0 4px;
+  border: 1px solid var(--line); border-radius: 99px;
+  font: 10px/15px var(--mono); text-align: center; color: var(--fg-dim);
+}
+.vtab.on .count { color: var(--fg); border-color: hsl(var(--muted-foreground) / .4); }
+
+#changes-body { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+#changes-list { flex: 0 0 auto; max-height: 40%; overflow: auto; padding: 6px 0; border-bottom: 1px solid var(--line); }
+#changes-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.crow {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  height: 24px; padding: 0 10px; text-align: left;
+  color: var(--fg); font-size: 12.5px;
+}
+.crow:hover { background: var(--bg-3); }
+.crow.on { background: var(--bg-4); }
+.cmark { flex: none; width: 12px; font: 10.5px var(--mono); color: var(--fg-faint); }
+.cmark.new, .cmark.added { color: var(--ok); }
+.cmark.deleted { color: var(--err); }
+.cmark.conflict { color: var(--warn); }
+.cpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cdir { color: var(--fg-faint); }
+.cname { color: var(--fg); }
+.ctag { flex: none; font: 10px var(--mono); color: var(--fg-faint); border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; }
+.cnums { flex: none; display: flex; gap: 6px; font: 10.5px var(--mono); }
+.cadd { color: var(--ok); }
+.cdel { color: var(--err); }
+.cbin { color: var(--fg-faint); }
+.cmore { padding: 6px 10px; font: 11px var(--mono); color: var(--fg-faint); }
+
+.cempty { display: grid; justify-items: center; gap: 8px; padding: 28px 24px; text-align: center; }
+.cempty h2 { margin: 0; font-size: 13px; font-weight: 500; color: var(--fg); }
+.cempty p { margin: 0; max-width: 46ch; font-size: 12px; line-height: 1.6; color: var(--fg-dim); }
+
+.chead {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 8px 0 10px; flex: none;
+  border-bottom: 1px solid var(--line); background: var(--bg-2);
+}
+.chead-path { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.cjump { flex: none; display: flex; align-items: center; gap: 2px; }
+.cat { min-width: 4ch; text-align: center; font: 10.5px var(--mono); color: var(--fg-faint); }
+.cjump .icon:disabled { opacity: .35; }
+.ctoggle {
+  flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px;
+  font: 10.5px var(--mono); color: var(--fg-dim); background: none;
+}
+.ctoggle:hover { color: var(--fg); background: var(--bg-3); }
+.cdiff { flex: 1; min-height: 0; overflow: auto; padding: 6px 0 16px; font: 12px/1.55 var(--mono); }
+.cnote { padding: 10px 14px; font-size: 11.5px; color: var(--fg-faint); }
+
+/* One row per line, and the whole row tinted rather than just the text: a
+   patch is read by shape first, and a red block is a deletion before anyone has
+   read a word of it. */
+.dline { display: flex; white-space: pre; }
+.dgut {
+  flex: none; width: 5ch; padding-right: 10px; text-align: right;
+  color: var(--fg-faint); font-size: 11px; user-select: none;
+}
+.dsign { flex: none; width: 2ch; color: var(--fg-faint); user-select: none; }
+.dtext { flex: 1; min-width: 0; padding-right: 16px; color: var(--code); }
+.dadd { background: hsl(var(--success) / .10); }
+.dadd .dsign, .dadd .dtext { color: var(--ok); }
+.ddel { background: hsl(var(--destructive) / .10); }
+.ddel .dsign, .ddel .dtext { color: var(--err); }
+/* A run of changed lines is one thing on screen: the jump buttons step between
+   these, and the bar in the margin says where the file stops being what it was.
+   The current one is outlined rather than filled, so the lines inside it keep
+   the colour that says added or removed. */
+/* An inset shadow, not a border: a border would shift these lines two pixels
+   out of step with the unchanged ones around them. */
+.dblk.on { box-shadow: inset 2px 0 0 var(--accent); background: hsl(var(--primary) / .04); }
+.dblk.on .dgut { color: var(--fg-dim); }
+
+.dhunk { margin: 6px 0 2px; padding-left: 10px; color: var(--fg-faint); font-size: 11px; }
+.dhunk .dtext { color: var(--fg-faint); }
+.dnote { padding-left: 10px; color: var(--fg-faint); font-size: 11px; }
+.dnote .dtext { color: var(--fg-faint); }
+
 /* ---------------------------------------------------------------- drawer */
 
 #drawer { border-top: 1px solid var(--line); background: var(--bg-2); display: flex; flex-direction: column; height: 200px; }

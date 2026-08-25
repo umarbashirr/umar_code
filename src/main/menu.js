@@ -62,6 +62,7 @@ function buildMenu({ recents = [], actions }) {
         command('Terminal', 'terminal', 'CmdOrCtrl+`'),
         command('Preview Browser', 'preview', 'CmdOrCtrl+Shift+B'),
         command('Project Files', 'files', 'CmdOrCtrl+Shift+D'),
+        command('Uncommitted Changes', 'changes', 'CmdOrCtrl+Shift+G'),
         hotkey('Right Pane at Full Width', 'previewFull', 'CmdOrCtrl+Shift+F'),
         command('Console and Network', 'drawer', 'CmdOrCtrl+Shift+J'),
         { type: 'separator' },

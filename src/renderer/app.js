@@ -6,7 +6,7 @@ import {
   AppWindow, ArrowLeft, ArrowRight, Binary, Camera, Check, ChevronDown,
   ChevronRight, ChevronUp, CodeXml, Copy, Crosshair, EllipsisVertical,
   ExternalLink, Eye, EyeOff, File, FileCode, FileImage, FileJson, FileText,
-  Folder, FolderOpen, FolderTree, Globe, Hexagon, Laptop, Maximize2,
+  Folder, FolderOpen, FolderTree, GitCompare, Globe, Hexagon, Laptop, Maximize2,
   MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor, Moon, PanelBottom,
   PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles, Square,
   SquarePen, SquareTerminal, Sun, Tablet, X,
@@ -27,7 +27,7 @@ const USED = {
   AppWindow, ArrowLeft, ArrowRight, Binary, Camera, Check, ChevronDown,
   ChevronRight, ChevronUp, CodeXml, Copy, Crosshair, EllipsisVertical,
   ExternalLink, Eye, EyeOff, File, FileCode, FileImage, FileJson, FileText,
-  Folder, FolderOpen, FolderTree, Globe, Hexagon, Laptop, Maximize2,
+  Folder, FolderOpen, FolderTree, GitCompare, Globe, Hexagon, Laptop, Maximize2,
   MessageSquare, MessageSquareDot, Minimize2, Minus, Monitor, Moon, PanelBottom,
   PanelLeft, Plus, RotateCw, Scan, Search, Smartphone, Sparkles, Square,
   SquarePen, SquareTerminal, Sun, Tablet, X,
@@ -40,8 +40,9 @@ const state = {
   tabs: [],
   active: null,
   autoOpen: false,
-  // The right column holds one view at a time: the preview browser or the
-  // project files. `rightOpen` is the column, `rightView` is which of the two.
+  // The right column holds one view at a time: the preview browser, the project
+  // files, or the uncommitted changes. `rightOpen` is the column, `rightView` is
+  // which of the three.
   rightOpen: false,
   rightView: 'browser',
   previewFull: false,
@@ -267,6 +268,18 @@ function renderStrip() {
   files.onclick = () => toggleFiles();
   views.appendChild(files);
 
+  // The count is the point of the tab: a glance says whether the agent has
+  // been writing. It is only there once the view has read the folder at least
+  // once, so a window that never opens this tab never runs git.
+  const changed = window.tandemChanges?.count() || 0;
+  const changes = el('button', 'vtab' + (showing('changes') ? ' on' : ''));
+  changes.appendChild(iconMark('git-compare'));
+  changes.appendChild(el('span', null, 'Changes'));
+  if (changed) changes.appendChild(el('span', 'count', String(changed)));
+  changes.title = 'Uncommitted changes (Ctrl+Shift+G)';
+  changes.onclick = () => toggleChanges();
+  views.appendChild(changes);
+
   const strip = $('#term-tabs');
   strip.innerHTML = '';
 
@@ -433,8 +446,11 @@ function showRight(view) {
   $('#agent-gutter').classList.remove('closed');
   $('#browser-view').hidden = view !== 'browser';
   $('#files-view').hidden = view !== 'files';
+  $('#changes-view').hidden = view !== 'changes';
   renderStrip();
   if (view === 'files') window.tandemFiles?.activate();
+  if (view === 'changes') window.tandemChanges?.activate();
+  else window.tandemChanges?.deactivate();
   requestAnimationFrame(() => {
     syncBounds();
     resizeActive();
@@ -449,6 +465,7 @@ function closeRight() {
   // gives the chat its half back first.
   setPreviewFull(false);
   state.rightOpen = false;
+  window.tandemChanges?.deactivate();
   $('#right').classList.add('closed');
   $('#agent-gutter').classList.add('closed');
   renderStrip();
@@ -469,6 +486,7 @@ function closePreview() {
 
 const togglePreview = () => (state.rightOpen && state.rightView === 'browser' ? closeRight() : openPreview(true));
 const toggleFiles = () => (state.rightOpen && state.rightView === 'files' ? closeRight() : showRight('files'));
+const toggleChanges = () => (state.rightOpen && state.rightView === 'changes' ? closeRight() : showRight('changes'));
 
 // The right column at full width: the chat collapses to nothing and whichever
 // view is showing takes the whole content column. The rail is deliberately left
@@ -480,17 +498,28 @@ function setPreviewFull(on) {
   state.previewFull = next;
   if (next) showRight(state.rightView);
   $('#panes').classList.toggle('preview-full', next);
-  // The files view keeps a button for this; the preview keeps it in its menu.
-  const btn = $('#files-expand');
-  btn.classList.toggle('armed', next);
-  btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : 'Files at full width (Ctrl+Shift+F)';
-  btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
+  // The files and changes views keep a button for this; the preview keeps it in
+  // its menu.
+  for (const [sel, name] of [['#files-expand', 'Files'], ['#changes-expand', 'Changes']]) {
+    const btn = $(sel);
+    btn.classList.toggle('armed', next);
+    btn.title = next ? 'Back to the chat (Ctrl+Shift+F)' : `${name} at full width (Ctrl+Shift+F)`;
+    btn.replaceChildren(iconMark(next ? 'minimize-2' : 'maximize-2'));
+  }
   icons();
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
 }
 
 $('#files-expand').onclick = () => setPreviewFull();
+$('#changes-expand').onclick = () => setPreviewFull();
 $('#close-files').onclick = () => closeRight();
+
+// The changes view is its own module and needs three things from the shell:
+// the column, the tab strip it puts a count in, and the way to hand a file to
+// the tree next door.
+window.tandemStrip = () => renderStrip();
+window.tandemCloseRight = () => closeRight();
+window.tandemOpenFile = (rel) => runCommand('openFile', rel);
 
 async function openInPane(url) {
   $('#url').value = url;
@@ -790,6 +819,10 @@ export function runCommand(name, arg) {
       if (arg === true) return showRight('files');
       if (arg === false) return closeRight();
       return toggleFiles();
+    case 'changes':
+      if (arg === true) return showRight('changes');
+      if (arg === false) return closeRight();
+      return toggleChanges();
     case 'openFile':
       if (!arg) return undefined;
       showRight('files');
@@ -864,7 +897,7 @@ new ResizeObserver(() => syncBounds()).observe($('#paneslot'));
 function isAppChord(e) {
   const mod = e.ctrlKey || e.metaKey;
   const k = (e.key || '').toLowerCase();
-  if (mod && e.shiftKey && ['b', 'd', 't', 'l', 'e', 'j', 's', 'k'].includes(k)) return true;
+  if (mod && e.shiftKey && ['b', 'd', 'g', 't', 'l', 'e', 'j', 's', 'k'].includes(k)) return true;
   if (mod && k === '`') return true;
   if (mod && !e.shiftKey && k.length === 1 && k >= '1' && k <= '9') return true;
   return false;
@@ -877,6 +910,7 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === '`') { e.preventDefault(); togglePanel(); }
   else if (mod && shift && k === 'b') { e.preventDefault(); togglePreview(); }
   else if (mod && shift && k === 'd') { e.preventDefault(); toggleFiles(); }
+  else if (mod && shift && k === 'g') { e.preventDefault(); toggleChanges(); }
   else if (mod && shift && k === 's') { e.preventDefault(); toggleRail(); }
   else if (mod && shift && k === 't') { e.preventDefault(); newTerminalTab(); }
   else if (mod && shift && k === 'k') { e.preventDefault(); document.querySelector('#agent-root textarea')?.focus(); }

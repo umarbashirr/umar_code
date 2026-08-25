@@ -55,6 +55,7 @@ const MENUS = [
       { label: 'Terminal', hint: '^`', run: () => runCommand('terminal') },
       { label: 'Preview browser', hint: '^⇧B', run: () => runCommand('preview') },
       { label: 'Project files', hint: '^⇧D', run: () => runCommand('files') },
+      { label: 'Uncommitted changes', hint: '^⇧G', run: () => runCommand('changes') },
       { label: 'Right pane at full width', hint: '^⇧F', run: () => runCommand('previewFull') },
       { label: 'Console and network', hint: '^⇧J', run: () => runCommand('drawer') },
       sep(),

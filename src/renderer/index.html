@@ -155,6 +155,25 @@
               <div id="file-view" hidden></div>
             </div>
           </div>
+
+          <div id="changes-view" class="rview" hidden>
+            <div id="changesbar">
+              <div class="ctitle">
+                <i data-lucide="git-compare"></i>
+                <span id="changes-summary">Reading the working tree</span>
+              </div>
+              <div class="nav">
+                <button id="changes-refresh" class="icon" title="Re-read the working tree"><i data-lucide="rotate-cw"></i></button>
+                <button id="changes-expand" class="icon" title="Changes at full width (Ctrl+Shift+F)"><i data-lucide="maximize-2"></i></button>
+                <button id="close-changes" class="icon danger" title="Hide the changes (Ctrl+Shift+G)"><i data-lucide="x"></i></button>
+              </div>
+            </div>
+
+            <div id="changes-body">
+              <div id="changes-list"></div>
+              <div id="changes-diff"></div>
+            </div>
+          </div>
         </section>
       </div>
 
