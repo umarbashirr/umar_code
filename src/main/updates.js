@@ -340,7 +340,7 @@ class Updates extends EventEmitter {
 }
 
 const which = (cmd) => {
-  for (const dir of (process.env.PATH || '').split(':')) {
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
     try { fs.accessSync(path.join(dir, cmd), fs.constants.X_OK); return true; } catch {}
   }

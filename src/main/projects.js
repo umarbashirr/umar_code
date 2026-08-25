@@ -62,12 +62,40 @@ function clearRecents() {
 //
 // `reopen` is the startup setting. Off, the last folder is still remembered for
 // the recents list; it just stops being where a bare launch lands.
+// A folder handed over on the command line: `tandem.exe C:\\code\\shop`, and what
+// Explorer's "Open with Tandem" passes. Running from a checkout puts the app
+// directory itself in argv, which is a real directory and would win, so that
+// one is skipped the way Electron marks it.
+function folderArg() {
+  const args = process.argv.slice(process.defaultApp ? 2 : 1);
+  for (const a of args) {
+    if (!a || a.startsWith('-')) continue;
+    if (isDir(a)) return path.resolve(a);
+  }
+  return null;
+}
+
+// The working directory is a good guess when the app was started from a shell
+// and a useless one when it was started from a shortcut, which on Windows hands
+// over the install directory. Neither a drive root, a home directory nor the
+// app's own folder is a project.
+function usableCwd(here) {
+  if (!isDir(here)) return false;
+  if (here === path.parse(here).root) return false;
+  if (here === os.homedir()) return false;
+  try { if (here === path.dirname(process.execPath)) return false; } catch {}
+  return true;
+}
+
 function startProject({ reopen = true } = {}) {
   const explicit = process.env.TANDEM_CWD;
   if (explicit && isDir(explicit)) return { dir: path.resolve(explicit), chosen: true };
 
+  const named = folderArg();
+  if (named) return { dir: named, chosen: true };
+
   const here = process.cwd();
-  if (here !== '/' && here !== os.homedir() && isDir(here)) return { dir: here, chosen: true };
+  if (usableCwd(here)) return { dir: here, chosen: true };
 
   let remembered = null;
   if (reopen) { try { remembered = fs.readFileSync(LAST, 'utf8').trim(); } catch {} }

@@ -38,13 +38,23 @@ function findApp() {
   }
 
   // Packaged beside us: <app>/resources/app.asar.unpacked/cli/tandem.js
-  const beside = path.join(__dirname, '..', '..', '..', '..', 'tandem');
+  const exeName = process.platform === 'win32' ? 'tandem.exe' : 'tandem';
+  const beside = path.join(__dirname, '..', '..', '..', '..', exeName);
   if (fs.existsSync(beside)) return { bin: beside, args: [] };
 
-  for (const p of [
-    '/opt/tandem/tandem',
-    '/usr/bin/tandem',
-  ]) if (fs.existsSync(p)) return { bin: p, args: [] };
+  const installed = process.platform === 'win32'
+    ? [
+      // Where the one-click installer puts it, then the machine-wide places
+      // someone may have moved it to.
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'tandem', 'tandem.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'tandem', 'tandem.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || '', 'tandem', 'tandem.exe'),
+    ]
+    : [
+      '/opt/tandem/tandem',
+      '/usr/bin/tandem',
+    ];
+  for (const p of installed) if (p && fs.existsSync(p)) return { bin: p, args: [] };
 
   // Source checkout: go through the launcher so the sandbox check still runs.
   const repo = path.join(__dirname, '..');
@@ -82,7 +92,7 @@ async function openProject(target) {
   }
 
   const app = findApp();
-  if (!app) die('cannot find the app. Install the .deb or AppImage, or set TANDEM_APP to its binary.');
+  if (!app) die('cannot find the app. Install it, or set TANDEM_APP to its binary.');
 
   const env = { ...process.env, TANDEM_CWD: dir };
   // A new window gets its own bridge and must not start life as node.

@@ -96,8 +96,14 @@ const toolContext = () => ({ getPane: () => pane, showPreview });
 function nodeShimDir() {
   const dir = path.join(app.getPath('userData'), 'bin');
   fs.mkdirSync(dir, { recursive: true });
-  const shim = path.join(dir, 'node');
-  const body = `#!/usr/bin/env sh\nELECTRON_RUN_AS_NODE=1 exec ${JSON.stringify(process.execPath)} "$@"\n`;
+
+  // A shebang is not a thing on Windows. What a shell there looks for is
+  // node.cmd, which PATHEXT makes answer to plain `node`.
+  const win = process.platform === 'win32';
+  const shim = path.join(dir, win ? 'node.cmd' : 'node');
+  const body = win
+    ? `@echo off\r\nsetlocal\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${process.execPath}" %*\r\nexit /b %errorlevel%\r\n`
+    : `#!/usr/bin/env sh\nELECTRON_RUN_AS_NODE=1 exec ${JSON.stringify(process.execPath)} "$@"\n`;
   try {
     if (!fs.existsSync(shim) || fs.readFileSync(shim, 'utf8') !== body) {
       fs.writeFileSync(shim, body, { mode: 0o755 });

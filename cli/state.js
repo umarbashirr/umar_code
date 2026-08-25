@@ -10,7 +10,10 @@ const DIR = path.join(os.homedir(), '.tandem');
 const PROJECTS = path.join(DIR, 'projects');
 const LAST = path.join(DIR, 'bridge.json');
 
-const slug = (cwd) => cwd.replace(/[/.]/g, '-').replace(/^-+/, '') || 'root';
+// A Windows path arrives as C:\\Users\\me\\proj, and a colon and a backslash are
+// both illegal in a filename there, so the separators and the drive colon go
+// the same way the dots do.
+const slug = (cwd) => cwd.replace(/[/\\:.]/g, '-').replace(/^-+/, '') || 'root';
 const projectFile = (cwd) => path.join(PROJECTS, slug(path.resolve(cwd)) + '.json');
 
 function read(file) {

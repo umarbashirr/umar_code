@@ -57,6 +57,22 @@ curl -fsSL .../install.sh | sh -s -- --uninstall
 `--user` is the escape hatch for a machine where you have no root. Chromium's sandbox helper has to
 be setuid root, and nobody but root can make it so, so that install runs with `--no-sandbox`.
 
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.ps1 | iex
+```
+
+Same release, same idea. It downloads the installer and runs it. That installer is one click: it
+lands in `%LOCALAPPDATA%\Programs\tandem` for you alone, asks for no password, puts `tandem` on PATH
+and adds "Open with Tandem" to a folder's right-click menu. Open a new terminal afterwards, or the
+one you are in will not have the new PATH. A piped script takes no arguments, so pass them through a
+script block instead:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.ps1))) -Uninstall
+```
+
 The install directory is lowercase and one word on purpose: the sandbox helper splits its own
 executable path on spaces, so a space in the path makes the app abort at startup with
 `failed to execvp:`. The capitalised name lives in the desktop entry, so it still shows up as
@@ -67,7 +83,12 @@ To build the packages yourself:
 ```sh
 npm install
 npm run dist        # writes dist/*.deb and dist/*.AppImage
+npm run dist:win    # writes dist/tandem-<version>-x64.exe
 ```
+
+`dist:win` has to run on Windows. node-pty compiles against the machine it is built on, and the
+claude binary the agent runs ships as a per-platform package, so a Windows installer cross-built from
+Linux would carry Linux binaries inside it.
 
 To run from source:
 

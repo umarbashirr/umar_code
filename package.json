@@ -16,7 +16,8 @@
     "icon": "electron scripts/make-icon.js",
     "pack": "npm run build:renderer && electron-builder --dir",
     "dist": "npm run build:renderer && electron-builder --linux AppImage deb",
-    "build:renderer": "vite build"
+    "build:renderer": "vite build",
+    "dist:win": "npm run build:renderer && electron-builder --win nsis"
   },
   "license": "MIT",
   "dependencies": {
@@ -128,14 +129,37 @@
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "extraFiles": [
+        {
+          "from": "build/tandem.cmd",
+          "to": "tandem.cmd"
+        }
+      ]
     },
     "appImage": {
       "executableArgs": [
         "--no-sandbox"
       ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tandem",
+      "uninstallDisplayName": "Tandem ${version}",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     }
   },
   "author": {

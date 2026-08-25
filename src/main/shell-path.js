@@ -61,6 +61,13 @@ let resolved = null;
 async function shellPath() {
   if (resolved) return resolved;
   const current = (process.env.PATH || '').split(path.delimiter);
+  // Windows has no login shell to ask, and PATH there comes from the registry
+  // rather than from a profile the app cannot see, so what we were handed is
+  // already the answer.
+  if (process.platform === 'win32') {
+    resolved = process.env.PATH || '';
+    return resolved;
+  }
   const shell = process.env.SHELL || '/bin/sh';
   const asked = await askShell(shell);
   resolved = asked ? merge(asked.split(path.delimiter), current) : (process.env.PATH || '');
