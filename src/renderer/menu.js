@@ -21,6 +21,18 @@ const MENUS = [
         items.push(sep(), { header: 'Recent' });
         for (const r of recents) items.push({ label: r.name, note: shortPath(r.path), run: () => openRecent(r.path) });
       }
+      const editors = window.tandemEditors?.list() || [];
+      if (editors.length && project.chosen) {
+        items.push(sep(), { header: 'Open this folder in' });
+        for (const e of editors) {
+          items.push({
+            label: e.name,
+            iconUrl: e.icon || undefined,
+            on: e.id === window.tandemEditors.chosen(),
+            run: () => window.tandemEditors.open(e.id),
+          });
+        }
+      }
       items.push(
         sep(),
         { label: 'New chat', run: () => runCommand('newChat') },

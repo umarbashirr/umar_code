@@ -65,9 +65,11 @@ export function closeMenu() {
   onClose?.();
 }
 
-/* items: { label, hint, note, ltr, icon, on, danger, disabled, run } | { sep } | { header }
+/* items: { label, hint, note, ltr, icon, iconUrl, on, danger, disabled, run } | { sep } | { header }
    note is right-aligned and clipped from the left, which is what a path wants;
-   ltr turns that off for notes that read left to right, like a pixel size. */
+   ltr turns that off for notes that read left to right, like a pixel size.
+   iconUrl is for a picture the machine gave us, like an installed app's own
+   icon, where a line drawing from the icon set would be a worse likeness. */
 export function showMenu(trigger, items, { id = 'menu', align = 'left', onClose } = {}) {
   const wasOpen = current;
   current = null;              // so closeMenu's callback doesn't fight this open
@@ -75,7 +77,7 @@ export function showMenu(trigger, items, { id = 'menu', align = 'left', onClose 
 
   const pop = popup();
   pop.innerHTML = '';
-  const withIcons = items.some((i) => i.icon);
+  const withIcons = items.some((i) => i.icon || i.iconUrl);
 
   for (const item of items) {
     if (item.sep) { pop.appendChild(el('div', 'menu-sep')); continue; }
@@ -84,7 +86,14 @@ export function showMenu(trigger, items, { id = 'menu', align = 'left', onClose 
     const row = el('button', 'menu-item' + (item.danger ? ' danger' : '') + (item.on ? ' on' : ''));
     if (withIcons) {
       const slot = el('span', 'menu-icon');
-      if (item.icon) slot.appendChild(iconMark(item.icon));
+      if (item.iconUrl) {
+        const img = el('img', 'menu-img');
+        img.src = item.iconUrl;
+        img.alt = '';
+        slot.appendChild(img);
+      } else if (item.icon) {
+        slot.appendChild(iconMark(item.icon));
+      }
       row.appendChild(slot);
     }
     row.appendChild(el('span', 'menu-label', item.label));

@@ -16,6 +16,7 @@ const { listSessions, readSession, readSubagent, listSubagents } = require('./hi
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const diff = require('./diff');
+const editors = require('./editors');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
@@ -706,6 +707,11 @@ function registerIpc() {
   // the patch for one file is only fetched when that file is opened.
   ipcMain.handle('changes:list', () => diff.status(agentCwd()));
   ipcMain.handle('changes:patch', (_e, { path: rel, context } = {}) => diff.patch(agentCwd(), rel, { context }));
+
+  // --- editors ---
+  // What is installed, and handing the project folder to one of them.
+  ipcMain.handle('editors:list', (_e, { fresh } = {}) => editors.detect({ fresh: !!fresh }));
+  ipcMain.handle('editors:open', (_e, { id } = {}) => editors.open(id, agentCwd()));
 
   // --- browser pane ---
   ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; pane?.setBounds(b); });

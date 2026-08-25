@@ -30,6 +30,11 @@ const DEFAULTS = {
     reopenProject: true,
     checkUpdates: true,
   },
+  // Which editor the toolbar button opens. Empty until someone picks one, and
+  // ignored if that editor is no longer installed.
+  editor: {
+    id: '',
+  },
   claude: {
     // Which claude the agent runs: the one bundled in the app, or a newer one
     // found on PATH. See driver.js.

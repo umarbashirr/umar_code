@@ -63,6 +63,12 @@ contextBridge.exposeInMainWorld('tandem', {
     onChanged: on('files:changed'),
   },
 
+  // The editors this machine has, and opening the project folder in one.
+  editors: {
+    list: (fresh) => ipcRenderer.invoke('editors:list', { fresh: !!fresh }),
+    open: (id) => ipcRenderer.invoke('editors:open', { id }),
+  },
+
   // What has changed in the working tree and not been committed. The list is
   // one call, each file's patch is another, because a repo mid-refactor holds
   // more diff than is worth sending at once.
