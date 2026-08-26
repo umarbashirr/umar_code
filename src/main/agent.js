@@ -183,6 +183,13 @@ class AgentSession extends EventEmitter {
       if (!this.closed) this.emit('error', err?.message || String(err));
     } finally {
       this.busy = false;
+      // The query is gone: nothing reads the queue any more and setModel has
+      // nothing to talk to. Say so here rather than only in stop(), or a
+      // session that died on its own still looks alive, ensureAgent hands the
+      // same corpse back on every later message, and the chat stays stuck on
+      // whatever model it was holding when it fell over.
+      this.closed = true;
+      if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
       this.emit('closed');
     }
   }
@@ -316,7 +323,16 @@ class AgentSession extends EventEmitter {
   }
 
   async setModel(model) {
-    try { await this.query?.setModel(model || undefined); this.model = model || null; } catch {}
+    // Swallowing this is how someone ends up watching the picker say one name
+    // while the session runs on another. There is no session before the first
+    // send, and that case is not a failure: query is undefined and the choice
+    // is simply kept for start().
+    try {
+      await this.query?.setModel(model || undefined);
+      this.model = model || null;
+    } catch (e) {
+      this.emit('error', `could not switch to ${model}: ${e?.message || e}`);
+    }
     return this.model;
   }
 

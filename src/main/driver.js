@@ -86,10 +86,14 @@ function claudeBinary() {
 // Models the picker offers, and the CLI version each one needs. A binary older
 // than `since` cannot route the slug, so offering it would only produce a send
 // that fails. Left open where there is no floor to enforce.
+//
+// Sonnet leads because the order here decides what forgetModel() falls back to,
+// and every paid plan can run Sonnet. Fable and Opus are gated on the account,
+// not on the CLI, and nothing on this machine can see which plan someone is on.
 const CATALOG = [
-  { value: 'claude-fable-5', displayName: 'Claude Fable 5', since: '2.1.169' },
-  { value: 'claude-opus-5', displayName: 'Claude Opus 5', since: '2.1.219' },
   { value: 'claude-sonnet-5', displayName: 'Claude Sonnet 5' },
+  { value: 'claude-opus-5', displayName: 'Claude Opus 5', since: '2.1.219' },
+  { value: 'claude-fable-5', displayName: 'Claude Fable 5', since: '2.1.169' },
   { value: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5' },
 ];
 

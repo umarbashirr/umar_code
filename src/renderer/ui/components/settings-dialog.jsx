@@ -170,6 +170,7 @@ function ModelRow({ agent }) {
           ? <Mono>{agent.driver?.installed ? 'no models offered' : 'CLI not installed'}</Mono>
           : (
             <Picker value={agent.model} onChange={agent.changeModel}>
+              {!agent.model && <option value="">Pick a model</option>}
               {agent.models.map((m) => (
                 <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
               ))}

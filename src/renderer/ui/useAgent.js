@@ -415,7 +415,9 @@ export function useAgent() {
       setDriver({ installed: d.installed, version: d.version, message: d.message, endpoint: d.endpoint });
       if (!d.models?.length) return setModels([]);
       setModels(d.models);
-      setModel((cur) => cur || d.current || d.models[0].value);
+      // Left empty when nothing has been chosen, so the picker says "Pick a
+      // model" instead of naming one the main process never received.
+      setModel((cur) => cur || d.current || '');
     };
     tandem().agent.models().then(apply).catch(() => {});
     // The probe finishes after the first paint on a cold cache.

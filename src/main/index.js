@@ -482,7 +482,9 @@ function registerIpc() {
   // session, and the picker is drawn before anyone has said anything.
   ipcMain.handle('agent:models', () => {
     const d = driver.current();
-    const current = chosenModel || anySession()?.model || d.models[0]?.value || '';
+    // No fallback to the top of the list. Nobody picked that, and answering
+    // with it makes the picker show a name this process was never told to run.
+    const current = chosenModel || anySession()?.model || '';
     // A name pinned against a proxy is not always one this app can see. Keep it
     // on the list rather than move someone to a different model without saying so.
     const models = current && !d.models.some((m) => m.value === current)
