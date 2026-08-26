@@ -79,6 +79,23 @@ export function toggleHidden() {
 
 // Reload everything already on screen. Folders that were collapsed are dropped
 // so a refresh does not quietly keep a stale listing around for later.
+/* Focus moved to another folder. The paths on screen belong to the folder that
+   just left, and `src/` in this one is a different `src/`, so the tree goes back
+   to its opening state rather than trying to carry expansions across. The file
+   being read goes with it for the same reason. */
+export function resetForProject() {
+  tree.open = new Set(['']);
+  tree.kids.clear();
+  tree.loading.clear();
+  tree.selected = null;
+  view.path = null;
+  view.data = null;
+  search.query = '';
+  search.result = null;
+  changed();
+  if (started) { loadDir(''); syncWatch(); }
+}
+
 export function refreshAll() {
   for (const rel of [...tree.kids.keys()]) {
     if (tree.open.has(rel)) loadDir(rel);
@@ -281,18 +298,15 @@ window.tandem.files.onChanged(({ dir }) => {
   }
 });
 
-// Switching project folder invalidates the whole tree: different root, different
-// files, and main has already dropped its watches.
-window.tandem.project.onChanged(() => {
-  tree.open = new Set(['']);
-  tree.kids.clear();
-  tree.selected = null;
-  view.path = null;
-  view.data = null;
-  search.query = '';
-  search.result = null;
-  if (started) { loadDir(''); syncWatch(); }
-  changed();
+// The window announces its folders whenever the set or the focused one moves,
+// and only the second of those concerns this pane. Opening a second project, or
+// reordering the strip, must not collapse a tree somebody is reading.
+let showing = null;
+window.tandem.project.onChanged((info) => {
+  const next = info?.focused || info?.dir || null;
+  if (next === showing) return;
+  showing = next;
+  resetForProject();
 });
 
 // Nothing is read until the pane is first shown. app.js calls this when the

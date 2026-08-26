@@ -8,11 +8,18 @@ const path = require('path');
 const { spawn } = require('child_process');
 const state = require('./state');
 
+// Which project the command was typed in. One window can have several open,
+// so every request says where it came from and the window routes it from
+// there. The app's terminals export TANDEM_CWD, and that beats the shell's own
+// cwd: a shell that has wandered into node_modules, or into a checkout sitting
+// inside the project, still belongs to the project its terminal was opened for.
+const callerCwd = () => process.env.TANDEM_CWD || process.cwd();
+
 function connection() {
   if (process.env.TANDEM_BRIDGE_URL && process.env.TANDEM_TOKEN) {
     return { url: process.env.TANDEM_BRIDGE_URL, token: process.env.TANDEM_TOKEN };
   }
-  const found = state.find(process.cwd());
+  const found = state.find(callerCwd());
   if (found) return found;
   die('no window open for this folder. Run `tandem .` to open one.');
 }
@@ -86,7 +93,10 @@ async function openProject(target) {
   const open = state.forDir(dir);
   if (open) {
     try {
-      const res = await fetch(`${open.url}/focus`, { method: 'POST', headers: { 'x-tandem-token': open.token } });
+      const res = await fetch(`${open.url}/focus`, {
+        method: 'POST',
+        headers: { 'x-tandem-token': open.token, 'x-tandem-cwd': dir },
+      });
       if (res.ok) { process.stdout.write(`focused the window already open on ${dir}\n`); return; }
     } catch { /* dead or wedged: fall through and start a new one */ }
   }
@@ -119,7 +129,7 @@ async function call(tool, args) {
   try {
     res = await fetch(`${url}/tool/${tool}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-tandem-token': token },
+      headers: { 'content-type': 'application/json', 'x-tandem-token': token, 'x-tandem-cwd': callerCwd() },
       body: JSON.stringify(args || {}),
     });
   } catch (e) {

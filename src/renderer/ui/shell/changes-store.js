@@ -254,7 +254,14 @@ window.tandem.files.onChanged(() => {
   burst = setTimeout(() => refresh({ quiet: true }), 400);
 });
 
-window.tandem.project.onChanged(() => {
+// Only a move of the focused folder means the diff on screen belongs to another
+// project. The window says its folders have changed for opens and reorders too,
+// and neither of those touches what this pane is showing.
+let showing = null;
+window.tandem.project.onChanged((info) => {
+  const next = info?.focused || info?.dir || null;
+  if (next === showing) return;
+  showing = next;
   changesState.files = [];
   changesState.selected = null;
   changesState.patch = null;

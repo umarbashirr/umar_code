@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld('tandem', {
     // No dir means "ask with the system folder picker".
     open: (opts) => ipcRenderer.invoke('project:open', opts || {}),
     forget: (dir) => ipcRenderer.invoke('project:forget', { dir }),
+    // Which of the open folders the right-hand column is showing. Cheap: no
+    // chat stops and no shell dies, because the folder being looked at and the
+    // folders doing work are different questions.
+    focus: (dir) => ipcRenderer.invoke('project:focus', { dir }),
+    close: (dir) => ipcRenderer.invoke('project:close', { dir }),
+    reorder: (dirs) => ipcRenderer.invoke('project:reorder', { dirs }),
     onChanged: on('project:changed'),
   },
 
@@ -51,12 +57,12 @@ contextBridge.exposeInMainWorld('tandem', {
 
   // The project folder as a tree. Reads only: nothing here writes to disk.
   files: {
-    list: (path) => ipcRenderer.invoke('files:list', { path }),
-    read: (path) => ipcRenderer.invoke('files:read', { path }),
-    search: (query) => ipcRenderer.invoke('files:search', { query }),
+    list: (path, project) => ipcRenderer.invoke('files:list', { path, project }),
+    read: (path, project) => ipcRenderer.invoke('files:read', { path, project }),
+    search: (query, project) => ipcRenderer.invoke('files:search', { query, project }),
     // The full set of folders the tree currently has expanded, sent whenever it
     // changes so main can reconcile its watches in one go.
-    watch: (dirs) => ipcRenderer.send('files:watch', { dirs }),
+    watch: (dirs, project) => ipcRenderer.send('files:watch', { dirs, project }),
     reveal: (path) => ipcRenderer.invoke('files:reveal', { path }),
     openExternal: (path) => ipcRenderer.invoke('files:openExternal', { path }),
     absolute: (path) => ipcRenderer.invoke('files:absolute', { path }),
@@ -83,12 +89,12 @@ contextBridge.exposeInMainWorld('tandem', {
   // several can run at once and each event finds its way back.
   agent: {
     onActivity: on('agent:activity'),
-    send: (chat, session, text, images) => ipcRenderer.invoke('agent:send', { chat, session, text, images }),
+    send: (chat, session, text, images, project) => ipcRenderer.invoke('agent:send', { chat, session, text, images, project }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
     // One subagent, by the id task_started gave it.
     stopTask: (chat, id) => ipcRenderer.invoke('agent:stopTask', { chat, id }),
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
-    subagent: (session, agentId) => ipcRenderer.invoke('agent:subagent', { session, agentId }),
+    subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: () => ipcRenderer.invoke('agent:models'),
     setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
@@ -97,9 +103,9 @@ contextBridge.exposeInMainWorld('tandem', {
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
-    transcript: (id) => ipcRenderer.invoke('agent:transcript', { id }),
-    resume: (chat, id) => ipcRenderer.invoke('agent:resume', { chat, id }),
-    deleteSession: (id) => ipcRenderer.invoke('agent:deleteSession', { id }),
+    transcript: (id, project) => ipcRenderer.invoke('agent:transcript', { id, project }),
+    resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
+    deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
     info: (chat) => ipcRenderer.invoke('agent:info', { chat }),
     decide: (chat, id, decision, input) => ipcRenderer.send('agent:decide', { chat, id, decision, input }),
     onMessage: on('agent:message'),

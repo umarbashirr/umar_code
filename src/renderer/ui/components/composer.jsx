@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, CameraIcon, ChevronDownIcon, CrosshairIcon, FileIcon, FolderIcon,
+  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon, FolderIcon,
   GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
@@ -226,7 +226,11 @@ function Attachment({ item, onOpen, onRemove }) {
 }
 
 export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
-  const project = useProject();
+  const window_ = useProject();
+  // The folder this chat runs in, which is the one the message about to be typed
+  // will land in. Not always the focused folder: reading a chat from another
+  // project leaves the window where it was until you click into it.
+  const project = window_.projects?.find((p) => p.dir === agent.project) || window_;
   const [showCatalog, setShowCatalog] = useState(false);
   const [previewing, setPreviewing] = useState(null);
   // A menu that has been dismissed stays dismissed until the box changes
@@ -363,20 +367,31 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="max-w-[380px]">
             <DropdownMenuLabel className="font-normal text-muted-foreground text-xs">
-              {shortPath(project.dir, project.home)}
+              {shortPath(project.dir, window_.home)}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => window.tandem.project.open({})}>Open folder…</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => window.tandem.project.open({ newWindow: true })}>
               Open folder in new window…
             </DropdownMenuItem>
-            {project.recents.length > 0 && <DropdownMenuSeparator />}
-            {project.recents.slice(0, 6).map((r) => (
+            {/* The folders already open here. Picking one moves the window to
+                it, which is a different thing from opening a folder: nothing
+                starts and nothing stops. */}
+            {window_.projects?.length > 1 && <DropdownMenuSeparator />}
+            {window_.projects?.length > 1 && window_.projects.map((p) => (
+              <DropdownMenuItem key={p.dir} onSelect={() => window.tandem.project.focus(p.dir)}>
+                <FolderIcon className="size-3.5 text-muted-foreground" />
+                <span className="truncate">{p.name}</span>
+                {p.dir === window_.focused && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
+              </DropdownMenuItem>
+            ))}
+            {window_.recents.length > 0 && <DropdownMenuSeparator />}
+            {window_.recents.slice(0, 6).map((r) => (
               <DropdownMenuItem key={r.path} onSelect={() => window.tandem.project.open({ dir: r.path })}>
                 <FolderIcon className="size-3.5 text-muted-foreground" />
                 <span className="truncate">{r.name}</span>
                 <span className="ml-auto truncate text-muted-foreground text-xs" dir="rtl">
-                  {shortPath(r.path, project.home)}
+                  {shortPath(r.path, window_.home)}
                 </span>
               </DropdownMenuItem>
             ))}
@@ -387,7 +402,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
           <Pill
             tabIndex={-1}
             className="pointer-events-none"
-            title={`${shortPath(project.dir, project.home)} is on ${project.branch}`}>
+            title={`${shortPath(project.dir, window_.home)} is on ${project.branch}`}>
             <GitBranchIcon className="size-3.5 shrink-0" />
             <span className="truncate">{project.branch}</span>
           </Pill>

@@ -1,7 +1,9 @@
 'use strict';
-// The project folder, read on demand for the Files pane. Nothing is cached
+// The project folders, read on demand for the Files pane. A window holds
+// several projects open at once, so every call names the root it is working on
+// and nothing is remembered that is not keyed by that root. Nothing is cached
 // except the filename index the search box uses, and every path that comes in
-// from the renderer is resolved against the project root first, so a "../.."
+// from the renderer is resolved against its own project root first, so a "../.."
 // cannot walk out of the folder. A symlink you put in the project yourself is
 // followed when you click it, which is the point of putting it there; the
 // search index does not follow one, so a link to a home directory cannot quietly
@@ -15,6 +17,12 @@ const MAX_IMAGE = 8 * 1024 * 1024; // a data: URL of a 20MB png helps nobody
 const MAX_ENTRIES = 3000;          // per directory
 const WALK_CAP = 30000;            // filenames held for the search box
 const INDEX_TTL = 15000;
+// Indexes are held per project root and each one runs to WALK_CAP names, so
+// keeping every folder a person has ever opened would be paying real memory for
+// a search box nobody is typing in. Four covers the projects you move between in
+// a sitting. The one that falls off the end costs a single walk to come back,
+// which is what opening it cost in the first place.
+const MAX_INDEXES = 4;
 
 const IMAGE_TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -188,12 +196,36 @@ async function read(root, rel) {
 
 // ------------------------------------------------------------- search index
 
-// One flat list of filenames, rebuilt when it goes stale or when a watched
-// folder changes underneath it. Directories in UNWALKED are skipped: they are
-// still browsable by hand, they are just not worth 40000 index entries.
-const index = { root: null, at: 0, files: [], capped: false, building: null, buildingRoot: null };
+// One flat list of filenames per project root, rebuilt when it goes stale or
+// when a watched folder changes underneath it. Directories in UNWALKED are
+// skipped: they are still browsable by hand, they are just not worth 40000
+// index entries.
+//
+// The Map is also the eviction order. A root that gets used is deleted and put
+// back, so the key at the front is always the one nobody has searched in the
+// longest and it is the one to throw away.
+const indexes = new Map(); // root key -> { at, files, capped, building }
 
-function invalidate() { index.at = 0; }
+// Roots reach us from a folder picker, a recents list and the command line, and
+// "/p" and "/p/" are the same project to everyone except a Map. Everything that
+// keys on a root goes through here first.
+const keyOf = (root) => path.resolve(String(root == null ? '.' : root));
+
+function touch(key) {
+  const entry = indexes.get(key);
+  if (!entry) return null;
+  indexes.delete(key);
+  indexes.set(key, entry);
+  return entry;
+}
+
+// A write in one project says nothing about the state of another, so a root
+// drops on its own. With no argument every root drops, for a window closing or
+// a person reloading the whole thing.
+function invalidate(root) {
+  if (root == null) indexes.clear();
+  else indexes.delete(keyOf(root));
+}
 
 async function buildIndex(root) {
   const files = [];
@@ -232,24 +264,34 @@ async function buildIndex(root) {
     }
   }
 
-  index.root = root;
-  index.files = files;
-  index.capped = capped;
-  index.at = Date.now();
-  return files;
+  return { files, capped };
 }
 
-async function ensureIndex(root) {
-  if (index.root === root && Date.now() - index.at < INDEX_TTL) return index.files;
-  // A walk started before the window changed folders is answering about the
-  // wrong tree, so it is left to finish and a new one is started.
-  if (!index.building || index.buildingRoot !== root) {
-    index.buildingRoot = root;
-    index.building = buildIndex(root).finally(() => {
-      if (index.buildingRoot === root) { index.building = null; index.buildingRoot = null; }
-    });
+// A walk writes into the entry object rather than back into the Map. If the root
+// is invalidated or evicted while its walk is in flight, the walk lands on an
+// object nobody can reach any more instead of quietly restoring the listing that
+// was already known to be out of date.
+function ensureIndex(root) {
+  const key = keyOf(root);
+  const live = touch(key);
+  if (live) {
+    if (live.building) return live.building;
+    if (Date.now() - live.at < INDEX_TTL) return Promise.resolve(live);
   }
-  return index.building;
+
+  const entry = live || { at: 0, files: [], capped: false, building: null };
+  if (!live) {
+    indexes.set(key, entry);
+    while (indexes.size > MAX_INDEXES) indexes.delete(indexes.keys().next().value);
+  }
+
+  entry.building = buildIndex(root).then((built) => {
+    entry.files = built.files;
+    entry.capped = built.capped;
+    entry.at = Date.now();
+    return entry;
+  }).finally(() => { entry.building = null; });
+  return entry.building;
 }
 
 // Substring on the basename beats substring anywhere in the path, and a shorter
@@ -259,9 +301,9 @@ async function search(root, query, limit = 200) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return { matches: [], capped: false };
 
-  const files = await ensureIndex(root);
+  const entry = await ensureIndex(root);
   const hits = [];
-  for (const rel of files) {
+  for (const rel of entry.files) {
     const lower = rel.toLowerCase();
     const at = lower.indexOf(q);
     if (at === -1) continue;
@@ -273,7 +315,7 @@ async function search(root, query, limit = 200) {
   return {
     matches: hits.slice(0, limit).map((h) => ({ path: h.path, name: path.basename(h.path) })),
     total: hits.length,
-    capped: index.capped,
+    capped: entry.capped,
   };
 }
 
@@ -283,56 +325,84 @@ async function search(root, query, limit = 200) {
 // renderer expands or collapses something. Recursive watching is a Windows and
 // macOS luxury, and watching a whole checkout would be wrong anyway: the tree
 // only redraws the folders you can actually see.
+//
+// One Watcher serves the whole window. Its watches are grouped by project root
+// so that closing one project takes down its own and leaves the other projects
+// watching what they were watching.
 class Watcher {
+  // onChange is called with the folder that changed and the root it belongs to,
+  // because the same rel path exists in two projects and the renderer has to
+  // know which tree to redraw.
   constructor(onChange) {
     this.onChange = onChange;
-    this.root = null;
-    this.handles = new Map(); // rel -> FSWatcher
-    this.timers = new Map();
+    this.roots = new Map(); // root key -> { handles: Map(rel -> FSWatcher), timers: Map(rel -> Timeout) }
+  }
+
+  forRoot(root) {
+    const key = keyOf(root);
+    let entry = this.roots.get(key);
+    if (!entry) { entry = { handles: new Map(), timers: new Map() }; this.roots.set(key, entry); }
+    return entry;
   }
 
   // Editors write a file by renaming a temp file over it, which fires two or
   // three events. One redraw per folder per burst is enough.
-  ping(rel) {
-    clearTimeout(this.timers.get(rel));
-    this.timers.set(rel, setTimeout(() => {
-      this.timers.delete(rel);
-      invalidate();
-      this.onChange(rel);
+  ping(root, rel) {
+    const entry = this.roots.get(keyOf(root));
+    if (!entry) return;
+    clearTimeout(entry.timers.get(rel));
+    entry.timers.set(rel, setTimeout(() => {
+      entry.timers.delete(rel);
+      invalidate(root);
+      this.onChange(rel, root);
     }, 120));
   }
 
+  // Replaces the watches for this root only. The other projects in the window
+  // are mid-session too and their expanded folders are none of this call's
+  // business.
   sync(root, dirs) {
-    if (root !== this.root) { this.clear(); this.root = root; }
+    const { handles } = this.forRoot(root);
     // The renderer sends its expanded folders in the order they were opened, so
     // the newest are the ones worth keeping when there are more than the cap.
+    // The cap is per project, since each project is a tree someone is browsing.
     const want = new Set(Array.isArray(dirs) ? dirs.slice(-64) : []);
 
-    for (const [rel, h] of this.handles) {
+    for (const [rel, h] of handles) {
       if (want.has(rel)) continue;
       try { h.close(); } catch {}
-      this.handles.delete(rel);
+      handles.delete(rel);
     }
 
     for (const rel of want) {
-      if (this.handles.has(rel)) continue;
+      if (handles.has(rel)) continue;
       const abs = within(root, rel);
       if (!abs) continue;
       try {
-        const h = fs.watch(abs, { persistent: false }, () => this.ping(rel));
+        const h = fs.watch(abs, { persistent: false }, () => this.ping(root, rel));
         // A deleted folder takes its watch down with an EPERM on some systems.
-        h.on('error', () => { try { h.close(); } catch {} this.handles.delete(rel); });
-        this.handles.set(rel, h);
+        h.on('error', () => { try { h.close(); } catch {} handles.delete(rel); });
+        handles.set(rel, h);
       } catch { /* unreadable or gone: the next refresh will say so */ }
     }
-    return this.handles.size;
+    return handles.size;
+  }
+
+  // Closing a project. Its index goes with the watches, since holding an index
+  // for a folder the window is no longer showing is the thing MAX_INDEXES is
+  // there to avoid.
+  drop(root) {
+    const key = keyOf(root);
+    const entry = this.roots.get(key);
+    if (!entry) return;
+    for (const h of entry.handles.values()) { try { h.close(); } catch {} }
+    for (const t of entry.timers.values()) clearTimeout(t);
+    this.roots.delete(key);
+    invalidate(key);
   }
 
   clear() {
-    for (const h of this.handles.values()) { try { h.close(); } catch {} }
-    this.handles.clear();
-    for (const t of this.timers.values()) clearTimeout(t);
-    this.timers.clear();
+    for (const root of [...this.roots.keys()]) this.drop(root);
   }
 }
 

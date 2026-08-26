@@ -71,8 +71,12 @@ function replay(messages, parent) {
 // an agent carries that agent's Agent-call id as `parent`, and the tree is put
 // back together at render time. Patching a tool result by id then works the
 // same whoever ran it.
-const blankChat = () => ({
+const blankChat = (project = null) => ({
   key: uid('c'),
+  // The folder this chat runs in. A chat keeps it for life: you can open a
+  // second project, read it, come back, and this one is still working where it
+  // started. Null only until the window has told us which folders are open.
+  project,
   session: null,
   title: 'New chat',
   items: [],
@@ -95,6 +99,54 @@ const blankChat = () => ({
 // turns that stream into a flat list of items per chat, and hands back the
 // actions the composer needs for whichever chat is on screen.
 export function useAgent() {
+  // Which folder a chat started now would belong to. Read through a ref because
+  // the IPC listeners are registered once and would otherwise close over the
+  // project that was focused on the first render.
+  const focusedProject = useRef(null);
+  useEffect(() => {
+    const apply = (info) => {
+      const dir = info?.focused || info?.dir || null;
+      focusedProject.current = dir;
+      // The window opens with a chat in it before it knows which folders it
+      // has, so that first chat is rooted by the first answer and not by
+      // whichever folder happens to be focused when it is finally used.
+      if (dir) setChats((all) => (all.some((c) => !c.project)
+        ? all.map((c) => (c.project ? c : { ...c, project: dir }))
+        : all));
+
+      // A folder that has been closed takes its chats with it. Main has already
+      // stopped their sessions; what is left is the copies here, and a chat
+      // pointing at a folder the window no longer holds has nowhere to send.
+      const dirs = new Set((info?.projects || []).map((p) => p.dir));
+      if (dirs.size) dropChatsOutside(dirs, dir);
+    };
+    tandem().project.info().then(apply).catch(() => {});
+    return tandem().project.onChanged(apply);
+  }, []);
+
+  // Declared before the effect above runs, and reading its state through the
+  // refs, so it does not have to be a dependency of anything.
+  const dropChatsOutside = (dirs, fallback) => {
+    const all = chatsRef.current;
+    const keep = all.filter((c) => !c.project || dirs.has(c.project));
+    if (keep.length === all.length) return;
+
+    const gone = new Set(all.filter((c) => !keep.includes(c)).map((c) => c.key));
+    for (const [k, st] of streams.current) {
+      if (!gone.has(k.split('\0')[0])) continue;
+      if (st.raf) cancelAnimationFrame(st.raf);
+      streams.current.delete(k);
+    }
+
+    const next = keep.length ? keep : [blankChat(fallback)];
+    chatsRef.current = next;
+    setChats(next);
+    if (!next.some((c) => c.key === activeRef.current)) {
+      activeRef.current = next[0].key;
+      setActiveKey(next[0].key);
+    }
+  };
+
   const first = useRef(null);
   if (!first.current) first.current = blankChat();
   const [chats, setChats] = useState(() => [first.current]);
@@ -483,6 +535,7 @@ export function useAgent() {
       // A chat nobody has typed in is not a chat yet.
       chats: chats.filter((c) => c.session || c.items.length).map((c) => ({
         key: c.key,
+        project: c.project || focusedProject.current,
         session: c.session,
         title: c.title,
         busy: c.busy,
@@ -508,7 +561,7 @@ export function useAgent() {
       items: [...c.items, { id: uid('u'), kind: 'user', text: said, images }],
     }));
     try {
-      await tandem().agent.send(key, chat?.session || null, text, images);
+      await tandem().agent.send(key, chat?.session || null, text, images, chat?.project || focusedProject.current);
     } catch (e) {
       edit(key, (c) => ({
         ...c,
@@ -614,12 +667,16 @@ export function useAgent() {
     }
   }, []);
 
-  // New chat. Nothing is stopped and nothing is thrown away; a chat that was
-  // never used is reused rather than piling up empties.
-  const reset = useCallback(async () => {
+  // New chat, in the folder you are looking at unless the caller names another:
+  // the rail's per-folder button starts a chat in that folder without dragging
+  // the rest of the window over to it. A blank chat in the right folder is
+  // reused rather than piling up empties; one in another folder is not, because
+  // its folder is the thing you asked for.
+  const reset = useCallback(async (project = null) => {
+    const dir = project || focusedProject.current;
     const cur = chatsRef.current.find((c) => c.key === activeRef.current);
-    if (cur && !cur.items.length && !cur.session) return;
-    const next = blankChat();
+    if (cur && !cur.items.length && !cur.session && (cur.project || dir) === dir) return;
+    const next = blankChat(dir);
     setChats((all) => [...all, next]);
     switchTo(next.key);
   }, [switchTo]);
@@ -629,7 +686,7 @@ export function useAgent() {
   const clear = useCallback(() => {
     for (const st of streams.current.values()) if (st.raf) cancelAnimationFrame(st.raf);
     streams.current.clear();
-    const next = blankChat();
+    const next = blankChat(focusedProject.current);
     setChats([next]);
     activeRef.current = next.key;
     setActiveKey(next.key);
@@ -648,7 +705,7 @@ export function useAgent() {
     const session = row.id && row.id !== key ? row.id : null;
 
     if (session) {
-      const res = await tandem().agent.deleteSession(session).catch((e) => ({ error: e.message }));
+      const res = await tandem().agent.deleteSession(session, row.project).catch((e) => ({ error: e.message }));
       if (res?.error) return res;
     } else if (key) {
       // No transcript to remove, so the process is ours to stop. (With one,
@@ -668,7 +725,7 @@ export function useAgent() {
       const rest = all.filter((c) => c.key !== key);
       // Deleting the last chat leaves the pane on a blank one rather than on
       // nothing at all.
-      const next = rest.length ? rest : [blankChat()];
+      const next = rest.length ? rest : [blankChat(focusedProject.current)];
       chatsRef.current = next;
       setChats(next);
       if (activeRef.current === key) {
@@ -689,15 +746,21 @@ export function useAgent() {
   const open = useCallback(async (s) => {
     // A row for a chat that is already open here names it by our key: it may
     // have no session id yet, and two new chats would both match on null.
+    // Opening a chat moves the window to its folder: the files, the changes and
+    // the shells beside it should be the ones that chat is talking about.
+    if (s.project && s.project !== focusedProject.current) {
+      tandem().project.focus(s.project).catch(() => {});
+    }
+
     const known = chatsRef.current.find((c) => (s.key ? c.key === s.key : c.session === s.id));
     if (known) return switchTo(known.key);
 
-    const chat = { ...blankChat(), session: s.id, title: s.title.slice(0, 80) };
+    const chat = { ...blankChat(s.project || focusedProject.current), session: s.id, title: s.title.slice(0, 80) };
     setChats((all) => [...all, chat]);
     switchTo(chat.key);
 
     try {
-      const t = await tandem().agent.transcript(s.id);
+      const t = await tandem().agent.transcript(s.id, chat.project);
       const next = [];
       if (t.truncated) {
         next.push({ id: 'trim', kind: 'note', text: `earlier messages trimmed, showing the last ${t.messages.length}` });
@@ -761,6 +824,9 @@ export function useAgent() {
     busy: active.busy,
     startedAt: active.startedAt || 0,
     session: active.session,
+    // The folder the chat on screen runs in, which is not always the focused
+    // one: you can read a chat in another project without moving the window.
+    project: active.project || null,
     title: active.title,
     mode: active.mode,
     queued: active.queued,

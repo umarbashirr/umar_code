@@ -1,15 +1,18 @@
-/* The chat rail. A list of every chat in this folder, newest first, grouped by
-   the day it was last touched.
+/* The chat rail. One section per open project, each holding that folder's
+   chats, newest first. The folder you worked in last sits on top.
 
    The shadcn Sidebar runs with collapsible="none": the resizable panel around
    it owns the width and the collapsing, so all this needs from the component is
-   its structure and its palette. */
+   its structure and its palette. The folders fold on their own, which is a
+   different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  FolderIcon, MessageSquareDotIcon, MessageSquareIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  ChevronRightIcon, FolderIcon, MessageSquareDotIcon, MessageSquareIcon, SearchIcon,
+  SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -29,13 +32,16 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { onProject, project, shortPath } from '../../project.js';
-import { activeKey, getRailVersion, grouped, refreshRail, relative, subscribeRail } from './rail-store';
+import {
+  activeKey, getRailVersion, grouped, projectOpen, refreshRail, relative, setProjectOpen,
+  subscribeRail,
+} from './rail-store';
 import { toast } from './toast';
 
 function useRail() {
   useSyncExternalStore(subscribeRail, getRailVersion, getRailVersion);
-  // The folder label and the empty state live in project.js; this list only
-  // cares about which chats belong to whatever folder is open.
+  // The store owns which folders are open and what is in them, including the
+  // fold state, which has to survive a restart.
   useEffect(() => { refreshRail(); }, []);
 }
 
@@ -80,6 +86,45 @@ function Row({ chat, current, onDelete }) {
   );
 }
 
+/* One project and its chats. The Collapsible wraps the whole group, so the
+   header folds the rows under it and nothing else, and the trigger is the
+   header itself rather than a chevron you have to aim at. */
+function Folder({ folder, active, onDelete }) {
+  return (
+    <Collapsible
+      className="group/folder"
+      open={projectOpen(folder.dir)}
+      onOpenChange={(open) => setProjectOpen(folder.dir, open)}>
+      <SidebarGroup>
+        <SidebarGroupLabel asChild>
+          <CollapsibleTrigger
+            title={folder.dir}
+            className="w-full gap-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+            <FolderIcon />
+            <span className="truncate">{folder.name}</span>
+            <ChevronRightIcon
+              className="ml-auto transition-transform group-data-[state=open]/folder:rotate-90" />
+          </CollapsibleTrigger>
+        </SidebarGroupLabel>
+
+        <CollapsibleContent>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {folder.rows.map((chat) => (
+                <Row
+                  key={chat.key || chat.id}
+                  chat={chat}
+                  current={!!chat.key && chat.key === active}
+                  onDelete={onDelete} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+    </Collapsible>
+  );
+}
+
 /* The confirm. A transcript is the only copy of a conversation and this unlinks
    it, so the question gets asked, and it names the chat: the rail is a list of
    near-identical rows and the wrong one is easy to hit. */
@@ -119,7 +164,7 @@ export default function Rail() {
   const dir = useProjectDir();
   const [filter, setFilter] = useState('');
   const [doomed, setDoomed] = useState(null);
-  const groups = grouped(filter);
+  const folders = grouped(filter);
   const active = activeKey();
 
   const remove = async (chat) => {
@@ -157,7 +202,7 @@ export default function Rail() {
       </SidebarHeader>
 
       <SidebarContent>
-        {groups.length === 0 ? (
+        {folders.length === 0 ? (
           <Empty className="px-4">
             <EmptyHeader>
               <EmptyDescription>
@@ -168,21 +213,8 @@ export default function Rail() {
             </EmptyHeader>
           </Empty>
         ) : (
-          groups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.rows.map((chat) => (
-                    <Row
-                      key={chat.key || chat.id}
-                      chat={chat}
-                      current={!!chat.key && chat.key === active}
-                      onDelete={setDoomed} />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+          folders.map((folder) => (
+            <Folder key={folder.dir} folder={folder} active={active} onDelete={setDoomed} />
           ))
         )}
       </SidebarContent>

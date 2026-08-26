@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 
-const EMPTY = { dir: '', name: '', branch: null, chosen: false, home: '', recents: [] };
+const EMPTY = { dir: '', name: '', branch: null, chosen: false, home: '', recents: [], projects: [], focused: '' };
 
-// The folder this window is rooted at, and the branch it is on. The chat header
-// shows both, so it needs them in React rather than in the vanilla shell.
+// The folders this window has open, which of them is focused, and the branch
+// each is on. The chat header shows the folder its own chat runs in, so it needs
+// the whole set rather than only the focused one.
 export function useProject() {
   const [info, setInfo] = useState(EMPTY);
 

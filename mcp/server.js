@@ -11,11 +11,17 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 
 const state = require('../cli/state');
 
+// Which project the agent is working in. The window may have several open, so
+// the request has to say. The terminal that started this server exports
+// TANDEM_CWD, and that is a better answer than the shell's cwd, which drifts
+// as the agent moves around the tree.
+const callerCwd = () => process.env.TANDEM_CWD || process.cwd();
+
 function connection() {
   if (process.env.TANDEM_BRIDGE_URL && process.env.TANDEM_TOKEN) {
     return { url: process.env.TANDEM_BRIDGE_URL, token: process.env.TANDEM_TOKEN };
   }
-  const s = state.find(process.cwd());
+  const s = state.find(callerCwd());
   if (!s) throw new Error('no tandem window open for this folder. Run `tandem .` first.');
   return { url: s.url, token: s.token };
 }
@@ -24,7 +30,7 @@ async function call(tool, args = {}) {
   const { url, token } = connection();
   const res = await fetch(`${url}/tool/${tool}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-tandem-token': token },
+    headers: { 'content-type': 'application/json', 'x-tandem-token': token, 'x-tandem-cwd': callerCwd() },
     body: JSON.stringify(args),
   });
   const body = await res.json().catch(() => ({ error: `bad response (${res.status})` }));

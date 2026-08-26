@@ -313,15 +313,6 @@ function resizeActive() {
   try { state.active.fit.fit(); } catch {}
 }
 
-// Switching project folder pulls the ground out from under every shell: their
-// processes are already gone, so drop the views and start one in the new folder
-// if the panel is showing.
-export function resetTerminals() {
-  const wasOpen = state.panelOpen;
-  for (const tab of [...state.tabs]) closeTab(tab);
-  if (wasOpen) { openPanel(); requestAnimationFrame(() => state.active?.term.focus()); }
-}
-
 window.tandem.term.onData(({ id, data }) => {
   const tab = state.tabs.find((t) => t.id === id);
   tab?.term.write(data);

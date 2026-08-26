@@ -1,17 +1,35 @@
 'use strict';
 // Local control plane. The agent running inside the terminal reaches the
 // preview pane through this: cli/tandem.js and mcp/server.js are both clients.
+// One window means one port and one token, but the window can hold several
+// projects at once, so every request carries the project it was typed in and
+// the bridge hands that along to the window.
 const http = require('http');
 const crypto = require('crypto');
+const path = require('path');
 
 const state = require('../../cli/state');
 const { TOOLS, runTool } = require('./tools');
 
+// The same folder can arrive spelled two ways, relative or with a trailing
+// slash, and each spelling would earn its own state file. Settle on one form
+// here so the set in memory matches the files on disk.
+const normalize = (list) => [...new Set((list || []).filter(Boolean).map((c) => path.resolve(c)))];
+
+// Which project is asking. The app's terminals export TANDEM_CWD and the
+// clients send it on every request, so a command typed in project B lands in B
+// even while another project is the one on screen. A caller from outside the
+// app sends nothing and gets null, leaving the window to fall back to whatever
+// it is showing.
+const callerCwd = (req, url) => {
+  const sent = req.headers['x-tandem-cwd'] || url.searchParams.get('cwd');
+  return sent ? path.resolve(sent) : null;
+};
+
 class Bridge {
-  constructor({ getPane, onActivity, captureWindow, showPreview, command, ask, decide, cwd, focusWindow }) {
+  constructor({ getPane, onActivity, captureWindow, showPreview, command, ask, decide, cwd, cwds, focusWindow }) {
     this.focusWindow = focusWindow || null;
-    this.ask = null;
-    this.cwd = cwd || process.cwd();
+    this.cwds = normalize(cwds || [cwd || process.cwd()]);
     this.getPane = getPane;
     this.captureWindow = captureWindow || null;
     this.showPreview = showPreview || null;
@@ -22,6 +40,7 @@ class Bridge {
     this.token = crypto.randomBytes(24).toString('hex');
     this.server = null;
     this.port = null;
+    this.started = null;
   }
 
   async start() {
@@ -31,21 +50,36 @@ class Bridge {
       this.server.listen(0, '127.0.0.1', resolve);
     });
     this.port = this.server.address().port;
-    this.state = { url: this.url, token: this.token, pid: process.pid, cwd: this.cwd, started: Date.now() };
-    state.write(this.state);
+    this.started = Date.now();
+    this.#publish();
     return this.port;
   }
 
   get url() { return `http://127.0.0.1:${this.port}`; }
 
-  // The window switched folders. The port and token survive; the file the CLI
-  // looks the window up by has to move with the project.
-  setCwd(cwd) {
-    if (this.state) state.clear(this.state);
-    this.cwd = cwd;
-    this.state = { url: this.url, token: this.token, pid: process.pid, cwd, started: Date.now() };
-    state.write(this.state);
-    return cwd;
+  // The project the window opened with. Routes that can only name one path use
+  // this, and so does anything written against the old one-folder shape.
+  get cwd() { return this.cwds[0] || null; }
+
+  get projects() { return [...this.cwds]; }
+
+  // The whole set at once. The port and the token survive any change to it;
+  // what moves is the set of files the CLI looks the window up by. Projects
+  // that drop out lose their file, the rest keep theirs untouched.
+  setProjects(list) {
+    const next = normalize(list);
+    const gone = this.cwds.filter((c) => !next.includes(c));
+    if (this.state && gone.length) state.clear(this.state, gone);
+    this.cwds = next;
+    this.#publish();
+    return this.projects;
+  }
+
+  addProject(cwd) { return this.setProjects([...this.cwds, cwd]); }
+
+  removeProject(cwd) {
+    const gone = path.resolve(cwd);
+    return this.setProjects(this.cwds.filter((c) => c !== gone));
   }
 
   env() { return { TANDEM_BRIDGE_URL: this.url, TANDEM_TOKEN: this.token }; }
@@ -53,6 +87,14 @@ class Bridge {
   stop() {
     try { this.server?.close(); } catch {}
     if (this.state) state.clear(this.state);
+  }
+
+  // Nothing is advertised before the port exists, so a project added during
+  // construction waits for start() rather than writing a file with no url.
+  #publish() {
+    if (!this.port) return;
+    this.state = { url: this.url, token: this.token, pid: process.pid, cwds: this.cwds, started: this.started };
+    state.write(this.state);
   }
 
   async #handle(req, res) {
@@ -63,15 +105,21 @@ class Bridge {
     };
 
     const url = new URL(req.url, 'http://127.0.0.1');
+    const from = callerCwd(req, url);
 
-    if (url.pathname === '/health') return send(200, { ok: true, cwd: this.cwd, tools: Object.keys(TOOLS) });
+    // cwd stays alongside projects. It is the first of them, so a client built
+    // against the old shape still reads a real path rather than nothing.
+    if (url.pathname === '/health') {
+      return send(200, { ok: true, cwd: this.cwd, projects: this.projects, tools: Object.keys(TOOLS) });
+    }
 
     if (req.headers['x-tandem-token'] !== this.token) return send(401, { error: 'bad or missing x-tandem-token' });
-    // `tandem .` on a folder that already has a window raises that window.
+    // `tandem .` on a folder that already has a window raises that window, and
+    // says which folder it meant so the window can bring that project forward.
     if (url.pathname === '/focus') {
       if (!this.focusWindow) return send(404, { error: 'no window' });
-      this.focusWindow();
-      return send(200, { ok: true, cwd: this.cwd });
+      this.focusWindow(from);
+      return send(200, { ok: true, cwd: from || this.cwd });
     }
 
 
@@ -90,18 +138,18 @@ class Bridge {
       if (!name) return send(400, { error: 'name is required' });
       const arg = url.searchParams.get('arg');
       const open = url.searchParams.get('open');
-      if (arg !== null) return send(200, this.command(name, arg));
-      return send(200, this.command(name, open === null ? undefined : open === 'true'));
+      if (arg !== null) return send(200, this.command(name, arg, from));
+      return send(200, this.command(name, open === null ? undefined : open === 'true', from));
     }
 
     // Development aid: push a prompt into the agent panel.
     if (url.pathname === '/debug/decide' && this.decideFn) {
-      return send(200, this.decideFn(url.searchParams.get('decision') || 'deny'));
+      return send(200, this.decideFn(url.searchParams.get('decision') || 'deny', from));
     }
 
     if (url.pathname === '/debug/ask' && this.ask) {
       try {
-        return send(200, await this.ask(url.searchParams.get('text') || 'hello'));
+        return send(200, await this.ask(url.searchParams.get('text') || 'hello', from));
       } catch (err) {
         return send(500, { error: err?.message || String(err) });
       }
@@ -126,16 +174,21 @@ class Bridge {
     }
 
     try {
-      const result = await this.#run(name, args);
-      this.onActivity(name, args);
+      const result = await this.#run(name, args, from);
+      this.onActivity(name, args, from);
       send(200, { ok: true, result });
     } catch (err) {
       send(500, { ok: false, error: err?.message || String(err) });
     }
   }
 
-  async #run(name, a) {
-    return runTool(name, a, { getPane: this.getPane, showPreview: this.showPreview });
+  // A project has its own pane, so the tools have to be pointed at the pane of
+  // the project that asked before they run.
+  async #run(name, a, from) {
+    return runTool(name, a, {
+      getPane: () => this.getPane(from),
+      showPreview: this.showPreview ? (open) => this.showPreview(open, from) : null,
+    });
   }
 }
 

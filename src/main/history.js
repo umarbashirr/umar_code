@@ -13,13 +13,19 @@ const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 // Claude Code slugifies a cwd by replacing / and . with -.
 const slugFor = (cwd) => cwd.replace(/[/.]/g, '-');
 
-let cached = null;
+// One entry per project. This was a single cwd for as long as a window held a
+// single folder, and the rail now asks about every project that is open: with
+// one slot, a list of four projects missed on all four every time, and a miss
+// can fall through to scanForCwd, which reads a line out of every directory
+// under ~/.claude/projects.
+const dirs = new Map();
 
 function projectDir(cwd) {
-  if (cached && cached.cwd === cwd) return cached.dir;
+  const hit = dirs.get(cwd);
+  if (hit) return hit;
   let dir = path.join(PROJECTS, slugFor(cwd));
   if (!fs.existsSync(dir)) dir = scanForCwd(cwd) || dir;
-  cached = { cwd, dir };
+  dirs.set(cwd, dir);
   return dir;
 }
 
