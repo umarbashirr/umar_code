@@ -43,7 +43,11 @@ let catalog = null;
 // to run are all settled by the time anything paints.
 const settings = new Settings();
 let updates = null;
-let chosenModel = settings.get('agent').model || null;   // survives the agent it was picked for
+// Survives the agent it was picked for. `default` is not a model, and anyone
+// running a build that offered it has it saved here; read it as nothing chosen
+// so settleModel names a real one instead. See driver.js.
+let chosenModel = settings.get('agent').model || null;
+if (chosenModel === 'default') chosenModel = null;
 let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
 let driverReady = null;
 let fileWatcher = null;
@@ -57,6 +61,20 @@ let activeChat = { chat: 'main', session: null };
 // One pane, and now more than one agent that wants to drive it. See
 // pane-lease.js for why looking is free and changing the page is not.
 const lease = new PaneLease({ onChange: (holder) => send('preview:driver', { holder }) });
+
+// Nothing picked. Passing no --model does not mean "no opinion": the CLI runs
+// whatever the account defaults to, which on most plans is Fable, and the picker
+// meanwhile says "Pick a model". Two different answers to the same question.
+// Land on the first model the driver lists, write it down, and hand it back so
+// the label and the session agree from the first message on.
+function settleModel() {
+  if (chosenModel) return chosenModel;
+  const first = driver?.current({ refresh: false }).models[0]?.value;
+  if (!first) return null;
+  chosenModel = first;
+  settings.patch({ agent: { model: first } });
+  return chosenModel;
+}
 
 const liveSessions = () => [...sessions.values()].filter((a) => !a.closed);
 // Anything that asks the CLI a question rather than driving one chat: any live
@@ -283,7 +301,7 @@ async function ensureAgent({ chat = 'main', resume } = {}) {
 
   const agent = new AgentSession({
     resume: resume || null,
-    model: chosenModel,
+    model: settleModel(),
     mode: chosenMode,
     cwd: agentCwd(),
     settings: catalog.sessionSettings(agentCwd()),
@@ -374,7 +392,7 @@ async function createWindow() {
 
   // The probe usually lands before the window does, and that push has nowhere
   // to go. Repeat it once there is something to receive it.
-  driverReady?.then((d) => { if (d) send('agent:driver', d); });
+  driverReady?.then((d) => { if (d) send('agent:driver', { ...d, current: settleModel() }); });
 
   for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) {
     win.on(ev, () => send('win:state', windowState()));
@@ -482,9 +500,7 @@ function registerIpc() {
   // session, and the picker is drawn before anyone has said anything.
   ipcMain.handle('agent:models', () => {
     const d = driver.current();
-    // No fallback to the top of the list. Nobody picked that, and answering
-    // with it makes the picker show a name this process was never told to run.
-    const current = chosenModel || anySession()?.model || '';
+    const current = settleModel() || anySession()?.model || '';
     // A name pinned against a proxy is not always one this app can see. Keep it
     // on the list rather than move someone to a different model without saying so.
     const models = current && !d.models.some((m) => m.value === current)
@@ -781,7 +797,9 @@ app.whenReady().then(async () => {
   catalog = new Catalog({ cacheDir: app.getPath('userData') });
   updates = new Updates({ usingSystem: () => settings.get('claude').binary === 'path' });
   updates.on('changed', (snap) => send('updates:changed', snap));
-  driverReady = driver.refresh().then((d) => { send('agent:driver', d); return d; }).catch(() => null);
+  driverReady = driver.refresh()
+    .then((d) => { send('agent:driver', { ...d, current: settleModel() }); return d; })
+    .catch(() => null);
   if (project.chosen) projects.remember(project.dir);
   bridge = new Bridge({
     cwd: agentCwd(),

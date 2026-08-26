@@ -171,6 +171,16 @@ async function probeModels(base, token) {
   }
 }
 
+// `default` is not a model. The CLI lists it as one, resolves it to whatever
+// the account happens to default to, and it arrives first, so the picker shows
+// it at the top of the list reading as a real choice. Picking it sends
+// --model default and the account decides, which is the one thing this picker
+// exists to stop. Drop it and let the models it stands for speak for
+// themselves. Applied on the way out too, so a cache written before this still
+// cannot serve it.
+const ALIAS = 'default';
+const pickable = (models) => (models || []).filter((m) => m && m.value && m.value !== ALIAS);
+
 // The list the picker shows: what the endpoint or the CLI reported, plus any
 // name the user typed in by hand for this endpoint, minus the duplicates.
 function withCustom(models, custom) {
@@ -239,7 +249,7 @@ class Driver {
           : `Checking which models ${ep} serves…`,
       };
     }
-    return { ...this.snapshot, models: withCustom(this.snapshot.models || [], this.#custom(ep)) };
+    return { ...this.snapshot, models: withCustom(pickable(this.snapshot.models), this.#custom(ep)) };
   }
 
   // Answers with what the picker should show, hand-typed names included, since
@@ -312,8 +322,7 @@ class Driver {
     // A proxy already told us what it serves, and it knows better than the CLI,
     // which lists what Anthropic offers rather than what this key can reach.
     if (ep !== 'anthropic' && this.snapshot.served && this.snapshot.endpoint === ep) return;
-    const clean = models
-      .filter((m) => m && m.value)
+    const clean = pickable(models)
       .map((m) => ({ value: m.value, displayName: m.displayName || m.value }));
     if (!clean.length) return;
     this.#write({

@@ -420,8 +420,9 @@ export function useAgent() {
       setModel((cur) => cur || d.current || '');
     };
     tandem().agent.models().then(apply).catch(() => {});
-    // The probe finishes after the first paint on a cold cache.
-    return tandem().agent.onDriver?.((d) => apply({ ...d, current: null })) ?? undefined;
+    // The probe finishes after the first paint on a cold cache, and on that
+    // first run it carries the choice main settled on once it had a list.
+    return tandem().agent.onDriver?.(apply) ?? undefined;
   }, []);
 
   const active = useMemo(
