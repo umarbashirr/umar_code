@@ -7,8 +7,8 @@
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  ChevronRightIcon, FolderIcon, MessageSquareDotIcon, MessageSquareIcon, SearchIcon,
-  SquarePenIcon, Trash2Icon,
+  CheckIcon, ChevronRightIcon, CircleCheckIcon, FolderIcon, MessageSquareDotIcon,
+  MessageSquareIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,8 +33,8 @@ import {
 } from '@/components/ui/sidebar';
 import { onProject, project, shortPath } from '../../project.js';
 import {
-  activeKey, getRailVersion, grouped, projectOpen, refreshRail, relative, setProjectOpen,
-  subscribeRail,
+  activeKey, doneOpen, getRailVersion, grouped, isDone, markDone, projectOpen, refreshRail,
+  relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
 
@@ -52,7 +52,11 @@ function useProjectDir() {
 }
 
 function Row({ chat, current, onDelete }) {
-  const Icon = current ? MessageSquareDotIcon : MessageSquareIcon;
+  const done = isDone(chat);
+  // A live chat claude has not written yet is named by our own key, and there
+  // is no session id to write down against it.
+  const saved = !!chat.id && chat.id !== chat.key;
+  const Icon = done ? CircleCheckIcon : current ? MessageSquareDotIcon : MessageSquareIcon;
 
   return (
     /* The chat you are in thickens the guide line beside it. The row already
@@ -67,6 +71,7 @@ function Row({ chat, current, onDelete }) {
       <SidebarMenuButton
         isActive={current}
         title={chat.title}
+        className="group-has-data-[sidebar=menu-action]/menu-item:pr-2"
         onClick={() => { if (!current) window.tandemChat?.open(chat); }}>
         <Icon />
         <span className="truncate">{chat.title}</span>
@@ -82,15 +87,86 @@ function Row({ chat, current, onDelete }) {
 
       {/* The row is a button, so this one stops the click on its way up rather
           than opening the chat it is about to delete. */}
+      {/* The icons sit over the end of the row rather than in a gutter cut out
+          of it. A gutter is there on every row all the time, and it costs the
+          title characters it needs more than the hover needs the space. This
+          fades the row out under them instead, from the same colour the row is
+          wearing while you are on it, so the title runs out rather than being
+          chopped. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0.5 right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-40% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
+
+      {/* Two icons rather than one menu. Both are one click and both are worth
+          one: putting a chat away is the thing you do most, and burying it a
+          menu deep is what stops people doing it. They stop the click on its
+          way up, or the row underneath opens the chat they are about to act
+          on. A chat that has never been written to disk has no id to mark, so
+          the tick is not offered on one. */}
+      {saved && (
+        <SidebarMenuAction
+          showOnHover
+          className="right-8 hover:text-[hsl(var(--success))]"
+          title={done ? 'Move back to the list' : 'Mark completed'}
+          aria-label={`${done ? 'Move back' : 'Mark completed'}: ${chat.title}`}
+          onClick={(e) => { e.stopPropagation(); markDone(chat, !done); }}>
+          {done ? <RotateCcwIcon /> : <CheckIcon />}
+        </SidebarMenuAction>
+      )}
       <SidebarMenuAction
         showOnHover
+        className="hover:text-destructive"
         title="Delete chat"
         aria-label={`Delete ${chat.title}`}
-        className="hover:text-destructive"
         onClick={(e) => { e.stopPropagation(); onDelete(chat); }}>
         <Trash2Icon />
       </SidebarMenuAction>
     </SidebarMenuItem>
+  );
+}
+
+/* The chats in a folder that have been marked done.
+
+   Shut by default and counted on its own line, so a folder with two live chats
+   and forty finished ones reads as two. It is a fold rather than a separate
+   place: the chats are still that folder's, still open with one click, and
+   still resumable. Nothing was archived and nothing moved on disk.
+
+   It sits under the folder's own heading and above its live chats. The bottom
+   of the list is where this belongs by rank, and it is also where you would
+   never find it: a folder with ninety chats puts it ninety rows down. One quiet
+   line at the top costs the live chats nothing and can always be reached.
+
+   A folder with nothing put away draws no line at all. An empty "Completed 0"
+   under every folder would be the same clutter this exists to remove. */
+function Completed({ folder, active, onDelete }) {
+  if (!folder.done.length) return null;
+
+  return (
+    <Collapsible
+      className="group/done mt-0.5"
+      open={doneOpen(folder.dir)}
+      onOpenChange={(open) => setDoneOpen(folder.dir, open)}>
+      <CollapsibleTrigger
+        className="mx-3.5 flex w-[calc(100%-1.75rem)] cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-muted-foreground text-xs transition-colors hover:text-sidebar-foreground">
+        <ChevronRightIcon
+          className="size-3.5 shrink-0 transition-transform group-data-[state=open]/done:rotate-90" />
+        <span>Completed</span>
+        <span className="ml-auto tabular-nums">{folder.done.length}</span>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent>
+        <SidebarMenuSub className="mr-0 pr-0">
+          {folder.done.map((chat) => (
+            <Row
+              key={chat.key || chat.id}
+              chat={chat}
+              current={!!chat.key && chat.key === active}
+              onDelete={onDelete} />
+          ))}
+        </SidebarMenuSub>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -138,7 +214,9 @@ function Folder({ folder, active, onDelete }) {
             {/* A folder you have just opened has no chats yet, and the guide
                 line down the left of an empty list is a stub hanging off
                 nothing. Say what is there instead. */}
-            {!folder.rows.length ? (
+            <Completed folder={folder} active={active} onDelete={onDelete} />
+
+            {!folder.rows.length && !folder.done.length ? (
               /* Sitting where the rows would, so the note reads as the folder's
                  contents rather than as something loose under the heading. */
               <p className="mx-3.5 px-2.5 py-1 text-muted-foreground text-xs">No chats here yet</p>

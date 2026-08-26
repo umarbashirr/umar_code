@@ -118,6 +118,9 @@ contextBridge.exposeInMainWorld('tandem', {
     transcript: (id, project) => ipcRenderer.invoke('agent:transcript', { id, project }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
+    // Marking a chat done. Nothing is deleted: the rail folds it away and the
+    // transcript stays exactly where it was.
+    complete: (id, done) => ipcRenderer.invoke('agent:complete', { id, done }),
     info: (chat) => ipcRenderer.invoke('agent:info', { chat }),
     decide: (chat, id, decision, input) => ipcRenderer.send('agent:decide', { chat, id, decision, input }),
     onMessage: on('agent:message'),

@@ -7,10 +7,23 @@
    half alone drops rows for a second or two and puts them back.
 
    Both halves name the folder a chat belongs to, so the merge runs once per
-   folder and the rail draws one section each. */
+   folder and the rail draws one section each.
+
+   A folder's chats come back in two lists rather than one. Anything the person
+   has marked completed is finished work nobody is going back to, and leaving it
+   in the rail at the same weight as what is being worked on now is what makes
+   the rail useless after a fortnight. Marked chats go in a fold at the bottom
+   of their folder, whole and one click away. */
 'use strict';
 
-const state = { projects: [], live: [], activeKey: null };
+const state = {
+  projects: [],
+  live: [],
+  activeKey: null,
+  // session id -> when it was marked. Main owns this and it survives restarts,
+  // so a chat you finished with last week is still put away today.
+  completed: {},
+};
 
 const listeners = new Set();
 let version = 0;
@@ -57,6 +70,31 @@ function saveFolded() {
 }
 
 export const projectOpen = (dir) => !folded.has(dir);
+
+/* The Completed fold keeps its own set, and the sense is the other way round:
+   what is written down is the folders whose fold you opened. Shut is the
+   default because the fold exists to get finished work out of the way, and one
+   that came back open on every launch would not be doing that. */
+const OPENED_KEY = 'tandem.rail.doneOpen';
+const doneOpened = new Set(loadOpened());
+
+function loadOpened() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPENED_KEY));
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+export const doneOpen = (dir) => doneOpened.has(dir);
+
+export function setDoneOpen(dir, open) {
+  if (open) doneOpened.add(dir);
+  else doneOpened.delete(dir);
+  try { localStorage.setItem(OPENED_KEY, JSON.stringify([...doneOpened])); } catch { /* not worth reporting */ }
+  changed();
+}
 
 export function setProjectOpen(dir, open) {
   if (open) folded.delete(dir);
@@ -151,12 +189,36 @@ export function grouped(filter = '') {
   for (const folder of folders()) {
     let list = rows(folder.dir, folder.sessions);
     if (q) list = list.filter((s) => String(s.title || '').toLowerCase().includes(q));
+
+    /* Marked chats come out of the folder's list and go in its fold. A chat
+       still working stays out in the open whatever it is marked: something
+       mid-turn is by definition not finished, and hiding a running turn is how
+       you lose track of one.
+
+       Searching puts them back. Typing a name is asking where something is, and
+       answering by tucking the match inside a fold that is shut by default is
+       the same as not answering. A matched chat that has been put away still
+       reads as put away: it keeps its tick. */
+    const open = [];
+    const done = [];
+    for (const row of list) (!q && isDone(row) && !row.busy ? done : open).push(row);
+
     // A folder the search missed leaves altogether. A header sitting over
     // nothing reads as a bug, and there is already an empty state for a search
     // that found nothing anywhere. Unfiltered, a folder with no chats yet does
     // keep its header, because it is open and the rail should say so.
     if (q && !list.length) continue;
-    out.push({ dir: folder.dir, name: folder.name, rows: list, at: newest(list) });
+    // Newest put away first, which is the order you filed them in and not the
+    // order the transcripts were last written to.
+    done.sort((a, b) => (state.completed[b.id] || 0) - (state.completed[a.id] || 0));
+
+    out.push({
+      dir: folder.dir,
+      name: folder.name,
+      rows: open,
+      done,
+      at: newest(list),
+    });
   }
 
   // The folder you worked in last is the one you are most likely to want.
@@ -164,10 +226,37 @@ export function grouped(filter = '') {
   return out;
 }
 
+// Whether a row is one the person has put away. Keyed on the session id, which
+// is the only name a chat keeps across restarts.
+export const isDone = (row) => !!row?.id && Object.hasOwn(state.completed, row.id);
+
+/* Marking one, or putting it back. The answer is written down by main, and the
+   row moves here straight away rather than waiting for the round trip, because
+   a click that takes a beat to do anything reads as a click that missed. */
+export async function markDone(row, done = true) {
+  if (!row?.id) return { error: 'that chat has not been saved yet' };
+  if (done) state.completed[row.id] = Date.now();
+  else delete state.completed[row.id];
+  changed();
+
+  const res = await window.tandem.agent.complete(row.id, done).catch((e) => ({ error: e.message }));
+  if (res?.error) {
+    // Put it back where it was. The rail and the file on disk disagreeing is
+    // worse than the mark not taking.
+    if (done) delete state.completed[row.id];
+    else state.completed[row.id] = Date.now();
+    changed();
+  }
+  return res || {};
+}
+
+export const doneCount = () => Object.keys(state.completed).length;
+
 export async function refreshRail() {
   try {
     const data = await window.tandem.agent.history();
     state.projects = data.projects || [];
+    state.completed = data.completed || {};
   } catch {
     state.projects = [];
   }

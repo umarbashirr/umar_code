@@ -20,6 +20,7 @@ const editors = require('./editors');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
+const completed = require('./completed');
 const { DEFAULT_MODE, isMode } = require('./modes');
 const { PaneLease } = require('./pane-lease');
 const bridgeState = require('../../cli/state');
@@ -923,7 +924,16 @@ function registerIpc() {
       sessions: listSessions(dir),
     })),
     running: liveSessions().map((a) => a.sessionId).filter(Boolean),
+    // Which of those the person has marked done, so the rail can fold them away.
+    completed: completed.all(),
   }));
+  ipcMain.handle('agent:complete', (_e, { id, done } = {}) => {
+    try {
+      return { ok: completed.setCompleted(id, done !== false) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
   ipcMain.handle('agent:transcript', async (_e, { id, project }) => {
     const dir = project && open.has(project) ? project : focusedCwd();
     const t = await readSession(dir, id);
@@ -938,7 +948,10 @@ function registerIpc() {
   ipcMain.handle('agent:deleteSession', (_e, { id, project } = {}) => {
     for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
     try {
-      return { ok: deleteSession(project && open.has(project) ? project : focusedCwd(), id) };
+      const gone = deleteSession(project && open.has(project) ? project : focusedCwd(), id);
+      // The transcript is what the mark was about, so it goes with it.
+      completed.forget(id);
+      return { ok: gone };
     } catch (e) {
       return { error: e.message };
     }
