@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tandem. A terminal with an agent and a browser it can drive.</title>
+    <meta
+      name="description"
+      content="Tandem. A terminal with an agent and a browser it can drive."
+    />
+    <link rel="icon" href="favicon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <a href="#hero">Tandem</a>
+      <a href="#install">Install</a>
+    </header>
+    <main>
+      <section id="hero" aria-labelledby="product-name">
+        <h1 id="product-name">Tandem</h1>
+        <p class="tagline">A terminal with an agent and a browser it can drive.</p>
+        <p class="rider">Two riders, one machine, either one can steer.</p>
+        <p class="contrast">
+          Cursor puts an agent next to an editor. Tandem puts one next to a shell and a live browser.
+        </p>
+        <p class="cta-row">
+          <a href="#install">Install</a>
+        </p>
+      </section>
+      <section id="install" aria-labelledby="install-heading">
+        <h2 id="install-heading">Install</h2>
+        <div>
+          <p class="os">Linux</p>
+          <pre data-os="linux"><code>curl -fsSL https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.sh | sh</code></pre>
+          <p class="os">Windows PowerShell</p>
+          <pre data-os="windows"><code>irm https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.ps1 | iex</code></pre>
+        </div>
+        <p class="prereq">Needs an existing Claude Code login. The agent uses <code>claude</code>.</p>
+      </section>
+      <section id="proof" aria-labelledby="proof-heading">
+        <h2 id="proof-heading">Agent, terminal, browser</h2>
+        <figure aria-labelledby="proof-heading">
+          <article data-pane="agent">
+            <h3>Agent</h3>
+            <p>A Claude chat that can type in the shell and operate the live page.</p>
+          </article>
+          <article data-pane="terminal">
+            <h3>Terminal</h3>
+            <p>A real shell with dark chrome in light and dark.</p>
+          </article>
+          <article data-pane="browser">
+            <h3>Browser</h3>
+            <p>A live page the agent can click, type, and read.</p>
+          </article>
+        </figure>
+      </section>
+      <section id="limits" aria-labelledby="limits-heading">
+        <h2 id="limits-heading">Limits</h2>
+        <p>
+          Linux has a curl one-liner. Windows has a PowerShell one-liner. This page has no macOS command.
+        </p>
+      </section>
+    </main>
+    <footer>
+      <a href="https://github.com/umarbashirr/umar_code">Source</a>
+    </footer>
+  </body>
+</html>
