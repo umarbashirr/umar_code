@@ -2,6 +2,10 @@
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
+// A diff is content rather than a step, which is what keeps these out of a
+// folded run of tool calls.
+export const isEditTool = (name) => EDIT_TOOLS.has(name);
+
 // A file that ends in a newline would otherwise diff as an extra blank line.
 const lines = (text) => {
   if (!text) return [];

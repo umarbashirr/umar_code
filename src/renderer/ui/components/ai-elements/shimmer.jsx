@@ -24,14 +24,25 @@ const ShimmerComponent = ({
 }) => {
   const MotionComponent = getMotionComponent(Component);
 
-  const dynamicSpread = useMemo(() => (children?.length ?? 0) * spread, [children, spread]);
+  // The band is sized from the text it sweeps, which leaves a short label like
+  // "Grep" or "working" with an 8px sliver: a glint rather than something
+  // moving. Below roughly forty pixels the eye reads it as a rendering fault,
+  // so that is the floor.
+  const dynamicSpread = useMemo(
+    () => Math.max(36, (children?.length ?? 0) * spread),
+    [children, spread],
+  );
 
   return (
     <MotionComponent
       animate={{ backgroundPosition: "0% center" }}
       className={cn(
         "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent",
-        "[--bg:linear-gradient(90deg,#0000_calc(50%-var(--spread)),var(--color-background),#0000_calc(50%+var(--spread)))] [background-repeat:no-repeat,padding-box]",
+        // The band is the foreground colour, not the background one. Painted in
+        // --color-background it is a light gap on the light theme and a dark
+        // gap on the dark one, so half the time the sweep reads as a hole
+        // travelling through the text instead of light passing over it.
+        "[--bg:linear-gradient(90deg,#0000_calc(50%-var(--spread)),var(--color-foreground),#0000_calc(50%+var(--spread)))] [background-repeat:no-repeat,padding-box]",
         className
       )}
       initial={{ backgroundPosition: "100% center" }}

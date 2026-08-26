@@ -1,12 +1,13 @@
-// A subagent is a conversation inside a conversation, so it gets a container
-// rather than a row: the work it does belongs to it, not to the transcript it
-// was started from. Folded it is one line saying what it was asked and how far
-// it has got; opened it is its own transcript, indented under a rule.
+// A subagent is a conversation inside a conversation. It used to get a card to
+// say so, but three running agents then cost three bordered boxes stacked down
+// the transcript, and the border was doing nothing the indent underneath did
+// not already do. So it is two lines against a dot: what it was asked, and
+// what it is doing about it. Opened, it is its own transcript under a rule.
 import { useEffect, useRef, useState } from 'react';
-import {
-  ChevronRightIcon, LoaderIcon, PanelBottomIcon, SquareIcon, UsersIcon,
-} from 'lucide-react';
+import { ChevronRightIcon, PanelBottomIcon, SquareIcon } from 'lucide-react';
 
+import { Shimmer } from '@/components/ai-elements/shimmer';
+import { toolLabel, toolSummary } from '@/components/tool-row';
 import { cn } from '@/lib/utils';
 
 const clock = (ms) => {
@@ -43,6 +44,32 @@ function stats(s) {
   return out;
 }
 
+// What a running agent is doing, said as it is happening. Nothing on the wire
+// carries a status string, so the newest call it has open is the closest thing
+// to one: "Reading agent-row.jsx" rather than a timer counting up.
+const DOING = {
+  Read: 'Reading',
+  NotebookRead: 'Reading',
+  Glob: 'Searching',
+  Grep: 'Searching',
+  WebSearch: 'Searching',
+  WebFetch: 'Fetching',
+  Bash: 'Running',
+  Edit: 'Editing',
+  MultiEdit: 'Editing',
+  NotebookEdit: 'Editing',
+  Write: 'Writing',
+};
+
+function doing(kids) {
+  for (let i = kids.length - 1; i >= 0; i -= 1) {
+    if (kids[i].kind !== 'tool') continue;
+    const name = toolLabel(kids[i].name);
+    return [DOING[name] || name, toolSummary(name, kids[i].input)].filter(Boolean).join(' ');
+  }
+  return null;
+}
+
 export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
   const running = item.status === 'running' || item.status === 'stopping';
   // Open while it is the thing happening, folded once it is history. Whoever
@@ -65,34 +92,43 @@ export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
     if (next && item.loaded === false) onOpen?.(item);
   };
 
+  const what = item.description || item.input?.description || 'Agent';
+  // While it runs, the second line is what it is doing; once it has stopped it
+  // is what it did. Either way the row is two lines and never a box. An agent
+  // that has not opened its first call yet still gets a line, because a
+  // running row with nothing moving on it looks like a stalled one.
+  const under = running
+    ? doing(item.children || []) || 'Working'
+    : counts.join(' · ');
+
   return (
-    <div className={cn(
-      'rounded-lg border bg-card/40',
-      running && 'border-ring/25',
-      item.waiting && 'border-amber-500/40',
-      failed && 'border-destructive/30',
-    )}>
+    <div>
       <button
         type="button"
         onClick={toggle}
-        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-muted/40">
+        className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/40">
         <ChevronRightIcon
-          className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
-        {running
-          ? <LoaderIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-          : <UsersIcon className={cn('size-3.5 shrink-0', failed ? 'text-destructive' : 'text-muted-foreground')} />}
-        <span className="shrink-0 text-[13px] text-foreground/90">Agent</span>
+          className={cn('mt-[3px] size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
         <span className={cn(
-          'shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] leading-none',
-          running ? 'border-ring/35 text-foreground' : 'text-muted-foreground',
-        )}>
-          {item.agentType || 'agent'}
-        </span>
-        <span className="truncate font-mono text-muted-foreground text-xs">
-          {item.description || item.input?.description || ''}
+          'mt-[7px] size-[5px] shrink-0 rounded-full',
+          failed ? 'bg-destructive' : item.waiting ? 'bg-amber-500' : 'bg-muted-foreground/45',
+        )} />
+
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className={cn('truncate text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>
+              {what}
+            </span>
+            <span className="shrink-0 text-muted-foreground text-xs">{item.agentType || 'agent'}</span>
+          </span>
+          {under && (
+            <span className="truncate text-muted-foreground text-xs">
+              {running ? <Shimmer as="span" className="truncate">{under}</Shimmer> : under}
+            </span>
+          )}
         </span>
 
-        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2 font-mono text-[11px] text-muted-foreground/75">
+        <span className="flex shrink-0 items-center gap-2 pl-2 font-mono text-[11px] text-muted-foreground/75">
           {item.waiting && <span className="text-amber-600 dark:text-amber-500">needs you</span>}
           {item.background && running && !item.waiting && <span>background</span>}
           {item.status === 'stopped' && <span>stopped</span>}
@@ -124,7 +160,7 @@ export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
       </button>
 
       {open && (
-        <div className="ml-5 flex flex-col gap-px border-l pr-2 pb-2 pl-2.5">
+        <div className="ml-[13px] flex flex-col gap-px border-l pr-2 pb-2 pl-3">
           {item.loaded === 'loading' && (
             <div className="px-2 py-1 font-mono text-[11px] text-muted-foreground/75">reading its transcript…</div>
           )}
@@ -137,12 +173,6 @@ export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
               {item.report}
             </div>
           )}
-        </div>
-      )}
-
-      {!open && !!counts.length && (
-        <div className="flex gap-2.5 px-2.5 pb-1.5 pl-[38px] font-mono text-[11px] text-muted-foreground/75">
-          {counts.map((c) => <span key={c}>{c}</span>)}
         </div>
       )}
     </div>

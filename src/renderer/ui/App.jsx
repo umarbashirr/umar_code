@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
-import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
-import { ToolRow, Pre, toolSummary } from '@/components/tool-row';
+import { DiffView, editHunks, hunkStats, isEditTool } from '@/components/diff-view';
+import { ToolRow, ToolStrip, Pre, toolLabel, toolSummary } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { Shimmer } from '@/components/ai-elements/shimmer';
@@ -197,7 +197,7 @@ export default function App() {
           {empty ? (
             <h1 className="py-6 text-center font-medium text-2xl tracking-tight">What should change?</h1>
           ) : (
-            agent.items.map((item) => <Item key={item.id} item={item} agent={agent} />)
+            <Items items={agent.items} agent={agent} />
           )}
         </ConversationContent>
         {!empty && <ConversationScrollButton />}
@@ -234,6 +234,51 @@ export default function App() {
   );
 }
 
+// A turn is mostly tool calls, and one line each turns twenty greps into a
+// screenful of scrolling past your own work. So a run of them folds: whatever
+// is running stays a row you can read, and everything it already did becomes
+// the one line above it saying how much of what. An edit breaks the run and
+// keeps its own row, because a diff is something to read rather than a step on
+// the way somewhere.
+function runs(items) {
+  const out = [];
+  for (const item of items) {
+    const foldable = item.kind === 'tool' && !isEditTool(toolLabel(item.name));
+    const last = out[out.length - 1];
+    if (foldable && last?.run) last.run.push(item);
+    else out.push(foldable ? { id: item.id, run: [item] } : { id: item.id, item });
+  }
+  return out;
+}
+
+// Two calls are not a run worth folding: it would cost a click and save a line.
+const FOLD_AT = 3;
+
+function Items({ items, agent }) {
+  return runs(items).map((g) => {
+    if (!g.run) return <Item key={g.id} item={g.item} agent={agent} />;
+    if (g.run.length < FOLD_AT) {
+      return (
+        <Fragment key={g.id}>
+          {g.run.map((it) => <Item key={it.id} item={it} agent={agent} />)}
+        </Fragment>
+      );
+    }
+    // The last one is the live one while the turn runs, and the one that just
+    // finished once it stops. Either way it is the one worth reading.
+    const done = g.run.slice(0, -1);
+    const current = g.run[g.run.length - 1];
+    return (
+      <div key={g.id} className="flex flex-col gap-px">
+        <ToolStrip items={done}>
+          {done.map((it) => <Item key={it.id} item={it} agent={agent} />)}
+        </ToolStrip>
+        <Item item={current} agent={agent} />
+      </div>
+    );
+  });
+}
+
 function Item({ item, agent }) {
   const onDecide = agent.decide;
 
@@ -247,7 +292,7 @@ function Item({ item, agent }) {
           onStop={agent.stopAgent}
           onBackground={agent.backgroundAgent}
           onOpen={agent.openAgent}>
-          {(item.children || []).map((kid) => <Item key={kid.id} item={kid} agent={agent} />)}
+          <Items items={item.children || []} agent={agent} />
         </AgentRow>
       </div>
     );
@@ -286,7 +331,7 @@ function Item({ item, agent }) {
   }
 
   if (item.kind === 'tool') {
-    const label = item.name.replace(/^mcp__preview__/, '').replace(/^mcp__[^_]+__/, '');
+    const label = toolLabel(item.name);
     const images = toolImages(item.output);
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
@@ -334,7 +379,7 @@ function Item({ item, agent }) {
   }
 
   if (item.kind === 'perm') {
-    const label = item.tool.replace(/^mcp__[^_]+__/, '');
+    const label = toolLabel(item.tool);
     if (item.decided) {
       // A question that was answered says what the answer was; there is nothing
       // useful in telling someone they allowed their own reply.
