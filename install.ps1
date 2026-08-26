@@ -78,7 +78,11 @@ function Remove-Tandem {
   $argList = @($rest -split '\s+' | Where-Object { $_ })
   if ($Silent -and $argList -notcontains '/S') { $argList += '/S' }
 
-  Start-Process -FilePath $exe -ArgumentList $argList -Wait
+  # Start-Process refuses an empty -ArgumentList, so the parameter is only
+  # there when there is something to put in it.
+  $start = @{ FilePath = $exe; Wait = $true }
+  if ($argList.Count) { $start.ArgumentList = $argList }
+  Start-Process @start
   Say 'Gone. Your settings and open-project state are still in %USERPROFILE%\.tandem; delete that too if you want none of it back.'
 }
 
@@ -142,9 +146,9 @@ function Install-Tandem {
   }
 
   Step 'Installing'
-  $argList = @()
-  if ($Silent) { $argList += '/S' }
-  $run = Start-Process -FilePath $file -ArgumentList $argList -Wait -PassThru
+  $start = @{ FilePath = $file; Wait = $true; PassThru = $true }
+  if ($Silent) { $start.ArgumentList = '/S' }
+  $run = Start-Process @start
   if ($run.ExitCode -ne 0) { throw "the installer stopped with exit code $($run.ExitCode)" }
   Remove-Item $file -ErrorAction SilentlyContinue
 
