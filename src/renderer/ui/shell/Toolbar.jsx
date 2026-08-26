@@ -9,9 +9,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   CodeXmlIcon,
-  GitCompareIcon,
-  GlobeIcon,
-  FolderTreeIcon,
   MoonIcon,
   PanelBottomIcon,
   PanelLeftIcon,
@@ -20,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ButtonGroup } from '@/components/ui/button-group';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +28,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useTheme } from '@/hooks/use-theme';
 import { runCommand, toggleTheme } from '../../app.js';
 import { onProject, project } from '../../project.js';
@@ -42,8 +39,8 @@ import {
   openEditor,
   subscribeEditors,
 } from './editors-store';
-import { coverPane, uncoverPane } from './pane-cover';
-import { useLayout } from './Shell';
+import { useFocusedDir, useLayout, usePaneCover, VIEW_KINDS } from './Shell';
+import { activeTab, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
@@ -94,29 +91,35 @@ function Activity() {
 
 // ------------------------------------------------------------------- driver
 
-/* One pane, several agents that want it. The chip says who has it so a page
+/* One page, several agents that want it. The chip says who has it so a page
    changing under you is explained rather than mysterious, and clicking takes
-   the pane back: the next agent to ask waits for you instead. */
+   the page back: the next agent to ask waits for you instead.
+
+   A lease guards one page and a folder can have several previews open, so this
+   speaks for the tab in the box and for nothing else. Two agents driving two
+   previews in the same folder is an ordinary thing now, and the one you cannot
+   see is not your problem. With the tree or the diff in front there is no page
+   to take back, so there is nothing to say. */
 function Driver() {
   const [holder, setHolder] = useState(null);
-  // Every folder has a preview and a lease of its own, and this badge sits over
-  // the one on screen. An agent driving a preview you are not looking at is
-  // that folder's business.
-  const [, bump] = useState(0);
-  useEffect(() => onProject(() => bump((n) => n + 1)), []);
-  const focused = project.focused || project.dir;
+  useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
+  const dir = useFocusedDir();
+  const shown = activeTab(dir);
+  const tab = shown?.kind === 'browser' ? shown.id : null;
 
   useEffect(() => {
     setHolder(null);
-    const apply = ({ holder: h, project }) => {
-      if (project && focused && project !== focused) return;
+    if (!tab) return undefined;
+    const apply = (msg) => {
+      if (msg?.tab && msg.tab !== tab) return;
+      const h = msg?.holder;
       const mine = !h || h.id === 'human' || String(h.id).startsWith('main:');
       setHolder(mine ? null : h);
     };
     const off = window.tandem.browser.onDriver?.(apply);
-    window.tandem.browser.driver?.(focused).then(apply).catch(() => {});
+    window.tandem.browser.driver?.(tab).then(apply).catch(() => {});
     return () => off?.();
-  }, [focused]);
+  }, [tab]);
 
   if (!holder) return null;
 
@@ -126,49 +129,49 @@ function Driver() {
       size="sm"
       title="This agent is driving the preview. Click to take it back."
       className="h-auto max-w-[30ch] rounded-full border-ring/30 px-[9px] py-[3px] font-mono text-[11px] font-normal"
-      onClick={() => { window.tandem.browser.seize?.(focused); setHolder(null); }}>
+      onClick={() => { window.tandem.browser.seize?.(tab); setHolder(null); }}>
       <span className="size-1.5 shrink-0 rounded-full bg-[hsl(var(--success))] motion-safe:animate-pulse" />
       <span className="truncate">{holder.label} is driving</span>
     </Button>
   );
 }
 
-// ---------------------------------------------------------------- view tabs
+// --------------------------------------------------------------- the views
 
-/* The preview, the files and the changes, as one row of tabs. The panes they
-   open are elsewhere in the window, so this is the only place that lists them.
-   Picking the one already showing puts the column away, which is what a single
-   toggle group does when you click the selected item. */
-const VIEW_COMMAND = { browser: 'preview', files: 'files', changes: 'changes' };
+/* The preview, the files and the changes. These were a toggle group while the
+   column held one view at a time: the pressed button was the answer to what am
+   I looking at, and pressing it again put the column away.
 
+   The column is a strip of tabs now and there is no single answer. A folder can
+   have three previews and a diff, so a pressed Browser would be a quarter true,
+   and nothing here can say which tab is in front as well as the strip itself
+   says it. They are three plain buttons that each open a tab, and the strip is
+   left to do the reporting.
+
+   They stay in the toolbar rather than moving into the strip's plus, because
+   the strip is not on screen when the column is shut and because these are
+   where you find out that the three have shortcuts. */
 function ViewStrip() {
-  const { rightOpen, rightView, changesCount } = useLayout();
+  const { changesCount } = useLayout();
 
   return (
-    <ToggleGroup
-      type="single"
-      variant="outline"
-      size="sm"
-      value={rightOpen ? rightView : ''}
-      onValueChange={(next) => runCommand(VIEW_COMMAND[next || rightView])}
-      className="max-w-[64ch] overflow-x-auto border-0 shadow-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <ToggleGroupItem value="browser" title="Preview browser (Ctrl+Shift+B)">
-        <GlobeIcon />
-        Browser
-      </ToggleGroupItem>
-      <ToggleGroupItem value="files" title="Project files (Ctrl+Shift+D)">
-        <FolderTreeIcon />
-        Files
-      </ToggleGroupItem>
-      <ToggleGroupItem value="changes" title="Uncommitted changes (Ctrl+Shift+G)">
-        <GitCompareIcon />
-        Changes
-        {/* A glance at the count says whether the agent has been writing. It is
-            only there once the view has read the folder at least once, so a
-            window that never opens this tab never runs git. */}
-        {changesCount > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{changesCount}</Badge>}
-      </ToggleGroupItem>
-    </ToggleGroup>
+    <ButtonGroup>
+      {KINDS.map((kind) => {
+        const { icon: Icon, label, command, hint } = VIEW_KINDS[kind];
+        return (
+          <Button key={kind} variant="outline" size="sm" title={hint} onClick={() => runCommand(command)}>
+            <Icon />
+            {label}
+            {/* A glance at the count says whether the agent has been writing. It
+                is only there once the view has read the folder at least once, so
+                a window that never opens this tab never runs git. */}
+            {kind === 'changes' && changesCount > 0 && (
+              <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{changesCount}</Badge>
+            )}
+          </Button>
+        );
+      })}
+    </ButtonGroup>
   );
 }
 
@@ -188,15 +191,7 @@ function OpenIn({ folder }) {
   const list = useEditors().list;
   const [open, setOpen] = useState(false);
   const pick = chosenEditor();
-
-  useEffect(() => {
-    if (!open) { uncoverPane(); return undefined; }
-    const id = requestAnimationFrame(() => {
-      const content = document.querySelector('[data-slot="dropdown-menu-content"]');
-      coverPane(content?.getBoundingClientRect());
-    });
-    return () => cancelAnimationFrame(id);
-  }, [open]);
+  usePaneCover(open);
 
   if (!list.length || !folder.chosen) return null;
 

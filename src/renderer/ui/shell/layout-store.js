@@ -9,11 +9,10 @@
 
 export const layout = {
   railOpen: true,
-  // The right column holds one view at a time: the preview browser, the project
-  // files, or the uncommitted changes. `rightOpen` is the column, `rightView` is
-  // which of the three.
+  // Whether the right column is on screen. What is in it is a strip of tabs,
+  // and which tabs those are belongs to the focused folder, so it lives in
+  // tabs-store.js rather than here.
   rightOpen: false,
-  rightView: 'browser',
   previewFull: false,
   panelOpen: false,
   // How many files git has not been told about yet. changes-store.js counts

@@ -33,6 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { runCommand } from '../../app.js';
+import { onProject, project } from '../../project.js';
 import {
   askAboutChange,
   changesCount,
@@ -50,6 +51,7 @@ import {
   summary,
 } from './changes-store';
 import { useLayout } from './Shell';
+import { activeKind, subscribeTabs } from './tabs-store';
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 const DANGER_BUTTON = 'size-7 rounded-md text-destructive';
@@ -58,6 +60,22 @@ function useChanges() {
   useSyncExternalStore(subscribeChanges, getChangesVersion, getChangesVersion);
   return changesState;
 }
+
+/* Whether the diff is the thing on screen. Two stores answer that between them:
+   the strip says which tab is active in a folder, and focus says which folder to
+   ask. A folder holds one diff at most, so the kind of its active tab is the
+   whole question.
+
+   The answer is a boolean and not the tabs version on purpose. Everything below
+   hangs off it, including the poll, and moving focus between two folders that
+   are both showing their diff has to come out unchanged. */
+const subscribeTop = (fn) => {
+  const offTabs = subscribeTabs(fn);
+  const offFocus = onProject(fn);
+  return () => { offTabs(); offFocus(); };
+};
+
+const onTop = () => activeKind(project.focused) === 'changes';
 
 // --------------------------------------------------------------- file list
 
@@ -354,12 +372,24 @@ function Nothing() {
 
 export default function ChangesView() {
   const s = useChanges();
-  const { rightOpen, rightView, previewFull } = useLayout();
-  const showing = rightOpen && rightView === 'changes';
+  const { rightOpen, previewFull } = useLayout();
+  const top = useSyncExternalStore(subscribeTop, onTop, onTop);
+  const showing = rightOpen && top;
   const count = changesCount();
 
   // The number on the Changes tab in the toolbar comes from here.
   useEffect(() => { window.tandemStrip?.(); }, [count]);
+
+  /* The five second poll and the read on the way back in hang off this pair.
+     It watches the one boolean, so a folder switch where both folders are on
+     their diff does not fire it: the store reads the new folder the moment
+     focus lands, and a deactivate around that would either drop the read or
+     duplicate it, depending on which listener the window told first. */
+  useEffect(() => {
+    if (!showing) return undefined;
+    window.tandemChanges.activate();
+    return () => window.tandemChanges.deactivate();
+  }, [showing]);
 
   // Alt and an arrow walks the changes in the open file. Plain keys would fight
   // with the chat box, which is one Tab away from here.

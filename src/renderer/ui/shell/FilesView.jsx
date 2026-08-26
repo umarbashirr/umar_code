@@ -39,6 +39,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { runCommand } from '../../app.js';
+import { onProject, project } from '../../project.js';
 import {
   askAboutFile,
   clearQuery,
@@ -61,6 +62,7 @@ import {
   visibleRows,
 } from './files-store';
 import { useLayout } from './Shell';
+import { activeKind, subscribeTabs } from './tabs-store';
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
@@ -71,6 +73,20 @@ function useFiles() {
   useSyncExternalStore(subscribeFiles, getFilesVersion, getFilesVersion);
   return filesState;
 }
+
+/* Whether the tree is the thing on screen. Two stores answer that between them:
+   the strip says which tab is active in a folder, and focus says which folder to
+   ask. A folder holds one tree at most, so the kind of its active tab is the
+   whole question. */
+const subscribeTop = (fn) => {
+  const offTabs = subscribeTabs(fn);
+  const offFocus = onProject(fn);
+  return () => { offTabs(); offFocus(); };
+};
+
+// A boolean rather than the tabs version, so opening a preview somewhere else
+// in the strip does not redraw the tree.
+const onTop = () => activeKind(project.focused) === 'files';
 
 // ----------------------------------------------------------------- labels
 
@@ -476,13 +492,17 @@ function FilesBar() {
 
 export default function FilesView() {
   const s = useFiles();
-  const { rightOpen, rightView } = useLayout();
+  const { rightOpen } = useLayout();
+  const top = useSyncExternalStore(subscribeTop, onTop, onTop);
 
+  // Hidden rather than unmounted, the way it always was. The folders you
+  // expanded and the file you were part way down are worth keeping while you
+  // read a diff in the next tab.
   return (
     <div
       id="files-view"
       className="flex h-full min-h-0 flex-col"
-      hidden={!(rightOpen && rightView === 'files') || undefined}>
+      hidden={!(rightOpen && top) || undefined}>
       <FilesBar />
 
       {s.view.path

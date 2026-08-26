@@ -5,6 +5,10 @@ import { layout, onRelayout, registerActions, setLayout } from './ui/shell/layou
 import { toast } from './ui/shell/toast.jsx';
 import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
 import { navigate, pickElement, toggleDrawer } from './ui/shell/browser-store.js';
+import {
+  activateTab, activeKind, activeTab, carryInto, dropProject as dropTabs,
+  openTab, previewTabs, projectDirs, subscribeTabs,
+} from './ui/shell/tabs-store.js';
 import { DEFAULT_SCHEME, isScheme } from './ui/lib/themes.js';
 
 export const $ = (sel) => document.querySelector(sel);
@@ -28,13 +32,13 @@ const state = {
 // Which panels are up is React's to render, so it lives in the layout store and
 // these are a read-only view of it. Anything in here that wants a panel open
 // calls setLayout; assigning to one of these throws, which is the point.
-for (const key of ['railOpen', 'rightOpen', 'rightView', 'previewFull', 'panelOpen']) {
+for (const key of ['railOpen', 'rightOpen', 'previewFull', 'panelOpen']) {
   Object.defineProperty(state, key, { get: () => layout[key], enumerable: true });
 }
 
 // A drag or a panel appearing changes how many CSS pixels the terminal and the
 // preview have to work with. Neither notices on its own.
-onRelayout(() => { resizeActive(); syncBounds(); });
+onRelayout(() => { resizeActive(); syncPreview(); });
 
 // What the stores cannot do for themselves without importing this file back.
 registerActions({ openPreview: () => openPreview(), toast });
@@ -476,7 +480,11 @@ function adoptStrays(dir) {
   group.active = strays.active || group.active;
 }
 
-function focusProject(dir) {
+/* `leaving` is what the column was reading in the folder being left. It is a
+   parameter because the folder can be leaving by closing, in which case its
+   tabs are gone by the time this runs and the caller is the only one that still
+   knows. */
+function focusProject(dir, leaving = activeKind(state.focused)) {
   if (dir === state.focused) return;
   // The one move that is a renaming rather than a switch: nothing was showing
   // another folder, the folder just got its name.
@@ -484,6 +492,13 @@ function focusProject(dir) {
   state.focused = dir;
   paint();
   renderStrip();
+  /* The column swaps to this folder's strip, and a folder that has never had
+     one takes the kind you were reading. Coming to a project to look at what an
+     agent did there and landing on an empty column with three buttons in it is
+     a step nobody wants to take twice. carryInto does nothing when the column
+     is shut, so a folder you never open it on keeps costing nothing. */
+  if (dir) carryInto(dir, leaving);
+  syncRight();
   const group = focusedShells();
   // A folder with no shell yet gets one, on the same reasoning as opening the
   // panel: a panel showing an empty strip is a black box with nothing to do.
@@ -502,12 +517,24 @@ function focusProject(dir) {
 window.tandem.project.onChanged((info) => {
   if (!info) return;
   const open = new Set((info.projects || []).map((p) => p.dir));
-  for (const dir of [...state.projects.keys()]) {
+  // Read before the drop below, because the folder closing can be the one whose
+  // diff is on screen, and the folder focus lands on should show its own.
+  const leaving = activeKind(state.focused);
+  // Shells and tabs are held per folder and neither list is the other: a folder
+  // can have a tree open and no shell, or a shell and nothing in the column.
+  const known = new Set([...state.projects.keys(), ...projectDirs()]);
+  for (const dir of known) {
     // The empty dir is not a folder that can close, it is the startup gap, and
     // the first real focus adopts whatever is filed under it.
-    if (dir && !open.has(dir)) dropProject(dir);
+    if (!dir || open.has(dir)) continue;
+    dropProject(dir);
+    // The tabs go with the folder. Letting go of the native views behind them is
+    // the reconciler's, which sees these leave the same way it sees a tab closed
+    // by hand.
+    dropTabs(dir);
+    lastPreview.delete(dir);
   }
-  focusProject(info.focused || '');
+  focusProject(info.focused || '', leaving);
 });
 
 (async () => {
@@ -540,10 +567,34 @@ const inWindowPixels = (b) => ({
   width: Math.round(b.width * zoom), height: Math.round(b.height * zoom),
 });
 
+/* The preview that belongs in the box: the focused folder's active tab, when
+   that tab is a preview and the column is on screen. Null the rest of the time,
+   since the tree and the diff draw HTML in that same slot, and the previews the
+   other folders are holding stay where they are. */
+function previewInBox() {
+  if (!state.rightOpen) return null;
+  const tab = activeTab(state.focused);
+  return tab?.kind === 'browser' ? tab.id : null;
+}
+
+/* Main paints one preview into the box and has to be told which, since a folder
+   can have several. Said again only when the answer changes: naming the same
+   tab twice pulls the view out of the window and puts it back for nothing. */
+let named = null;
+
+function syncPreview() {
+  const id = previewInBox();
+  if (id !== named) {
+    named = id;
+    window.tandem.browser.show(id);
+  }
+  syncBounds();
+}
+
 function syncBounds() {
-  // The files view sits where the pane would be, so anything other than the
-  // browser showing in that column parks the pane the same way a modal does.
-  if (previewParked || !state.rightOpen || state.rightView !== 'browser') {
+  // The tree and the diff sit where the pane would be, so a tab that is not a
+  // preview parks the pane the same way a modal does.
+  if (previewParked || !previewInBox()) {
     // Park it just outside the window instead of hiding it. A hidden view stops
     // laying out, and the agent would get a 0x0 page while the pane is closed.
     window.tandem.browser.setBounds(inWindowPixels({
@@ -557,33 +608,95 @@ function syncBounds() {
   window.tandem.browser.setBounds(inWindowPixels({ x: r.x, y: r.y, width: r.width, height: r.height }));
 }
 
-// Open the right column on one of its two views. Switching between them keeps
-// the column's width, so the browser and the files trade places rather than
-// each fighting for their own slice of the window.
-function showRight(view) {
-  const already = state.rightOpen && state.rightView === view;
-  setLayout({ rightOpen: true, rightView: view });
-  renderStrip();
-  if (view === 'files') window.tandemFiles?.activate();
-  if (view === 'changes') window.tandemChanges?.activate();
-  else window.tandemChanges?.deactivate();
-  requestAnimationFrame(() => {
-    syncBounds();
-    resizeActive();
-    if (view === 'browser') window.tandem.browser.setVisible(true);
-  });
-  return already;
+// --------------------------------------------------------- right column
+
+/* The column holds a strip of tabs, each one a preview, the file tree or the
+   diff, and the tabs belong to a folder the way the shells do. rightOpen says
+   whether the strip is on screen and nothing more. The tabs go on existing
+   while it is shut, which is what lets a button put the column away and bring
+   the same page back. */
+
+/* The preview a folder comes back to. It can have several, and neither the
+   toolbar button nor an agent says which one it means, so it is the last one
+   that was on screen. The store knows what is active now rather than what was
+   active last, so that is remembered here. */
+const lastPreview = new Map();
+
+function previewFor(dir) {
+  const open = previewTabs(dir);
+  if (!open.length) return null;
+  const last = lastPreview.get(dir);
+  return open.includes(last) ? last : open[open.length - 1];
 }
 
-function closeRight() {
+
+/* Everything the column has to be told after a tab changes, focus moves or the
+   column opens and shuts: which view is reading, which preview is in the box,
+   and where the box is.
+
+   The kind on screen is kept so the tree is told when it arrives and not on
+   every bump the store makes. The diff is not told anything from here at all:
+   ChangesView turns its own store on and off from whether it is the active tab,
+   and a second caller would have it read the whole tree twice on every switch. */
+let showing = null;
+
+function syncRight() {
+  const dir = state.focused;
+  const tab = state.rightOpen ? activeTab(dir) : null;
+  if (tab?.kind === 'browser') lastPreview.set(dir, tab.id);
+  const kind = tab?.kind || null;
+  if (kind !== showing) {
+    showing = kind;
+    if (kind === 'files') window.tandemFiles?.activate();
+  }
+  syncPreview();
+}
+
+// A tab can be activated or closed from the strip, and main opens one of its
+// own when an agent puts a page up, so the store is the thing to listen to
+// rather than each of the callers.
+subscribeTabs(syncRight);
+
+/* Open the column on a tab of this kind and go to it. A folder has one tree and
+   one diff, so those land back on the tab it already had. The preview is the
+   odd one out: the button does not name one, so it returns to the last preview
+   read in this folder and mints a new one only when there is none. */
+function showRight(kind) {
+  const dir = state.focused;
+  const held = kind === 'browser' ? previewFor(dir) : null;
+  if (held) {
+    setLayout({ rightOpen: true });
+    activateTab(dir, held);
+  } else if (!openTab(dir, kind)) return;
+  syncRight();
+  // The column has to lay out before #paneslot has a box worth handing over.
+  requestAnimationFrame(() => { syncBounds(); resizeActive(); });
+}
+
+/* A preview the person asked for outright, from the plus on the strip. The
+   toolbar button means "show me the preview" and goes back to the one you were
+   reading; this means "another one", which is the whole reason a folder can
+   hold several. Nothing else in the column can be opened twice, so nothing else
+   needs this. */
+function newPreview() {
+  const dir = state.focused;
+  if (!openTab(dir, 'browser')) return;
+  syncRight();
+  requestAnimationFrame(() => { syncBounds(); resizeActive(); });
+}
+
+/* Put the column away and leave the strip alone. A tab is a page you were
+   reading or a tree you expanded four folders deep, and none of that should go
+   because you wanted the chat wider for a minute. Closing a tab is the tab's
+   own business, and the store shuts the column itself when the last one goes,
+   so the two never have to be done together. */
+function hideRight() {
   if (!state.rightOpen) return;
   // Both panes hidden at once is a blank window, so putting the column away
   // gives the chat its half back first.
   setPreviewFull(false);
   setLayout({ rightOpen: false });
-  window.tandemChanges?.deactivate();
-  renderStrip();
-  syncBounds();
+  syncRight();
   requestAnimationFrame(resizeActive);
 }
 
@@ -592,25 +705,32 @@ function openPreview(focusUrl = false) {
   if (focusUrl && !state.paneLive) requestAnimationFrame(() => { $('#url').focus(); $('#url').select(); });
 }
 
-// Asked to hide the preview while the files are showing, there is no preview on
-// screen to hide, so the column stays where it is.
-function closePreview() {
-  if (state.rightView === 'browser') closeRight();
+// Asked to hide the preview while the tree or the diff is showing, there is no
+// preview on screen to hide, so the column stays where it is.
+function hidePreview() {
+  if (activeKind(state.focused) === 'browser') hideRight();
 }
 
-const togglePreview = () => (state.rightOpen && state.rightView === 'browser' ? closeRight() : openPreview(true));
-const toggleFiles = () => (state.rightOpen && state.rightView === 'files' ? closeRight() : showRight('files'));
-const toggleChanges = () => (state.rightOpen && state.rightView === 'changes' ? closeRight() : showRight('changes'));
+/* Pressing a button whose tab is already the one showing puts the column away
+   and leaves that tab in the strip, so the same page or the same diff is there
+   on the next press. Pressed on any other tab it goes to that kind, which is
+   the commoner thing to want and costs one press to undo. */
+const toggleRight = (kind) => (state.rightOpen && activeKind(state.focused) === kind ? hideRight() : showRight(kind));
+const togglePreview = () => (state.rightOpen && activeKind(state.focused) === 'browser' ? hideRight() : openPreview(true));
+const toggleFiles = () => toggleRight('files');
+const toggleChanges = () => toggleRight('changes');
 
 // The right column at full width: the chat collapses to nothing and whichever
-// view is showing takes the whole content column. The rail is deliberately left
+// tab is showing takes the whole content column. The rail is deliberately left
 // alone, so a sidebar that was open stays open, and closing it hands the last of
 // the window over to the page.
 function setPreviewFull(on) {
   const next = on === undefined ? !state.previewFull : !!on;
   if (next === state.previewFull) return;
   setLayout({ previewFull: next });
-  if (next) showRight(state.rightView);
+  // Full width with nothing in the strip is a blank half window, so a folder
+  // that has never opened the column gets a preview to fill it.
+  if (next) showRight(activeKind(state.focused) || 'browser');
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
 }
 
@@ -628,8 +748,26 @@ export { toast } from './ui/shell/toast.jsx';
 
 // The agent loading a page is a request to be looked at. What it did is drawn
 // by the toolbar, which listens for the same thing.
-window.tandem.agent.onActivity(({ tool }) => {
-  if (tool === 'navigate') openPreview();
+/* An agent navigating puts its page on screen. Main brings that agent's folder
+   forward first, so by the time this lands the folder is usually the focused
+   one and the column opens on the right page. The guard is for when it is not:
+   a folder that has since been closed, or a navigate that raced a switch. A
+   column yanked open on another folder's tab is worse than one that stayed
+   shut, because it is the wrong page under the right heading. */
+window.tandem.agent.onActivity(({ tool, project }) => {
+  if (tool !== 'navigate') return;
+  if (project && project !== state.focused) return;
+  openPreview();
+});
+
+/* An agent asking for a preview in a folder that has none is answered by main,
+   which mints the id and has a page loading on it before it says anything. The
+   tab is opened under that same id, so the strip and the native view are the one
+   thing. Without this the agent's page is live with nothing to click. */
+window.tandem.browser.onOpenTab(({ project, tab }) => {
+  // The column is only brought up if this is the folder on screen. An agent
+  // working somewhere you are not looking at gets its tab made and waiting.
+  if (project && tab) openTab(project, 'browser', tab, { reveal: project === state.focused });
 });
 
 // ------------------------------------------------------------- commands
@@ -639,18 +777,19 @@ export function runCommand(name, arg) {
   switch (name) {
     case 'preview':
       if (arg === true) return openPreview();
-      if (arg === false) return closePreview();
+      if (arg === false) return hidePreview();
       return togglePreview();
+    case 'newPreview': return newPreview();
     case 'previewFull':
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();
     case 'files':
       if (arg === true) return showRight('files');
-      if (arg === false) return closeRight();
+      if (arg === false) return hideRight();
       return toggleFiles();
     case 'changes':
       if (arg === true) return showRight('changes');
-      if (arg === false) return closeRight();
+      if (arg === false) return hideRight();
       return toggleChanges();
     case 'openFile':
       if (!arg) return undefined;
@@ -725,5 +864,5 @@ export async function boot() {
   await loadBridge();
   applyZoom(zoom);
   renderStrip();
-  syncBounds();
+  syncRight();
 }

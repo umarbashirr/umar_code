@@ -46,15 +46,24 @@ contextBridge.exposeInMainWorld('tandem', {
   browser: {
     setBounds: (b) => ipcRenderer.send('browser:bounds', b),
     setVisible: (v) => ipcRenderer.send('browser:visible', v),
-    // Every project has a preview of its own. No project named means the one on
-    // screen, which is what the toolbar and the address bar always mean.
-    action: (action, arg, project) => ipcRenderer.invoke('browser:action', { action, arg, project }),
+    // A preview belongs to a tab in the right column, and a folder can have
+    // several. No tab named means the one in the box.
+    // `project` is only a hint about who the tab belongs to, for the case where
+    // main is making the page before the shell has said which strip it is in.
+    action: (action, arg, tab, project) => ipcRenderer.invoke('browser:action', { action, arg, tab, project }),
+    // Which preview belongs in the box. The shell owns the strip, so the shell
+    // is what says; null means the column is shut or is showing something that
+    // is not a preview.
+    show: (tab, project) => ipcRenderer.send('browser:show', { tab, project }),
+    closeTab: (tab) => ipcRenderer.send('browser:closeTab', { tab }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),
-    // Which agent is currently driving that project's pane, and taking it back
-    // off them.
-    driver: (project) => ipcRenderer.invoke('preview:driver', { project }),
-    seize: (project) => ipcRenderer.invoke('preview:seize', { project }),
+    // An agent asked for a preview in a folder with no tab open for one, so
+    // main made the page and minted the id. The shell draws the tab.
+    onOpenTab: on('preview:tab'),
+    // Which agent is driving that preview, and taking it back off them.
+    driver: (tab) => ipcRenderer.invoke('preview:driver', { tab }),
+    seize: (tab) => ipcRenderer.invoke('preview:seize', { tab }),
     onDriver: on('preview:driver'),
   },
 

@@ -3,7 +3,21 @@
 
    #paneslot is deliberately empty. The page is a separate web contents that the
    window paints on top of this document at whatever bounds that div reports, so
-   everything here is the frame around a hole. */
+   everything here is the frame around a hole.
+
+   A folder can have several previews open, and the frame is drawn once per
+   preview tab rather than once for the window. All of them stay mounted and
+   every one but the active tab's is display:none. The alternative, one frame
+   reading whichever record is active, throws away everything the DOM is holding
+   for the tabs behind it: the address you were halfway through typing, where
+   you had scrolled the console. Those belong to a tab, not to a window, and
+   moving them into the store would repaint three hundred log rows per
+   keystroke.
+
+   There is still only one hole. Bounds are measured and watched off #paneslot
+   by id, and a native view can only be in one place, so the frames stack around
+   a single slot that outlives all of them: toolbars above it, drawers below,
+   and the one that is showing gives the hole its height. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AppWindowIcon,
@@ -45,14 +59,16 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { runCommand } from '../../app.js';
 import {
   askAboutError,
-  browserState,
   clearLogs,
   consoleErrors,
   getBrowserVersion,
   go,
   hideDrawer,
-  navigate,
+  navigateTab,
+  onScreen,
   pickElement,
+  previewOf,
+  previews,
   screenshot,
   setViewport,
   showDrawer,
@@ -72,15 +88,19 @@ const VIEWPORT_ICON = {
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
-function useBrowser() {
+// Every frame listens and only the one on screen is repainted by the store, so
+// a hidden frame costs a version compare. A tab that has not loaded anything
+// yet reads as blank rather than borrowing the page of whichever tab is
+// current.
+function useBrowser(tab) {
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
-  return browserState;
+  return previewOf(tab);
 }
 
 // ------------------------------------------------------------- address bar
 
-function AddressBar() {
-  const s = useBrowser();
+function AddressBar({ tab, showing }) {
+  const s = useBrowser(tab);
   const [draft, setDraft] = useState(s.url);
   const input = useRef(null);
 
@@ -89,7 +109,7 @@ function AddressBar() {
   useEffect(() => { if (!focused) setDraft(s.url); }, [s.url, focused]);
 
   const onKeyDown = (e) => {
-    if (e.key === 'Enter') { navigate((s.scheme + draft).trim()); input.current?.blur(); }
+    if (e.key === 'Enter') { navigateTab((s.scheme + draft).trim(), tab); input.current?.blur(); }
     if (e.key === 'Escape') input.current?.blur();
   };
 
@@ -101,7 +121,9 @@ function AddressBar() {
         </InputGroupAddon>
       )}
       <InputGroupInput
-        id="url"
+        /* Ctrl+Shift+L and the store's "are you typing" check both go by this
+           id, so it belongs to the one bar you can see. */
+        id={showing ? 'url' : undefined}
         ref={input}
         spellCheck={false}
         placeholder="localhost:3000, a URL, or a search"
@@ -117,8 +139,8 @@ function AddressBar() {
 
 /* Everything the pane can do beyond navigating, in one menu. The bar kept nine
    icons in a row and none of them said what they were. */
-function PaneMenu() {
-  const s = useBrowser();
+function PaneMenu({ tab }) {
+  const s = useBrowser(tab);
   const { previewFull } = useLayout();
   const [open, setOpen] = useState(false);
 
@@ -154,7 +176,7 @@ function PaneMenu() {
               <DropdownMenuCheckboxItem
                 key={v.size || 'fit'}
                 checked={s.viewport === v.size}
-                onCheckedChange={() => setViewport(v.size)}>
+                onCheckedChange={() => setViewport(v.size, tab)}>
                 <Icon />
                 {v.label}
                 {v.note && <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">{v.note}</span>}
@@ -165,16 +187,16 @@ function PaneMenu() {
 
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => pickElement()}>
+          <DropdownMenuItem onSelect={() => pickElement(tab)}>
             <CrosshairIcon />
             Point at an element
             <DropdownMenuShortcut>^⇧E</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => screenshot()}>
+          <DropdownMenuItem onSelect={() => screenshot(tab)}>
             <CameraIcon />
             Screenshot to disk
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => go('devtools')}>
+          <DropdownMenuItem onSelect={() => go('devtools', tab)}>
             <CodeXmlIcon />
             DevTools
           </DropdownMenuItem>
@@ -202,7 +224,7 @@ function PaneMenu() {
 
 const CONNECTION = /ERR_CONNECTION|refused|(-102)/i;
 
-function PageError({ error }) {
+function PageError({ tab, error }) {
   return (
     <Empty className="absolute inset-0 bg-card">
       <EmptyHeader>
@@ -216,8 +238,8 @@ function PageError({ error }) {
       </EmptyHeader>
       <EmptyContent>
         <div className="flex gap-2">
-          <Button size="sm" onClick={askAboutError}>Ask Agent</Button>
-          <Button size="sm" variant="outline" onClick={() => showDrawer('network')}>Show Details</Button>
+          <Button size="sm" onClick={() => askAboutError(tab)}>Ask Agent</Button>
+          <Button size="sm" variant="outline" onClick={() => showDrawer('network', tab)}>Show Details</Button>
         </div>
       </EmptyContent>
     </Empty>
@@ -246,6 +268,15 @@ function Placeholder() {
   );
 }
 
+// What is over the hole for one tab. Only the showing tab's is drawn, because
+// they would otherwise stack on top of each other in the one stage.
+function Stage({ tab, showing }) {
+  const s = useBrowser(tab);
+  if (!showing) return null;
+  if (s.error) return <PageError tab={tab} error={s.error} />;
+  return s.live ? null : <Placeholder />;
+}
+
 // ------------------------------------------------------------------ drawer
 
 function LogRow({ row }) {
@@ -264,28 +295,47 @@ function LogRow({ row }) {
   );
 }
 
-function Drawer() {
-  const s = useBrowser();
+function Drawer({ tab, showing }) {
+  const s = useBrowser(tab);
   const body = useRef(null);
+  // Where this tab was reading. A hidden drawer is display:none, which drops
+  // the scroll offset on the floor, so the tab carries its own place back.
+  const seat = useRef({ top: 0, stick: true });
   const rows = s.drawerTab === 'console' ? s.console : s.network;
 
-  // New lines arrive at the bottom, which is where you are reading.
   useEffect(() => {
-    if (body.current) body.current.scrollTop = body.current.scrollHeight;
-  }, [rows.length, s.drawerTab]);
+    const el = body.current;
+    if (!el) return undefined;
+    const onScroll = () => {
+      seat.current.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+      seat.current.top = el.scrollTop;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [s.drawerOpen]);
+
+  // New lines arrive at the bottom, which is where you are reading, unless you
+  // have scrolled off it to look at something.
+  useEffect(() => {
+    const el = body.current;
+    if (!el || !showing) return;
+    el.scrollTop = seat.current.stick ? el.scrollHeight : seat.current.top;
+  }, [showing, rows.length, s.drawerTab]);
 
   if (!s.drawerOpen) return null;
 
+  const errors = consoleErrors(tab);
+
   return (
-    <div className="flex h-[220px] shrink-0 flex-col border-t">
-      <Tabs value={s.drawerTab} onValueChange={showDrawer} className="min-h-0 flex-1 gap-0">
+    <div className="flex h-[220px] shrink-0 flex-col border-t" hidden={!showing || undefined}>
+      <Tabs value={s.drawerTab} onValueChange={(v) => showDrawer(v, tab)} className="min-h-0 flex-1 gap-0">
         <div className="flex items-center gap-2 border-b px-2 py-1">
           <TabsList className="h-7 bg-transparent p-0">
             <TabsTrigger value="console" className="gap-1.5 text-xs">
               console
               {s.console.length > 0 && (
-                <Badge variant={consoleErrors() ? 'destructive' : 'secondary'} className="px-1.5 py-0 text-[10px]">
-                  {consoleErrors() || s.console.length}
+                <Badge variant={errors ? 'destructive' : 'secondary'} className="px-1.5 py-0 text-[10px]">
+                  {errors || s.console.length}
                 </Badge>
               )}
             </TabsTrigger>
@@ -299,7 +349,11 @@ function Drawer() {
 
           <span className="flex-1" />
 
-          <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={clearLogs}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-muted-foreground"
+            onClick={() => clearLogs(tab)}>
             clear
           </Button>
           <Button
@@ -307,7 +361,7 @@ function Drawer() {
             size="icon"
             className={ICON_BUTTON}
             title="Close (Ctrl+Shift+J)"
-            onClick={hideDrawer}>
+            onClick={() => hideDrawer(tab)}>
             <ChevronDownIcon />
           </Button>
         </div>
@@ -322,52 +376,66 @@ function Drawer() {
   );
 }
 
+// ------------------------------------------------------------------ toolbar
+
+function Toolbar({ tab, showing }) {
+  const s = useBrowser(tab);
+  const errors = consoleErrors(tab);
+
+  return (
+    <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2.5" hidden={!showing || undefined}>
+      <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Back" disabled={!s.canGoBack} onClick={() => go('back', tab)}>
+        <ArrowLeftIcon />
+      </Button>
+      <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Forward" disabled={!s.canGoForward} onClick={() => go('forward', tab)}>
+        <ArrowRightIcon />
+      </Button>
+      <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Reload" onClick={() => go('reload', tab)}>
+        <RotateCwIcon />
+      </Button>
+
+      <div className="min-w-0 flex-1"><AddressBar tab={tab} showing={showing} /></div>
+
+      {/* The tab badges go off screen with the closed drawer, and the drawer
+          starts closed, so a page that loaded fine and then threw a hundred
+          times looked exactly like a clean one. */}
+      {errors > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 px-2 text-destructive"
+          title="Console errors. Click to open the console."
+          onClick={() => showDrawer('console', tab)}>
+          <TriangleAlertIcon />
+          {errors}
+        </Button>
+      )}
+
+      <PaneMenu tab={tab} />
+    </div>
+  );
+}
+
 // -------------------------------------------------------------------- pane
 
 export default function BrowserView() {
-  const s = useBrowser();
-  const { rightOpen, rightView } = useLayout();
-  const errors = consoleErrors();
+  useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
+  // Read for the repaint rather than for a value: onScreen() answers out of the
+  // layout, so this frame has to redraw when the column opens or shuts.
+  useLayout();
+  const shown = onScreen();
+  const open = previews();
 
   return (
-    <div className="flex h-full min-h-0 flex-col" hidden={!(rightOpen && rightView === 'browser') || undefined}>
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2.5">
-        <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Back" disabled={!s.canGoBack} onClick={() => go('back')}>
-          <ArrowLeftIcon />
-        </Button>
-        <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Forward" disabled={!s.canGoForward} onClick={() => go('forward')}>
-          <ArrowRightIcon />
-        </Button>
-        <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Reload" onClick={() => go('reload')}>
-          <RotateCwIcon />
-        </Button>
-
-        <div className="min-w-0 flex-1"><AddressBar /></div>
-
-        {/* The tab badges go off screen with the closed drawer, and the drawer
-            starts closed, so a page that loaded fine and then threw a hundred
-            times looked exactly like a clean one. */}
-        {errors > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 px-2 text-destructive"
-            title="Console errors. Click to open the console."
-            onClick={() => showDrawer('console')}>
-            <TriangleAlertIcon />
-            {errors}
-          </Button>
-        )}
-
-        <PaneMenu />
-      </div>
+    <div className="flex h-full min-h-0 flex-col" hidden={!shown || undefined}>
+      {open.map(({ tab }) => <Toolbar key={tab} tab={tab} showing={tab === shown} />)}
 
       <div className="relative min-h-0 flex-1">
         <div id="paneslot" className="absolute inset-0" />
-        {s.error ? <PageError error={s.error} /> : !s.live && <Placeholder />}
+        {open.map(({ tab }) => <Stage key={tab} tab={tab} showing={tab === shown} />)}
       </div>
 
-      <Drawer />
+      {open.map(({ tab }) => <Drawer key={tab} tab={tab} showing={tab === shown} />)}
     </div>
   );
 }
