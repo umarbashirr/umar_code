@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -94,12 +94,19 @@ export default function App() {
   const text = draft.text;
   const attachments = draft.attachments;
 
+  // The bridge below hands these to the vanilla half once and never rebinds,
+  // so they read the chat that is open now rather than the one that was open
+  // when the bridge was installed. Keyed off a ref for that reason.
+  const keyRef = useRef(key);
+  keyRef.current = key;
+
   const editDraft = useCallback((field, next) => {
+    const k = keyRef.current;
     setDrafts((all) => {
-      const cur = all[key] || EMPTY_DRAFT;
-      return { ...all, [key]: { ...cur, [field]: typeof next === 'function' ? next(cur[field]) : next } };
+      const cur = all[k] || EMPTY_DRAFT;
+      return { ...all, [k]: { ...cur, [field]: typeof next === 'function' ? next(cur[field]) : next } };
     });
-  }, [key]);
+  }, []);
   const setText = useCallback((next) => editDraft('text', next), [editDraft]);
   const setAttachments = useCallback((next) => editDraft('attachments', next), [editDraft]);
   const setNote = useCallback(
