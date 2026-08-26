@@ -110,6 +110,13 @@ contextBridge.exposeInMainWorld('tandem', {
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: () => ipcRenderer.invoke('agent:models'),
     setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
+    // How hard the model thinks. The CLI takes this when a session starts and
+    // has no setter for it, so changing it parks the idle chats and the next
+    // message on each resumes at the new level.
+    setEffort: (effort) => ipcRenderer.invoke('agent:setEffort', { effort }),
+    // The million-token window is a different name for the same model rather
+    // than a setting on it, so this swaps the name.
+    setLongContext: (on) => ipcRenderer.invoke('agent:setLongContext', { on }),
     forgetModel: (model) => ipcRenderer.invoke('agent:forgetModel', { model }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),

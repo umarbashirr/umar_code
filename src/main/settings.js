@@ -32,6 +32,10 @@ const DEFAULTS = {
   agent: {
     model: '',              // empty means whatever the CLI picks
     mode: 'ask',
+    // How hard the model thinks. Empty means whatever the CLI defaults to,
+    // which is not the same as any level we could name here: naming one would
+    // pin every chat to today's default and never move.
+    effort: '',
   },
   startup: {
     reopenProject: true,

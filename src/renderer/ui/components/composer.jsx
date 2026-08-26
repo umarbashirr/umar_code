@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon, FolderIcon,
-  GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
+  ArrowUpIcon, BrainIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
+  FolderIcon, GaugeIcon, GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
@@ -94,6 +94,51 @@ function ModelPicker({ agent }) {
         <PromptInputSelectItem value={CUSTOM}>Type a model name…</PromptInputSelectItem>
       </PromptInputSelectContent>
     </PromptInputSelect>
+  );
+}
+
+/* How hard the model thinks, and how long a window it gets. Both sit next to
+   the model because both are about the same choice, and neither was reachable
+   before: effort was never passed to the CLI at all, and the long window is a
+   second name for a model rather than a setting on it, so the list only ever
+   showed whichever half the CLI defaulted to.
+
+   Empty effort means the CLI's own default. It is offered as a level you can
+   return to rather than left off the list, because "whatever Claude Code does"
+   is a real answer and pinning it to today's default would stop it following. */
+function ThinkingPicker({ agent }) {
+  if (!agent.efforts?.length) return null;
+
+  return (
+    <PromptInputSelect value={agent.effort || 'default'} onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
+      <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 text-xs">
+        <BrainIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <PromptInputSelectValue />
+      </PromptInputSelectTrigger>
+      <PromptInputSelectContent>
+        <PromptInputSelectItem value="default">Default effort</PromptInputSelectItem>
+        {agent.efforts.map((level) => (
+          <PromptInputSelectItem key={level} value={level}>{`${level} effort`}</PromptInputSelectItem>
+        ))}
+      </PromptInputSelectContent>
+    </PromptInputSelect>
+  );
+}
+
+function ContextPill({ agent }) {
+  const { on, capable } = agent.longContext || {};
+  if (!capable) return null;
+
+  return (
+    <Pill
+      title={on
+        ? 'Running the million-token window. Click for the ordinary one.'
+        : 'Running the ordinary window. Click for the million-token one.'}
+      className={on ? 'text-foreground/80' : undefined}
+      onClick={() => agent.changeLongContext(!on)}>
+      <GaugeIcon className="size-3.5 shrink-0" />
+      {on ? '1M' : '200K'}
+    </Pill>
   );
 }
 
@@ -563,7 +608,13 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
               {/* An endpoint that will not list its models still needs a way to
                   name one, so the picker stays even when the list is empty. */}
-              {(agent.models.length > 0 || agent.driver?.installed) && <ModelPicker agent={agent} />}
+              {(agent.models.length > 0 || agent.driver?.installed) && (
+                <>
+                  <ModelPicker agent={agent} />
+                  <ContextPill agent={agent} />
+                  <ThinkingPicker agent={agent} />
+                </>
+              )}
             </PromptInputTools>
 
             <PromptInputSubmit

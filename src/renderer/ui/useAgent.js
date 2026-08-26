@@ -154,6 +154,13 @@ export function useAgent() {
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
   const [driver, setDriver] = useState(null);
+  // How hard the model thinks, and which levels this build of the CLI takes.
+  // Empty means the CLI's own default rather than a level we picked for it.
+  const [effort, setEffort] = useState('');
+  const [efforts, setEfforts] = useState([]);
+  // Whether the chosen model is the long-context half of a pair, and whether it
+  // has one at all. Haiku does not.
+  const [longContext, setLongContext] = useState({ on: false, capable: false });
 
   // Read inside the IPC listeners, which are registered once and would
   // otherwise close over the first render's chats.
@@ -474,6 +481,9 @@ export function useAgent() {
     const apply = (d) => {
       if (!d) return;
       setDriver({ installed: d.installed, version: d.version, message: d.message, endpoint: d.endpoint });
+      if (d.efforts?.length) setEfforts(d.efforts);
+      if (typeof d.effort === 'string') setEffort(d.effort);
+      if (typeof d.long === 'boolean') setLongContext({ on: d.long, capable: !!d.longCapable });
       if (!d.models?.length) return setModels([]);
       setModels(d.models);
       // Left empty when nothing has been chosen, so the picker says "Pick a
@@ -790,6 +800,34 @@ export function useAgent() {
     }
   }, [edit, push, switchTo]);
 
+  /* Changing how hard the model thinks. The CLI takes this when a session
+     starts and has no setter for it, so main parks the idle chats and the next
+     message on each resumes its transcript at the new level. A chat mid-turn
+     keeps the level it started on rather than having the session pulled out
+     from under it. */
+  const changeEffort = useCallback(async (value) => {
+    const next = value === effort ? '' : value;
+    setEffort(next);
+    const res = await tandem().agent.setEffort(next).catch(() => null);
+    if (res && typeof res.effort === 'string') setEffort(res.effort);
+  }, [effort]);
+
+  // The long window is a different name for the same model, so this swaps the
+  // name and the picker follows.
+  const changeLongContext = useCallback(async (on) => {
+    setLongContext((cur) => ({ ...cur, on }));
+    const res = await tandem().agent.setLongContext(on).catch(() => null);
+    if (res?.error) return setLongContext((cur) => ({ ...cur, on: !on }));
+    if (res?.model) {
+      // The list comes back with the switched-to name on it. Without that the
+      // picker has a value it cannot find and falls back to its placeholder,
+      // which reads as nothing being selected at all.
+      if (res.models?.length) setModels(res.models);
+      setModel(res.model);
+      setLongContext({ on: !!res.long, capable: true });
+    }
+  }, []);
+
   const changeModel = useCallback(async (value) => {
     setModel(value);
     // Every chat follows the picker, and the window and prices follow with it.
@@ -831,10 +869,11 @@ export function useAgent() {
     mode: active.mode,
     queued: active.queued,
     usage,
-    models, model, driver,
+    models, model, driver, effort, efforts, longContext,
     chats, activeKey,
     send, enqueue, unqueue, flushQueue,
     decide, interrupt, reset, clear, open, removeChat, switchTo, changeModel, forgetModel, changeMode,
+    changeEffort, changeLongContext,
     stopAgent, backgroundAgent, openAgent,
   };
 }

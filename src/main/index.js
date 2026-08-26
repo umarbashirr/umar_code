@@ -7,7 +7,9 @@ const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { runTool } = require('./tools');
 const { AgentSession, SHOT_NOTE } = require('./agent');
-const { Driver, claudeBinary, preferBinary, systemBinary } = require('./driver');
+const {
+  Driver, claudeBinary, preferBinary, systemBinary, isLong, withLong, withoutLong, hasLong,
+} = require('./driver');
 const { Catalog } = require('./catalog');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
@@ -22,6 +24,8 @@ const attachments = require('./attachments');
 const projects = require('./projects');
 const completed = require('./completed');
 const { DEFAULT_MODE, isMode } = require('./modes');
+// What the CLI takes for --effort. Anything else is refused rather than passed on.
+const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
 const bridgeState = require('../../cli/state');
 
@@ -59,6 +63,10 @@ let updates = null;
 let chosenModel = settings.get('agent').model || null;
 if (chosenModel === 'default') chosenModel = null;
 let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
+// How hard the model thinks. Empty means the CLI's own default, which is the
+// right starting point: naming a level here would pin every chat to whatever
+// today's default happens to be and never follow it.
+let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get('agent').effort : '';
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
@@ -513,6 +521,7 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
     resume: resume || null,
     model: settleModel(),
     mode: chosenMode,
+    effort: chosenEffort || undefined,
     cwd,
     settings: catalog.sessionSettings(cwd),
     mcpOff: catalog.offAtRuntime(cwd),
@@ -740,11 +749,49 @@ function registerIpc() {
     return {
       models,
       current,
+      effort: chosenEffort,
+      efforts: EFFORT,
+      // Whether the name in the picker is the long-context half of a pair, and
+      // what the other half is called. The suffix is the whole difference.
+      long: isLong(current),
+      longCapable: hasLong(current),
       installed: d.installed,
       version: d.version,
       message: d.message,
       endpoint: d.endpoint,
     };
+  });
+
+  /* Effort has no live setter: the SDK takes it when a session starts and there
+     is no equivalent of setModel for it. So the running sessions are stopped
+     and the next message on each resumes its transcript at the new level. A
+     chat mid-turn is left alone, because pulling the session out from under a
+     running turn to change how hard it thinks is a worse trade than the turn
+     finishing at the old level. */
+  ipcMain.handle('agent:setEffort', async (_e, { effort } = {}) => {
+    const next = EFFORT.includes(effort) ? effort : '';
+    chosenEffort = next;
+    settings.patch({ agent: { effort: next } });
+    for (const [chat, a] of [...sessions]) if (!a.busy) stopChat(chat);
+    return { effort: chosenEffort, restarted: true };
+  });
+
+  /* The million-token window is not a setting on a model, it is a different
+     name for one: `opus` and `opus[1m]`. The CLI lists whichever it defaults
+     to, so switching means asking for the other name. */
+  ipcMain.handle('agent:setLongContext', async (_e, { on } = {}) => {
+    const from = settleModel() || anySession()?.model || '';
+    if (!from || !hasLong(from)) return { error: 'that model has no long-context twin' };
+    const model = on ? withLong(from) : withoutLong(from);
+    chosenModel = model;
+    settings.patch({ agent: { model } });
+    // The CLI lists one half of the pair and not the other, so the name we just
+    // switched to is usually not on its list. Remember it the way a hand-typed
+    // name is remembered, or the picker goes blank on a model that is running
+    // perfectly well.
+    const d = driver.remember(model);
+    await Promise.all(liveSessions().map((a) => a.setModel(model)));
+    return { model, long: isLong(model), models: d.models };
   });
   ipcMain.handle('agent:setModel', async (_e, { model }) => {
     chosenModel = model || null;
