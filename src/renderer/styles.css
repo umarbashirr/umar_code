@@ -220,6 +220,10 @@ kbd {
 .menu-pop {
   position: fixed; z-index: 60; min-width: 230px; max-width: 340px;
   padding: 5px; background: var(--bg);
+  /* The popup opens over the toolbar, and that strip is a drag handle. A press
+     inside a drag region never reaches the document, so without this the first
+     item in every menu is dead while the ones below the strip work. */
+  -webkit-app-region: no-drag;
   border: 1px solid var(--line); border-radius: var(--r);
   box-shadow: var(--shadow);
   animation: rise .12s cubic-bezier(.2,.8,.3,1);
