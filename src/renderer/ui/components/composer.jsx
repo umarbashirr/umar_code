@@ -45,6 +45,60 @@ const MODE_LABEL = Object.fromEntries(MODES.map(([v, label]) => [v, label]));
 const cleanModelName = (m) =>
   (m.displayName || m.value).replace(/\s*\((recommended|default)\)\s*$/i, '');
 
+// Selecting this opens a text box instead of switching model. A proxy routes
+// whatever names its owner configured, and no probe here can be sure it has
+// seen all of them.
+const CUSTOM = '__custom__';
+
+function ModelPicker({ agent }) {
+  const [typing, setTyping] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const done = (value) => {
+    setTyping(false);
+    setDraft('');
+    if (value) agent.changeModel(value);
+  };
+
+  if (typing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        placeholder="model name, then Enter"
+        onChange={(e) => setDraft(e.target.value)}
+        // Clicking away is not a decision. Nothing switches until Enter, so a
+        // half-typed name cannot become the model every chat runs on.
+        onBlur={() => { setTyping(false); setDraft(''); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); done(draft.trim()); }
+          if (e.key === 'Escape') { e.preventDefault(); setTyping(false); setDraft(''); }
+        }}
+        className={cn(
+          'h-7 w-56 rounded-md border border-input bg-transparent px-2 text-xs',
+          'outline-none placeholder:text-muted-foreground focus:border-ring',
+        )}
+      />
+    );
+  }
+
+  return (
+    <PromptInputSelect
+      value={agent.model}
+      onValueChange={(v) => (v === CUSTOM ? setTyping(true) : agent.changeModel(v))}>
+      <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 text-xs">
+        <PromptInputSelectValue placeholder="Pick a model" />
+      </PromptInputSelectTrigger>
+      <PromptInputSelectContent>
+        {agent.models.map((m) => (
+          <PromptInputSelectItem key={m.value} value={m.value}>{cleanModelName(m)}</PromptInputSelectItem>
+        ))}
+        <PromptInputSelectItem value={CUSTOM}>Type a model name…</PromptInputSelectItem>
+      </PromptInputSelectContent>
+    </PromptInputSelect>
+  );
+}
+
 function Pill({ className, children, ...props }) {
   return (
     <button
@@ -474,22 +528,13 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
               {agent.models.length === 0 && agent.driver?.message && (
                 <span className="px-1 text-muted-foreground text-xs" title={agent.driver.message}>
-                  {agent.driver.installed ? 'CLI unavailable' : 'Claude CLI not installed'}
+                  {agent.driver.installed ? 'no models listed' : 'Claude CLI not installed'}
                 </span>
               )}
 
-              {agent.models.length > 0 && (
-                <PromptInputSelect value={agent.model} onValueChange={agent.changeModel}>
-                  <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 text-xs">
-                    <PromptInputSelectValue />
-                  </PromptInputSelectTrigger>
-                  <PromptInputSelectContent>
-                    {agent.models.map((m) => (
-                      <PromptInputSelectItem key={m.value} value={m.value}>{cleanModelName(m)}</PromptInputSelectItem>
-                    ))}
-                  </PromptInputSelectContent>
-                </PromptInputSelect>
-              )}
+              {/* An endpoint that will not list its models still needs a way to
+                  name one, so the picker stays even when the list is empty. */}
+              {(agent.models.length > 0 || agent.driver?.installed) && <ModelPicker agent={agent} />}
             </PromptInputTools>
 
             <PromptInputSubmit

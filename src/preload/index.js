@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('tandem', {
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: () => ipcRenderer.invoke('agent:models'),
     setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
+    forgetModel: (model) => ipcRenderer.invoke('agent:forgetModel', { model }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),

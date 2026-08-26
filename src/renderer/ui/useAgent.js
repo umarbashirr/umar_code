@@ -412,7 +412,7 @@ export function useAgent() {
   useEffect(() => {
     const apply = (d) => {
       if (!d) return;
-      setDriver({ installed: d.installed, version: d.version, message: d.message });
+      setDriver({ installed: d.installed, version: d.version, message: d.message, endpoint: d.endpoint });
       if (!d.models?.length) return setModels([]);
       setModels(d.models);
       setModel((cur) => cur || d.current || d.models[0].value);
@@ -669,7 +669,22 @@ export function useAgent() {
     setModel(value);
     // Every chat follows the picker, and the window and prices follow with it.
     setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: value, window: 0 } })));
-    await tandem().agent.setModel(value);
+    // A name typed by hand comes back as part of the list, so the picker has it
+    // the next time it opens rather than only while it is selected.
+    const res = await tandem().agent.setModel(value);
+    if (res?.models?.length) setModels(res.models);
+  }, []);
+
+  // Drops a hand-typed name. The main process answers with what is left and
+  // which of those the picker should land on.
+  const forgetModel = useCallback(async (value) => {
+    const res = await tandem().agent.forgetModel?.(value);
+    if (!res) return;
+    if (res.models?.length) setModels(res.models);
+    if (res.model) {
+      setModel(res.model);
+      setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: res.model, window: 0 } })));
+    }
   }, []);
 
   const changeMode = useCallback(async (value) => {
@@ -690,7 +705,7 @@ export function useAgent() {
     models, model, driver,
     chats, activeKey,
     send, enqueue, unqueue, flushQueue,
-    decide, interrupt, reset, clear, open, switchTo, changeModel, changeMode,
+    decide, interrupt, reset, clear, open, switchTo, changeModel, forgetModel, changeMode,
     stopAgent, backgroundAgent, openAgent,
   };
 }

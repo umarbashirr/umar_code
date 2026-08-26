@@ -11,7 +11,7 @@ const { Driver, claudeBinary, preferBinary, systemBinary } = require('./driver')
 const { Catalog } = require('./catalog');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
-const shellEnv = require('./shell-path');
+const shellEnv = require('./shell-env');
 const { listSessions, readSession, readSubagent, listSubagents } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
@@ -482,20 +482,38 @@ function registerIpc() {
   // session, and the picker is drawn before anyone has said anything.
   ipcMain.handle('agent:models', () => {
     const d = driver.current();
+    const current = chosenModel || anySession()?.model || d.models[0]?.value || '';
+    // A name pinned against a proxy is not always one this app can see. Keep it
+    // on the list rather than move someone to a different model without saying so.
+    const models = current && !d.models.some((m) => m.value === current)
+      ? [...d.models, { value: current, displayName: current, custom: true }]
+      : d.models;
     return {
-      models: d.models,
-      current: chosenModel || anySession()?.model || d.models[0]?.value || '',
+      models,
+      current,
       installed: d.installed,
       version: d.version,
       message: d.message,
+      endpoint: d.endpoint,
     };
   });
   ipcMain.handle('agent:setModel', async (_e, { model }) => {
     chosenModel = model || null;
     settings.patch({ agent: { model: chosenModel || '' } });
+    // A name no probe offered is remembered for this endpoint, so it is still
+    // in the picker after a restart.
+    const d = chosenModel ? driver.remember(chosenModel) : driver.current({ refresh: false });
     // Every chat follows the picker, and a cold one starts on the choice.
     await Promise.all(liveSessions().map((a) => a.setModel(model)));
-    return { model: chosenModel };
+    return { model: chosenModel, models: d.models };
+  });
+  ipcMain.handle('agent:forgetModel', (_e, { model }) => {
+    const d = driver.forget(model);
+    if (chosenModel === model) {
+      chosenModel = d.models[0]?.value || null;
+      settings.patch({ agent: { model: chosenModel || '' } });
+    }
+    return { model: chosenModel, models: d.models };
   });
   // The two reports the meter opens onto. Both come off the live session, and
   // both are asked for only when someone opens the panel: the running totals it
@@ -752,11 +770,11 @@ app.whenReady().then(async () => {
   refreshMenu();
   // Cheap: reads a cached JSON file, then runs `claude --version` in the
   // background if that file is stale. Nothing long-lived is started.
-  // One `$SHELL -lic 'echo $PATH'`, so the agent and its MCP servers see the
-  // directories the user's own shell sees.
+  // One `$SHELL -lic 'env'`, so the agent, its MCP servers and the model probe
+  // see the directories and the credentials the user's own shell sees.
   // systemBinary() reads this, so the claude preference is applied after it
   // lands rather than against the launcher's stunted PATH.
-  shellEnv.shellPath().then(() => applyClaudeBinary()).catch(() => {});
+  shellEnv.ready().then(() => applyClaudeBinary()).catch(() => {});
   driver = new Driver({ cacheDir: app.getPath('userData') });
   catalog = new Catalog({ cacheDir: app.getPath('userData') });
   updates = new Updates({ usingSystem: () => settings.get('claude').binary === 'path' });

@@ -7,7 +7,7 @@ const fs = require('fs');
 const { browserTools, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary } = require('./driver');
 const { SDK_MODE, DEFAULT_MODE, isMode, decide, DEBUG_PREFACE } = require('./modes');
-const shellEnv = require('./shell-path');
+const shellEnv = require('./shell-env');
 
 // How a screenshot tool result announces where the file landed. index.js reads
 // it back to strip the base64 copy before the message reaches the renderer, so
@@ -63,6 +63,10 @@ class AgentSession extends EventEmitter {
   }
 
   async start() {
+    // Before anything spawns: the CLI is about to be started with whatever
+    // environment this returns, and a chat sent seconds after launch would
+    // otherwise race the shell and go out without the user's own settings.
+    await shellEnv.ready();
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
     const { z } = await import('zod');
 
@@ -95,6 +99,10 @@ class AgentSession extends EventEmitter {
     this.preview = preview;
     const bin = claudeBinary();
     if (bin) this.emit('stderr', `using claude binary at ${bin}\n`);
+    // Worth saying out loud. When this is wrong the CLI asks for a login, and
+    // there is nothing else on screen to explain why.
+    const base = shellEnv.baseUrl();
+    if (base) this.emit('stderr', `talking to ${base}, from your shell's ANTHROPIC_BASE_URL\n`);
 
     this.abort = new AbortController();
     this.query = sdk.query({
@@ -107,10 +115,10 @@ class AgentSession extends EventEmitter {
         // through, never what it was thinking or what it concluded.
         forwardSubagentText: true,
         settingSources: ['user', 'project', 'local'],
-        // Launched from a desktop launcher the app has a bare PATH, and every
-        // MCP server configured as a plain command name fails to start. See
-        // shell-path.js.
-        env: { ...process.env, PATH: shellEnv.cached() },
+        // Launched from a desktop launcher the app has a bare environment: every
+        // MCP server configured as a plain command name fails to start, and a
+        // key exported in an rc file is nowhere to be found. See shell-env.js.
+        env: shellEnv.env(),
         mcpServers: { preview },
         systemPrompt: { type: 'preset', preset: 'claude_code', append: INSTRUCTIONS },
         permissionMode: this.permissionMode,

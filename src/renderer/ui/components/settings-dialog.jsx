@@ -151,6 +151,66 @@ function Appearance({ settings, set }) {
   );
 }
 
+// A model row that can also take a name nobody offered. Proxies route whatever
+// their owner configured, so the list is a suggestion rather than the limit.
+function ModelRow({ agent }) {
+  const [draft, setDraft] = useState('');
+  const custom = agent.models.find((m) => m.value === agent.model)?.custom;
+
+  const add = () => {
+    const value = draft.trim();
+    setDraft('');
+    if (value) agent.changeModel(value);
+  };
+
+  return (
+    <>
+      <Row label="Model">
+        {agent.models.length === 0
+          ? <Mono>{agent.driver?.installed ? 'no models offered' : 'CLI not installed'}</Mono>
+          : (
+            <Picker value={agent.model} onChange={agent.changeModel}>
+              {agent.models.map((m) => (
+                <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
+              ))}
+            </Picker>
+          )}
+        {custom && (
+          <button
+            type="button"
+            onClick={() => agent.forgetModel(agent.model)}
+            className="h-9 rounded-md border px-3 text-[13px] text-muted-foreground hover:text-foreground">
+            Forget
+          </button>
+        )}
+      </Row>
+      <Row
+        label="Another model name"
+        hint={agent.driver?.endpoint && agent.driver.endpoint !== 'anthropic'
+          ? `${agent.driver.endpoint} decides which names work. Type one it routes.`
+          : 'For a name this app has not been told about. It is kept for next time.'}>
+        <input
+          value={draft}
+          placeholder="e.g. claude-sonnet-4-5"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          className={cn(
+            'h-9 min-w-56 rounded-md border bg-transparent px-3 text-sm outline-none',
+            'placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+          )}
+        />
+        <button
+          type="button"
+          disabled={!draft.trim()}
+          onClick={add}
+          className="h-9 rounded-md border px-3 text-[13px] disabled:opacity-40">
+          Use it
+        </button>
+      </Row>
+    </>
+  );
+}
+
 function Agent({ settings, set, agent, updates }) {
   const claude = updates.claude || {};
   const usingSystem = settings.claude.binary === 'path';
@@ -160,17 +220,7 @@ function Agent({ settings, set, agent, updates }) {
   return (
     <>
       <Section title="New chats" note="What a chat starts on. Changing it here changes the chats already open too.">
-        <Row label="Model">
-          {agent.models.length === 0
-            ? <Mono>{agent.driver?.installed ? 'no models' : 'CLI not installed'}</Mono>
-            : (
-              <Picker value={agent.model} onChange={agent.changeModel}>
-                {agent.models.map((m) => (
-                  <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
-                ))}
-              </Picker>
-            )}
-        </Row>
+        <ModelRow agent={agent} />
         <Row label="Permission mode" hint={MODES.find(([v]) => v === settings.agent.mode)?.[2]}>
           <Picker value={settings.agent.mode} onChange={(mode) => set({ agent: { mode } })}>
             {MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
