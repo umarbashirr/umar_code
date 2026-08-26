@@ -77,6 +77,10 @@ const blankChat = () => ({
   title: 'New chat',
   items: [],
   busy: false,
+  // When the turn on this chat started, so the header can count it. Per chat,
+  // because the fleet runs several at once and switching chats mid-turn must
+  // not hand the other one's clock to this one.
+  startedAt: 0,
   queued: [],
   mode: 'ask',
   // task id -> Agent tool_use id. The live-task feed talks in task ids and
@@ -273,13 +277,17 @@ export function useAgent() {
               input: b.input,
               state: 'input-available',
               parent,
+              // When the call went out. An agent needed this for its elapsed
+              // line; a plain tool row needs it too, because a Bash step that
+              // takes a minute is the most common reason the screen looks
+              // frozen and the row had no way to say how long it had been out.
+              at: Date.now(),
               ...(agent ? {
                 agentType: b.input?.subagent_type || 'agent',
                 description: b.input?.description || '',
                 status: 'running',
                 tools: 0,
                 ms: 0,
-                at: Date.now(),
               } : {}),
             });
           } else if (b.type === 'text' && !st.id) {
@@ -394,6 +402,7 @@ export function useAgent() {
       edit(key, (c) => ({
         ...c,
         busy: true,
+        startedAt: c.busy ? c.startedAt : Date.now(),
         // Same as a message typed here: the first one names the chat, which is
         // what the rail shows until claude has written a transcript to read.
         title: c.title === 'New chat' ? spoken(text).slice(0, 80) : c.title,
@@ -491,6 +500,9 @@ export function useAgent() {
     const said = spoken(text);
     edit(key, (c) => ({
       ...c,
+      // A message handed to a turn already running joins that turn's clock.
+      // Only a turn starting from idle resets it.
+      startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
       title: c.title === 'New chat' ? said.slice(0, 80) : c.title,
       items: [...c.items, { id: uid('u'), kind: 'user', text: said, images }],
@@ -700,6 +712,7 @@ export function useAgent() {
     items: tree,
     running,
     busy: active.busy,
+    startedAt: active.startedAt || 0,
     session: active.session,
     title: active.title,
     mode: active.mode,

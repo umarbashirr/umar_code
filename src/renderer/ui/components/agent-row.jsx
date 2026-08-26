@@ -7,24 +7,17 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronRightIcon, PanelBottomIcon, SquareIcon } from 'lucide-react';
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { Fold } from '@/components/fold';
+import { Button } from '@/components/ui/button';
 import { toolLabel, toolSummary } from '@/components/tool-row';
+import { clock, useTick } from '@/lib/clock';
 import { cn } from '@/lib/utils';
-
-const clock = (ms) => {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return s < 60 ? `0:${String(s).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-};
 
 // Elapsed while it runs, final duration once it has stopped. The tick is one
 // second and only while something is actually running.
 function useElapsed(item) {
-  const [, bump] = useState(0);
   const live = item.status === 'running' || item.status === 'stopping';
-  useEffect(() => {
-    if (!live) return undefined;
-    const t = setInterval(() => bump((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, [live]);
+  useTick(live);
   if (!live) return item.ms ? clock(item.ms) : null;
   return clock(item.at ? Date.now() - item.at : item.ms || 0);
 }
@@ -103,15 +96,23 @@ export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
 
   return (
     <div>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={toggle}
-        className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/40">
+        className="h-auto w-full items-start justify-start gap-2 px-2 py-1 font-normal">
         <ChevronRightIcon
           className={cn('mt-[3px] size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
+        {/* The row's status light. It was one grey dot in every state, which
+            meant the one row on screen with its own life in it looked the same
+            finished as it did halfway through. Live is the same green the
+            fleet strip uses for the same agent. */}
         <span className={cn(
           'mt-[7px] size-[5px] shrink-0 rounded-full',
-          failed ? 'bg-destructive' : item.waiting ? 'bg-amber-500' : 'bg-muted-foreground/45',
+          failed ? 'bg-destructive'
+            : item.waiting ? 'bg-amber-500'
+              : running ? 'animate-pulse bg-emerald-500'
+                : 'bg-muted-foreground/45',
         )} />
 
         <span className="flex min-w-0 flex-1 flex-col">
@@ -133,7 +134,7 @@ export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
           {item.background && running && !item.waiting && <span>background</span>}
           {item.status === 'stopped' && <span>stopped</span>}
           {!!item.tools && <span>{plural(item.tools, 'tool', 'tools')}</span>}
-          {elapsed && <span>{elapsed}</span>}
+          {elapsed && <span className="tabular-nums">{elapsed}</span>}
           {running && !item.background && (
             <span
               role="button"
@@ -157,24 +158,22 @@ export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
             </span>
           )}
         </span>
-      </button>
+      </Button>
 
-      {open && (
-        <div className="ml-[13px] flex flex-col gap-px border-l pr-2 pb-2 pl-3">
-          {item.loaded === 'loading' && (
-            <div className="px-2 py-1 font-mono text-[11px] text-muted-foreground/75">reading its transcript…</div>
-          )}
-          {children}
-          {item.report && (
-            <div className="mt-1.5 rounded-md bg-muted/45 px-2.5 py-2 text-[12.5px] leading-relaxed">
-              <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground/75">
-                what it came back with
-              </span>
-              {item.report}
-            </div>
-          )}
-        </div>
-      )}
+      <Fold open={open} className="ml-[13px] flex flex-col gap-px border-l pr-2 pb-2 pl-3">
+        {item.loaded === 'loading' && (
+          <Shimmer as="div" className="px-2 py-1 font-mono text-[11px]">reading its transcript…</Shimmer>
+        )}
+        {children}
+        {item.report && (
+          <div className="tandem-in mt-1.5 rounded-md bg-muted/45 px-2.5 py-2 text-[12.5px] leading-relaxed">
+            <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground/75">
+              what it came back with
+            </span>
+            {item.report}
+          </div>
+        )}
+      </Fold>
     </div>
   );
 }
