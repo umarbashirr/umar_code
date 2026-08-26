@@ -91,7 +91,7 @@ const ROW = {
 
 export function DiffView({ hunks, max = 400 }) {
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       {hunks.map((h, hi) => {
         const rows = trimContext(lineDiff(h.before ?? '', h.after ?? ''));
         const shown = rows.slice(0, max);

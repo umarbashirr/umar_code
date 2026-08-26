@@ -1,14 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CheckIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon, InfoIcon,
-  MonitorIcon, MoonIcon, PaletteIcon, PowerIcon, RefreshCwIcon, SparklesIcon,
-  SquareTerminalIcon, SunIcon,
+  CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
+  InfoIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon, RefreshCwIcon,
+  SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import {
+  Field, FieldContent, FieldDescription, FieldGroup, FieldLabel,
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import {
+  Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { sizeLabel } from '@/lib/attachments';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
@@ -44,13 +55,13 @@ const HANDOFF = {
 
 function Row({ label, hint, children }) {
   return (
-    <div className="flex items-center gap-6 py-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm">{label}</div>
-        {hint && <div className="mt-1 text-[13px] text-muted-foreground leading-relaxed">{hint}</div>}
-      </div>
+    <Field orientation="horizontal" className="gap-6 py-4">
+      <FieldContent className="min-w-0">
+        <FieldLabel>{label}</FieldLabel>
+        {hint && <FieldDescription>{hint}</FieldDescription>}
+      </FieldContent>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
-    </div>
+    </Field>
   );
 }
 
@@ -59,68 +70,27 @@ function Section({ title, note, children }) {
     <div className="mb-9">
       <h3 className="font-medium text-base">{title}</h3>
       {note && <p className="mt-1.5 text-[13px] text-muted-foreground leading-relaxed">{note}</p>}
-      <div className="mt-2 divide-y divide-border/60">{children}</div>
+      <FieldGroup className="mt-2 gap-0 divide-y divide-border/60">{children}</FieldGroup>
     </div>
   );
 }
 
 function Segmented({ value, options, onChange }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg border p-1">
-      {options.map(([v, label, Icon]) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          className={cn(
-            'flex h-8 items-center gap-2 rounded-md px-3 text-[13px] transition-colors',
-            v === value ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-          )}>
-          {Icon && <Icon className="size-4" />}
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// A real switch rather than a checkbox: at this size the travel is what tells
-// you it is a setting and not a form field.
-function Switch({ on, onClick, ...props }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={onClick}
-      className={cn(
-        'relative h-6 w-11 shrink-0 rounded-full border transition-colors',
-        on ? 'border-primary bg-primary' : 'border-border bg-muted',
-      )}
-      {...props}>
-      <span
-        className={cn(
-          'absolute top-0.5 size-4.5 rounded-full bg-background shadow-sm transition-[left]',
-          on ? 'left-[22px]' : 'left-0.5',
-        )} />
-    </button>
-  );
-}
-
-// A plain <select>. The Radix one in this project is built for the composer's
-// pill and fights a settings row's sizing for no benefit here.
-function Picker({ value, onChange, children, className }) {
-  return (
-    <select
+    <ToggleGroup
+      type="single"
+      variant="outline"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={cn(
-        'h-9 min-w-36 rounded-md border bg-transparent px-3 text-sm outline-none',
-        'focus-visible:ring-[3px] focus-visible:ring-ring/50',
-        className,
-      )}>
-      {children}
-    </select>
+      // Pressing the item that is already on hands back an empty string. None of
+      // these settings has an off position, so an empty answer is not a change.
+      onValueChange={(next) => { if (next) onChange(next); }}>
+      {options.map(([v, label, Icon]) => (
+        <ToggleGroupItem key={v} value={v}>
+          {Icon && <Icon />}
+          {label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   );
 }
 
@@ -141,11 +111,18 @@ function Appearance({ settings, set }) {
       <Row
         label="Interface size"
         hint="Scales the whole shell. The preview keeps the page's own zoom.">
-        <Picker value={String(a.zoom)} onChange={(z) => set({ appearance: { zoom: Number(z) } })}>
-          {ZOOM_STEPS.map((z) => (
-            <option key={z} value={String(z)}>{Math.round(z * 100)}%</option>
-          ))}
-        </Picker>
+        <Select
+          value={String(a.zoom)}
+          onValueChange={(z) => set({ appearance: { zoom: Number(z) } })}>
+          <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {ZOOM_STEPS.map((z) => (
+                <SelectItem key={z} value={String(z)}>{Math.round(z * 100)}%</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </Row>
     </Section>
   );
@@ -169,20 +146,24 @@ function ModelRow({ agent }) {
         {agent.models.length === 0
           ? <Mono>{agent.driver?.installed ? 'no models offered' : 'CLI not installed'}</Mono>
           : (
-            <Picker value={agent.model} onChange={agent.changeModel}>
-              {!agent.model && <option value="">Pick a model</option>}
-              {agent.models.map((m) => (
-                <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
-              ))}
-            </Picker>
+            // An empty value is what Radix reads as "nothing picked yet", so a
+            // model this app has not been told about leaves the placeholder up
+            // rather than blanking the trigger.
+            <Select value={agent.model || ''} onValueChange={agent.changeModel}>
+              <SelectTrigger className="min-w-36">
+                <SelectValue placeholder="Pick a model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {agent.models.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.displayName || m.value}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           )}
         {custom && (
-          <button
-            type="button"
-            onClick={() => agent.forgetModel(agent.model)}
-            className="h-9 rounded-md border px-3 text-[13px] text-muted-foreground hover:text-foreground">
-            Forget
-          </button>
+          <Button variant="outline" onClick={() => agent.forgetModel(agent.model)}>Forget</Button>
         )}
       </Row>
       <Row
@@ -190,23 +171,13 @@ function ModelRow({ agent }) {
         hint={agent.driver?.endpoint && agent.driver.endpoint !== 'anthropic'
           ? `${agent.driver.endpoint} decides which names work. Type one it routes.`
           : 'For a name this app has not been told about. It is kept for next time.'}>
-        <input
+        <Input
           value={draft}
           placeholder="e.g. claude-sonnet-4-5"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
-          className={cn(
-            'h-9 min-w-56 rounded-md border bg-transparent px-3 text-sm outline-none',
-            'placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
-          )}
-        />
-        <button
-          type="button"
-          disabled={!draft.trim()}
-          onClick={add}
-          className="h-9 rounded-md border px-3 text-[13px] disabled:opacity-40">
-          Use it
-        </button>
+          className="w-56" />
+        <Button variant="outline" disabled={!draft.trim()} onClick={add}>Use it</Button>
       </Row>
     </>
   );
@@ -223,9 +194,14 @@ function Agent({ settings, set, agent, updates }) {
       <Section title="New chats" note="What a chat starts on. Changing it here changes the chats already open too.">
         <ModelRow agent={agent} />
         <Row label="Permission mode" hint={MODES.find(([v]) => v === settings.agent.mode)?.[2]}>
-          <Picker value={settings.agent.mode} onChange={(mode) => set({ agent: { mode } })}>
-            {MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </Picker>
+          <Select value={settings.agent.mode} onValueChange={(mode) => set({ agent: { mode } })}>
+            <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </Row>
       </Section>
 
@@ -238,7 +214,6 @@ function Agent({ settings, set, agent, updates }) {
           <Mono>{bundled?.version || '—'}</Mono>
           <Button
             variant={usingSystem ? 'outline' : 'default'}
-            className="h-9"
             disabled={!usingSystem}
             onClick={() => set({ claude: { binary: 'bundled' } })}>
             {usingSystem ? 'Use' : 'In use'}
@@ -250,7 +225,6 @@ function Agent({ settings, set, agent, updates }) {
           <Mono>{system?.version || '—'}</Mono>
           <Button
             variant={usingSystem ? 'default' : 'outline'}
-            className="h-9"
             disabled={!system || usingSystem}
             onClick={() => set({ claude: { binary: 'path' } })}>
             {usingSystem ? 'In use' : 'Use'}
@@ -302,40 +276,51 @@ function TerminalPrefs({ settings, set }) {
   return (
     <Section title="Terminal" note="Applies to the tabs already open as well as new ones.">
       <Row label="Font size">
-        <Picker
+        <Select
           value={String(t.fontSize)}
-          onChange={(v) => set({ terminal: { fontSize: Number(v) } })}>
-          {[10, 11, 12, 13, 14, 15, 16, 18, 20].map((n) => <option key={n} value={String(n)}>{n}px</option>)}
-        </Picker>
+          onValueChange={(v) => set({ terminal: { fontSize: Number(v) } })}>
+          <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {[10, 11, 12, 13, 14, 15, 16, 18, 20].map((n) => (
+                <SelectItem key={n} value={String(n)}>{n}px</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </Row>
       <Row
         label="Font family"
         hint={fonts.length
           ? `${fonts.length} monospace faces found on this machine.`
           : 'No named monospace faces found, so this falls back to the system stack.'}>
-        <Picker
-          className="w-64"
+        <Select
           value={custom || t.fontFamily}
-          onChange={(fontFamily) => set({ terminal: { fontFamily } })}>
-          <option value={DEFAULT_STACK}>System default</option>
-          {fonts.map((f) => (
-            <option key={f} value={`"${f}", ${DEFAULT_STACK}`}>{f}</option>
-          ))}
-          {custom && <option value={custom}>Custom (from settings.json)</option>}
-        </Picker>
+          onValueChange={(fontFamily) => set({ terminal: { fontFamily } })}>
+          <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value={DEFAULT_STACK}>System default</SelectItem>
+              {fonts.map((f) => (
+                <SelectItem key={f} value={`"${f}", ${DEFAULT_STACK}`}>{f}</SelectItem>
+              ))}
+              {custom && <SelectItem value={custom}>Custom (from settings.json)</SelectItem>}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </Row>
     </Section>
   );
 }
 
-function Progress({ received, total }) {
+// A download the user did not start and cannot hurry, so the bar is there to
+// say it is still moving rather than to be watched.
+function Downloading({ received, total }) {
   const pct = total ? Math.min(100, Math.round((received / total) * 100)) : 0;
   return (
-    <div className="w-56">
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className="h-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="mt-1.5 text-right text-[13px] text-muted-foreground">
+    <div className="flex w-56 flex-col gap-1.5">
+      <Progress value={pct} className="h-1.5" />
+      <div className="text-right text-[13px] text-muted-foreground">
         {sizeLabel(received)} of {sizeLabel(total)}
       </div>
     </div>
@@ -357,12 +342,11 @@ function Updates({ settings, set, updates }) {
               ? `Checked ${new Date(updates.checkedAt).toLocaleString()}.`
               : 'Not checked yet.'}>
           {progress && !progress.done
-            ? <Progress received={progress.received} total={progress.total} />
+            ? <Downloading received={progress.received} total={progress.total} />
             : (
               <>
                 <Button
                   variant="outline"
-                  className="h-9 gap-2"
                   disabled={checking}
                   onClick={updates.check}>
                   <RefreshCwIcon className={cn('size-4', checking && 'animate-spin')} />
@@ -372,7 +356,6 @@ function Updates({ settings, set, updates }) {
                   file
                     ? (
                       <Button
-                        className="h-9 gap-2"
                         disabled={updates.installing || updates.installed}
                         onClick={() => updates.install()}>
                         {updates.installing
@@ -382,14 +365,14 @@ function Updates({ settings, set, updates }) {
                       </Button>
                     )
                     : (
-                      <Button className="h-9 gap-2" onClick={updates.download}>
+                      <Button onClick={updates.download}>
                         <DownloadIcon className="size-4" />
                         Download {app.asset.size ? sizeLabel(app.asset.size) : ''}
                       </Button>
                     )
                 )}
                 {behind && app.page && (
-                  <Button variant="ghost" className="h-9 gap-2" onClick={updates.openPage}>
+                  <Button variant="ghost" onClick={updates.openPage}>
                     <ExternalLinkIcon className="size-4" /> Notes
                   </Button>
                 )}
@@ -404,7 +387,6 @@ function Updates({ settings, set, updates }) {
               ? 'Installed. Restart Tandem to run the new version.'
               : file}>
             <Button
-              className="h-9 gap-2"
               disabled={updates.installing || updates.installed}
               onClick={() => updates.install()}>
               {updates.installing && <RefreshCwIcon className="size-4 animate-spin" />}
@@ -419,14 +401,14 @@ function Updates({ settings, set, updates }) {
           <Row
             label="No file for this install"
             hint={`Release ${app.latest} ships nothing matching a ${kind} on this hardware.`}>
-            <Button variant="outline" className="h-9" onClick={updates.openPage}>Open release</Button>
+            <Button variant="outline" onClick={updates.openPage}>Open release</Button>
           </Row>
         )}
 
         <Row label="Check on launch" hint="One request to GitHub, cached for six hours.">
           <Switch
-            on={settings.startup.checkUpdates}
-            onClick={() => set({ startup: { checkUpdates: !settings.startup.checkUpdates } })} />
+            checked={settings.startup.checkUpdates}
+            onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />
         </Row>
       </Section>
 
@@ -439,7 +421,7 @@ function Updates({ settings, set, updates }) {
             ? `Running ${claude.running.version}${claude.latest ? `, latest is ${claude.latest}` : ''}.`
             : 'No version reported yet.'}>
           {claude.canSwitch && (
-            <Button className="h-9" onClick={() => set({ claude: { binary: 'path' } })}>
+            <Button onClick={() => set({ claude: { binary: 'path' } })}>
               Use yours ({claude.system.version})
             </Button>
           )}
@@ -447,9 +429,10 @@ function Updates({ settings, set, updates }) {
       </Section>
 
       {updates.error && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-destructive text-sm">
-          {updates.error}
-        </p>
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertDescription>{updates.error}</AlertDescription>
+        </Alert>
       )}
     </>
   );
@@ -462,10 +445,14 @@ function Startup({ settings, set }) {
       <Row
         label="Reopen the last folder"
         hint="Off, a bare launch opens with no folder chosen. Launching from a terminal still uses that folder.">
-        <Switch on={s.reopenProject} onClick={() => set({ startup: { reopenProject: !s.reopenProject } })} />
+        <Switch
+          checked={s.reopenProject}
+          onCheckedChange={(reopenProject) => set({ startup: { reopenProject } })} />
       </Row>
       <Row label="Check for updates on launch">
-        <Switch on={s.checkUpdates} onClick={() => set({ startup: { checkUpdates: !s.checkUpdates } })} />
+        <Switch
+          checked={s.checkUpdates}
+          onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />
       </Row>
     </Section>
   );
@@ -486,7 +473,6 @@ function About({ updates, reset }) {
         <Row label="Settings file" hint={paths?.settings}>
           <Button
             variant="ghost"
-            className="h-9 gap-2"
             onClick={() => window.tandem.settings.reveal()}>
             <FolderOpenIcon className="size-4" /> Show
           </Button>
@@ -495,7 +481,7 @@ function About({ updates, reset }) {
 
       <Section title="Start over" note="Puts every setting on this page back to its default.">
         <Row label="Reset settings">
-          <Button variant="outline" className="h-9 text-destructive" onClick={reset}>Reset</Button>
+          <Button variant="destructive" onClick={reset}>Reset</Button>
         </Row>
       </Section>
     </>
@@ -534,25 +520,22 @@ export function SettingsDialog({ open, onOpenChange, section = 'appearance', set
           <DialogDescription>Appearance, the agent, the terminal, and updates.</DialogDescription>
         </DialogHeader>
 
-        <nav className="w-56 shrink-0 space-y-0.5 border-r bg-muted/30 p-3">
+        <nav className="flex w-56 shrink-0 flex-col gap-0.5 border-r bg-muted/30 p-3">
           <div className="px-3 pt-1 pb-3 font-medium text-base">Settings</div>
           {SECTIONS.map(([id, label, Icon]) => (
-            <button
+            <Button
               key={id}
-              type="button"
+              variant={tab === id ? 'secondary' : 'ghost'}
               onClick={() => setTab(id)}
-              className={cn(
-                'flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-sm transition-colors',
-                tab === id ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}>
-              <Icon className="size-4" />
+              className="w-full justify-start gap-2.5">
+              <Icon />
               {label}
               {/* The one place a badge earns its keep: an update nobody has
                   looked at yet is the reason this page exists. */}
               {id === 'updates' && (updates.app.behind || updates.claude?.canSwitch) && (
                 <span className="ml-auto size-2 rounded-full bg-primary" />
               )}
-            </button>
+            </Button>
           ))}
         </nav>
 

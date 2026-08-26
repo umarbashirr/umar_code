@@ -15,6 +15,8 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { CatalogDialog } from '@/components/catalog-dialog';
 import { MentionMenu, fileRows, skillRows } from '@/components/mention-menu';
@@ -62,7 +64,7 @@ function ModelPicker({ agent }) {
 
   if (typing) {
     return (
-      <input
+      <Input
         autoFocus
         value={draft}
         placeholder="model name, then Enter"
@@ -74,11 +76,7 @@ function ModelPicker({ agent }) {
           if (e.key === 'Enter') { e.preventDefault(); done(draft.trim()); }
           if (e.key === 'Escape') { e.preventDefault(); setTyping(false); setDraft(''); }
         }}
-        className={cn(
-          'h-7 w-56 rounded-md border border-input bg-transparent px-2 text-xs',
-          'outline-none placeholder:text-muted-foreground focus:border-ring',
-        )}
-      />
+        className="h-7 w-56 px-2 text-xs" />
     );
   }
 
@@ -101,29 +99,24 @@ function ModelPicker({ agent }) {
 
 function Pill({ className, children, ...props }) {
   return (
-    <button
+    <Button
       type="button"
-      className={cn(
-        'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs',
-        'transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none',
-        className,
-      )}
+      variant="ghost"
+      size="xs"
+      className={cn('h-7 min-w-0 gap-1.5 font-normal text-muted-foreground', className)}
       {...props}>
       {children}
-    </button>
+    </Button>
   );
 }
 
 function Chip({ active, shortcut, children, ...props }) {
   return (
-    <button
+    <Button
       type="button"
-      className={cn(
-        'flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors',
-        active
-          ? 'border-transparent bg-primary text-primary-foreground'
-          : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-      )}
+      variant={active ? 'default' : 'outline'}
+      size="xs"
+      className="h-7 gap-1.5 rounded-full px-3 font-normal"
       {...props}>
       {children}
       {shortcut && (
@@ -131,7 +124,7 @@ function Chip({ active, shortcut, children, ...props }) {
           {shortcut}
         </span>
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -140,17 +133,34 @@ function Chip({ active, shortcut, children, ...props }) {
 // opens the full-size preview for the same reason.
 function Attachment({ item, onOpen, onRemove }) {
   const remove = (
-    <button type="button" onClick={onRemove} className="opacity-60 hover:opacity-100" title="Remove">
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      onClick={onRemove}
+      title="Remove"
+      className="size-4 text-muted-foreground">
       <XIcon className="size-3" />
-    </button>
+    </Button>
   );
 
   // The chip body, not the chip, is the button: the remove control sits beside
-  // it rather than inside it.
+  // it rather than inside it. The padding has to be cleared for the icon case
+  // too, or a chip with a file icon in it gains inset the thumbnail cannot sit
+  // flush against.
   const open = (className, children, title) => (
-    <button type="button" onClick={onOpen} title={title} className={cn('flex min-w-0 items-center gap-1.5', className)}>
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      onClick={onOpen}
+      title={title}
+      className={cn(
+        'h-auto min-w-0 justify-start gap-1.5 p-0 font-normal has-[>svg]:p-0',
+        className,
+      )}>
       {children}
-    </button>
+    </Button>
   );
 
   if (item.kind === 'image') {
@@ -159,7 +169,7 @@ function Attachment({ item, onOpen, onRemove }) {
         {open(
           'h-8',
           <>
-            <img src={item.preview} alt="" className="h-8 w-8 rounded-l-md border-border border-r object-cover" />
+            <img src={item.preview} alt="" className="size-8 rounded-l-md border-border border-r object-cover" />
             <span className="max-w-[16ch] truncate">{item.name}</span>
           </>,
           `${item.name} · ${item.width}×${item.height} · ${sizeLabel(item.size)} · click to see it`,
@@ -375,8 +385,8 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
         {project.branch && (
           <Pill
-            disabled
-            className="cursor-default"
+            tabIndex={-1}
+            className="pointer-events-none"
             title={`${shortPath(project.dir, project.home)} is on ${project.branch}`}>
             <GitBranchIcon className="size-3.5 shrink-0" />
             <span className="truncate">{project.branch}</span>
@@ -420,7 +430,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               {agent.busy ? 'press Enter on an empty box to send now' : 'sending…'}
             </span>
           </div>
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             {agent.queued.map((m, i) => (
               <div
                 key={m.id}
@@ -429,13 +439,15 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
                 <span className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-xs">
                   <TokenText text={spoken(m.text)} />
                 </span>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   title="Drop this one"
                   onClick={() => agent.unqueue(m.id)}
-                  className="text-muted-foreground opacity-60 hover:opacity-100">
+                  className="size-4 text-muted-foreground">
                   <XIcon className="size-3" />
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -501,12 +513,14 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
             <PromptInputTools className="gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="icon-sm"
                     title="Attach a file, or add something from the preview"
-                    className="flex size-8 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                    className="rounded-full text-muted-foreground">
                     <PlusIcon className="size-4" />
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuItem onSelect={pickFiles}>

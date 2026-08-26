@@ -145,22 +145,20 @@ export function QuestionCard({ input, onAnswer, onSkip }) {
           {questions.map((one, i) => {
             const done = !!answers[one.question];
             return (
-              <button
+              <Button
                 key={one.question}
-                type="button"
+                variant="outline"
+                size="xs"
                 disabled={!done && i !== at}
                 onClick={() => goTo(i)}
                 className={cn(
-                  'max-w-[16rem] truncate rounded-full border px-2 py-0.5 text-xs transition-colors',
-                  i === at
-                    ? 'border-primary/50 bg-accent/40 text-foreground'
-                    : done
-                      ? 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
-                      : 'border-dashed border-border/60 text-muted-foreground/50',
+                  'h-auto max-w-[16rem] rounded-full px-2 py-0.5 font-normal',
+                  i === at ? 'border-primary/50 bg-accent/40' : 'text-muted-foreground',
+                  !done && i !== at && 'border-dashed',
                 )}>
-                {one.header || `Question ${i + 1}`}
-                {done && i !== at && <span className="opacity-60"> · {answers[one.question]}</span>}
-              </button>
+                <span className="truncate">{one.header || `Question ${i + 1}`}</span>
+                {done && i !== at && <span className="truncate opacity-60">· {answers[one.question]}</span>}
+              </Button>
             );
           })}
         </div>

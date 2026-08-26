@@ -2,7 +2,7 @@
    folder has been chosen, and the switch itself. Everything else in the window
    is scoped to whatever this says. */
 'use strict';
-import { $, el, icons, iconMark, resetTerminals, toast } from './app.js';
+import { resetTerminals, toast } from './app.js';
 
 export const project = { dir: '', name: '', chosen: false, home: '', recents: [] };
 
@@ -32,41 +32,8 @@ export const openInNewWindow = (dir) => openFolder({ dir, newWindow: true });
 function apply(info) {
   Object.assign(project, info);
 
-  $('#agent-cwd').textContent = shortPath(info.dir);
-  $('#agent-cwd').title = info.dir;
-
-  renderWelcome();
   for (const fn of listeners) fn(project);
 }
-
-function renderWelcome() {
-  const box = $('#welcome');
-  box.hidden = project.chosen;
-  if (project.chosen) return;
-
-  $('#wel-home').textContent = shortPath(project.home);
-
-  const list = $('#wel-recent');
-  list.innerHTML = '';
-  if (!project.recents.length) return;
-
-  list.appendChild(el('div', 'wel-label', 'Recent'));
-  for (const r of project.recents.slice(0, 6)) {
-    const row = el('button', 'wel-row');
-    row.appendChild(iconMark('folder'));
-    row.appendChild(el('span', 'wel-name', r.name));
-    row.appendChild(el('span', 'wel-path', shortPath(r.path)));
-    row.onclick = () => openRecent(r.path);
-    list.appendChild(row);
-  }
-  icons();
-}
-
-// ------------------------------------------------------------------ wiring
-
-$('#wel-open').onclick = () => openFolder();
-$('#wel-new').onclick = () => openFolder({ newWindow: true });
-$('#wel-skip').onclick = () => openFolder({ dir: project.home });
 
 window.tandem.project.onChanged((info) => {
   const moved = info.dir !== project.dir;

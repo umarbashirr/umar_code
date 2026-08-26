@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { compact, money, resetsIn, shortModel } from '@/lib/usage';
@@ -75,7 +76,7 @@ function PlanRow({ label, limit }) {
   const pct = Math.round(limit?.utilization ?? 0);
   const left = resetsIn(limit?.resets_at);
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col gap-1">
       <div className="flex items-baseline gap-2">
         <span className="text-muted-foreground">{label}</span>
         <span className="ml-auto font-mono tabular-nums">{pct}%</span>
@@ -128,23 +129,20 @@ export function UsageMeter({ usage, chat }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="xs"
           title="What this chat has used"
-          className={cn(
-            'flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors',
-            'hover:border-ring/35 hover:text-foreground',
-            toneOf(pct),
-          )}>
+          className={cn('h-7 gap-1.5 rounded-full px-3 font-normal', toneOf(pct))}>
           <Ring pct={pct} />
           <span className="font-mono tabular-nums">{pct}%</span>
           <span className="opacity-40">·</span>
           <span className="font-mono tabular-nums">{money(usage.cost)}</span>
-        </button>
+        </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" side="top" className="w-[330px] space-y-3.5 p-3.5 text-xs">
-        <div className="space-y-2">
+      <PopoverContent align="start" side="top" className="flex flex-col w-[330px] gap-3.5 p-3.5 text-xs">
+        <div className="flex flex-col gap-2">
           <div className="flex items-baseline gap-2">
             <span className="font-medium">Context</span>
             <span className={cn('ml-auto font-mono tabular-nums', toneOf(pct))}>{pct}%</span>
@@ -165,7 +163,7 @@ export function UsageMeter({ usage, chat }) {
         )}
 
         {!!detail?.categories?.length && (
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             {spend(detail).map((c, i) => (
               <Row key={c.name} label={c.name} value={compact(c.tokens)} swatch={shade(i)} />
             ))}
@@ -178,7 +176,7 @@ export function UsageMeter({ usage, chat }) {
           </div>
         )}
 
-        <div className="space-y-1 border-t pt-3">
+        <div className="flex flex-col gap-1 border-t pt-3">
           <div className="mb-1.5 font-medium">This chat</div>
           <Row label="Fresh input" value={compact(usage.input)} />
           <Row label="Cache read" value={compact(usage.cacheRead)} note="90% off" />
@@ -192,7 +190,7 @@ export function UsageMeter({ usage, chat }) {
             </span>
           </div>
           {usage.rows.length > 1 && (
-            <div className="space-y-1 pt-1.5">
+            <div className="flex flex-col gap-1 pt-1.5">
               {usage.rows.map((r) => (
                 <Row key={r.model} label={shortModel(r.model)} value={money(r.cost)} note={compact(r.tokens)} dim />
               ))}
@@ -201,7 +199,7 @@ export function UsageMeter({ usage, chat }) {
         </div>
 
         {limits && (
-          <div className="space-y-2 border-t pt-3">
+          <div className="flex flex-col gap-2 border-t pt-3">
             <div className="font-medium">
               Plan{plan?.subscription_type ? ` · ${plan.subscription_type}` : ''}
             </div>
