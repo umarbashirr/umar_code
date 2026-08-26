@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
-  InfoIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon, RefreshCwIcon,
-  SparklesIcon, SquareTerminalIcon, SunIcon,
+  InfoIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
+  RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
 import {
@@ -16,20 +16,23 @@ import {
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
-  Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useTheme } from '@/hooks/use-theme';
 import { sizeLabel } from '@/lib/attachments';
+import { DEFAULT_SCHEME, SCHEMES } from '@/lib/themes';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
 // The vanilla half owns the preview pane, which has to move out of the way of
 // any dialog that opens over it.
-import { parkPreview, ZOOM_STEPS } from '../../app.js';
+import { CHAT_SIZES, parkPreview, ZOOM_STEPS } from '../../app.js';
 
 const SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
+  ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
   ['updates', 'Updates', DownloadIcon],
   ['startup', 'Startup', PowerIcon],
@@ -98,8 +101,53 @@ const Mono = ({ children, title }) => (
   <span className="truncate font-mono text-[13px] text-muted-foreground" title={title || children}>{children}</span>
 );
 
+// A theme swatch is the theme. Both attributes are set on the tile, which is
+// all the stylesheet needs to paint its subtree in that palette, so what you
+// click is a small picture of the window you are about to get rather than an
+// approximation somebody has to keep in step.
+function SchemeTile({ id, label, note, mode, active, onPick }) {
+  return (
+    <button
+      type="button"
+      data-scheme={id}
+      data-theme={mode}
+      title={note}
+      aria-pressed={active}
+      onClick={() => onPick(id)}
+      className={cn(
+        'overflow-hidden rounded-lg border bg-background text-left shadow-sm transition',
+        active ? 'border-primary ring-2 ring-primary/40' : 'hover:ring-2 hover:ring-primary/20',
+      )}>
+      {/* The window in miniature: rail, a couple of lines of transcript, the
+          button you press most, and the terminal along the bottom. */}
+      <div className="flex h-20">
+        <div className="w-6 border-r bg-muted" />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex flex-1 flex-col gap-1 p-2">
+            <div className="h-1.5 rounded-full bg-foreground/20" />
+            <div className="h-1.5 w-2/3 rounded-full bg-foreground/15" />
+            <div className="mt-auto h-3 w-9 rounded-[3px] bg-primary" />
+          </div>
+          <div className="flex h-4 items-center gap-1 bg-[var(--term-bg)] px-1.5">
+            <span className="size-1 rounded-full bg-[var(--term-cursor)]" />
+            <span className="h-1 w-8 rounded-full bg-[var(--term-dim)]" />
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center border-t px-2 py-1.5 text-[13px] text-foreground">
+        {label}
+        {active && <CheckIcon className="ml-auto size-3.5 text-primary" />}
+      </div>
+    </button>
+  );
+}
+
 function Appearance({ settings, set }) {
   const a = settings.appearance;
+  // 'system' is a preference, not a colour, and the swatches have to be painted
+  // in the one it currently means.
+  const { resolved } = useTheme();
+
   return (
     <Section title="Appearance">
       <Row label="Theme" hint="System follows the desktop while the window is open.">
@@ -108,6 +156,27 @@ function Appearance({ settings, set }) {
           options={THEMES}
           onChange={(theme) => set({ appearance: { theme } })} />
       </Row>
+      <Field className="gap-3 py-4">
+        <FieldContent>
+          <FieldLabel>Colours</FieldLabel>
+          <FieldDescription>
+            The whole window: chat, rail, panels, dialogs and the terminal. Each one has a light
+            and a dark version, and the switch above picks between them.
+          </FieldDescription>
+        </FieldContent>
+        <div className="grid grid-cols-4 gap-3">
+          {SCHEMES.map(([id, label, note]) => (
+            <SchemeTile
+              key={id}
+              id={id}
+              label={label}
+              note={note}
+              mode={resolved}
+              active={(a.scheme || DEFAULT_SCHEME) === id}
+              onPick={(scheme) => set({ appearance: { scheme } })} />
+          ))}
+        </div>
+      </Field>
       <Row
         label="Interface size"
         hint="Scales the whole shell. The preview keeps the page's own zoom.">
@@ -236,10 +305,11 @@ function Agent({ settings, set, agent, updates }) {
 }
 
 const DEFAULT_STACK = 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace';
+const DEFAULT_SANS = 'ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif';
 
-// Monospace faces worth offering if the machine has them. Listing a font nobody
-// has installed gets you a dropdown of choices that all render identically, so
-// this is only the candidate set; what survives detection is the menu.
+// Faces worth offering if the machine has them. Listing a font nobody has
+// installed gets you a dropdown of choices that all render identically, so
+// these are only the candidate sets; what survives detection is the menu.
 const MONO = [
   'JetBrains Mono', 'JetBrainsMono Nerd Font Mono', 'Fira Code', 'FiraCode Nerd Font Mono',
   'Cascadia Code', 'Cascadia Mono', 'Source Code Pro', 'IBM Plex Mono', 'Hack', 'Hack Nerd Font Mono',
@@ -247,27 +317,98 @@ const MONO = [
   'Ubuntu Mono', 'Ubuntu Sans Mono', 'Menlo', 'Monaco', 'SF Mono', 'Consolas', 'Courier New',
 ];
 
+// Atkinson Hyperlegible is in here for the same reason the size control is:
+// somebody reading a long transcript all day gets to pick the face that is
+// easiest on their eyes, not the one that looks best in a screenshot.
+const SANS = [
+  'Inter', 'Inter Display', 'IBM Plex Sans', 'Source Sans 3', 'Source Sans Pro',
+  'Atkinson Hyperlegible', 'Public Sans', 'Work Sans', 'Fira Sans', 'Lato', 'Nunito Sans',
+  'Open Sans', 'Roboto', 'Noto Sans', 'Cantarell', 'Ubuntu', 'Ubuntu Sans', 'DejaVu Sans',
+  'Liberation Sans', 'Segoe UI', 'SF Pro Text', 'Helvetica Neue', 'Arial',
+];
+
 // document.fonts.check answers true for everything in Electron, fake names
 // included, so it cannot be used here. Measuring instead does work: a string
 // drawn in an installed font comes out a different width from the generic it
 // would otherwise fall back to. Three generics, because a font that happens to
-// be the default monospace matches that one baseline exactly.
-function installedMono() {
+// be the machine's default for one of them matches that baseline exactly.
+function installed(candidates) {
   try {
     const ctx = document.createElement('canvas').getContext('2d');
     const probe = 'mmmmmmmmmmlliWWW0O';
     const width = (font) => { ctx.font = font; return ctx.measureText(probe).width; };
     const bases = ['monospace', 'serif', 'sans-serif'];
     const baseline = Object.fromEntries(bases.map((b) => [b, width(`72px ${b}`)]));
-    return MONO.filter((f) => bases.some((b) => width(`72px "${f}", ${b}`) !== baseline[b]));
+    return candidates.filter((f) => bases.some((b) => width(`72px "${f}", ${b}`) !== baseline[b]));
   } catch {
     return [];
   }
 }
 
+// The transcript and the composer, and nothing else in the window. Someone who
+// wants bigger chat text does not necessarily want a bigger rail, and the
+// terminal already has a size of its own.
+function ChatPrefs({ settings, set }) {
+  const c = settings.chat;
+  const sans = useMemo(() => installed(SANS), []);
+  const mono = useMemo(() => installed(MONO), []);
+  const known = [DEFAULT_SANS, DEFAULT_STACK,
+    ...sans.map((f) => `"${f}", ${DEFAULT_SANS}`), ...mono.map((f) => `"${f}", ${DEFAULT_STACK}`)];
+  const custom = known.includes(c.fontFamily) ? null : c.fontFamily;
+
+  return (
+    <Section
+      title="Chat"
+      note="The transcript and the composer. The rail, the toolbar and the terminal keep their own sizes.">
+      <Row label="Text size" hint="What the body text is drawn at. Everything in the pane scales with it.">
+        <Select
+          value={String(c.fontSize)}
+          onValueChange={(v) => set({ chat: { fontSize: Number(v) } })}>
+          <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {CHAT_SIZES.map((n) => (
+                <SelectItem key={n} value={String(n)}>{n}px</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Row>
+      <Row
+        label="Font family"
+        hint={sans.length
+          ? `${sans.length} of these are on this machine. Code and file paths stay monospace either way.`
+          : 'No named faces found beyond the system stack. Code and file paths stay monospace either way.'}>
+        <Select
+          value={custom || c.fontFamily}
+          onValueChange={(fontFamily) => set({ chat: { fontFamily } })}>
+          <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value={DEFAULT_SANS}>System default</SelectItem>
+              {sans.map((f) => (
+                <SelectItem key={f} value={`"${f}", ${DEFAULT_SANS}`}>{f}</SelectItem>
+              ))}
+            </SelectGroup>
+            {mono.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Monospace</SelectLabel>
+                {mono.map((f) => (
+                  <SelectItem key={f} value={`"${f}", ${DEFAULT_STACK}`}>{f}</SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {custom && <SelectItem value={custom}>Custom (from settings.json)</SelectItem>}
+          </SelectContent>
+        </Select>
+      </Row>
+    </Section>
+  );
+}
+
 function TerminalPrefs({ settings, set }) {
   const t = settings.terminal;
-  const fonts = useMemo(installedMono, []);
+  const fonts = useMemo(() => installed(MONO), []);
   // A stack typed into settings.json by hand still has to be selectable, or
   // opening this page would silently reset it to whatever sits at the top.
   const known = [DEFAULT_STACK, ...fonts.map((f) => `"${f}", ${DEFAULT_STACK}`)];
@@ -542,6 +683,7 @@ export function SettingsDialog({ open, onOpenChange, section = 'appearance', set
         <div ref={panel} tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto px-8 py-7 outline-none">
           {tab === 'appearance' && <Appearance {...props} />}
           {tab === 'agent' && <Agent {...props} />}
+          {tab === 'chat' && <ChatPrefs {...props} />}
           {tab === 'terminal' && <TerminalPrefs {...props} />}
           {tab === 'updates' && <Updates {...props} />}
           {tab === 'startup' && <Startup {...props} />}

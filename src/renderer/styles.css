@@ -55,13 +55,25 @@
   --code: hsl(var(--foreground) / .9);
   --shadow: 0 4px 14px hsl(240 10% 3.9% / .10);
   --scroll: hsl(var(--border));
+  /* The terminal stays dark in every theme: a white terminal fights the prompt
+     and colour scheme people already have. What a theme changes is which dark
+     it is. app.js reads these and hands them to xterm, so they are hex rather
+     than HSL triples, and anything the app paints on top of the terminal reads
+     the same four greys. */
   --term-bg: #0b0d12;
-  /* The terminal stays dark in both app themes, so anything painted on it
-     needs colours of its own rather than the greys that flip with the theme.
-     These match the xterm palette in termTheme(). */
   --term-fg: #d7dce6;
   --term-dim: #79839a;
   --term-line: #1b2130;
+  --term-cursor: #6ea8fe;
+  --term-selection: #2a3550;
+  --term-black: #171b26;
+  --term-red: #ef6a6a;
+  --term-green: #58d18a;
+  --term-yellow: #e5b567;
+  --term-blue: #6ea8fe;
+  --term-magenta: #b58cf6;
+  --term-cyan: #5fd0d0;
+  --term-white: #d7dce6;
   --r: var(--radius);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Code", monospace;
 }
@@ -94,6 +106,376 @@
   --token-path-fg: 203 90% 78%;
   --token-element: 38 92% 58%;
   --token-element-fg: 40 92% 74%;
+}
+
+/* ---------------------------------------------------------------- themes */
+
+/* A theme is a palette, not a mode. The two are separate settings: data-theme
+   on <html> is light or dark, data-scheme is which colours that light or dark
+   is made of. Zinc is the pair above, so it needs nothing here.
+
+   Every rule below is written [data-scheme][data-theme], which outranks the
+   :root and [data-theme="dark"] blocks whatever order they land in. Nothing
+   else in the app has to know a theme exists: the aliases at the top of this
+   file, the Tailwind names in index.css and the token badges all read these
+   same triples. Set the two attributes on any element and its subtree is
+   painted in that theme, which is how the swatches in settings work. */
+
+/* Ocean. Blue, the way a code editor is blue. */
+[data-scheme="ocean"][data-theme="light"] {
+  --background: 210 40% 99%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 212 84% 43%;
+  --primary-foreground: 210 40% 99%;
+  --secondary: 210 38% 94%;
+  --secondary-foreground: 222 47% 16%;
+  --muted: 210 38% 94%;
+  --muted-foreground: 215 20% 45%;
+  --accent-bg: 210 55% 93%;
+  --destructive: 0 72% 48%;
+  --success: 160 78% 29%;
+  --warning: 32 92% 40%;
+  --border: 214 32% 88%;
+  --input: 214 32% 88%;
+  --ring: 212 84% 43%;
+  --shadow: 0 4px 14px hsl(222 47% 11% / .12);
+}
+
+[data-scheme="ocean"][data-theme="dark"] {
+  /* Zinc dark sits at 3.9% lightness, which is near enough to black that a hue
+     at that depth is invisible on a real screen. A theme that is not the
+     neutral one has to be light enough to see the colour in, so the grounds
+     here start around 11% and the chrome climbs from there. */
+  --background: 220 34% 11%;
+  --foreground: 210 38% 96%;
+  --card: 220 30% 14%;
+  --popover: 220 32% 12%;
+  --primary: 210 90% 62%;
+  --primary-foreground: 222 47% 10%;
+  --secondary: 217 26% 21%;
+  --secondary-foreground: 210 38% 96%;
+  --muted: 217 26% 21%;
+  --muted-foreground: 213 20% 70%;
+  --accent-bg: 217 27% 24%;
+  --destructive: 0 75% 66%;
+  --success: 160 60% 52%;
+  --warning: 38 92% 64%;
+  --border: 217 24% 24%;
+  --input: 217 24% 24%;
+  --ring: 210 90% 62%;
+  --shadow: 0 8px 24px hsl(222 60% 2% / .6);
+}
+
+[data-scheme="ocean"] {
+  --term-bg: #0b1826;
+  --term-fg: #cfe0f3;
+  --term-dim: #6d87a3;
+  --term-line: #14212f;
+  --term-cursor: #58a6ff;
+  --term-selection: #1c3a5a;
+  --term-black: #16202c;
+  --term-blue: #6cb6ff;
+  --term-cyan: #56d4dd;
+  --term-white: #cfe0f3;
+}
+
+/* Forest. Green, low saturation, easy to sit in front of for a long day. */
+[data-scheme="forest"][data-theme="light"] {
+  --background: 140 30% 99%;
+  --foreground: 150 25% 10%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 152 58% 28%;
+  --primary-foreground: 140 40% 98%;
+  --secondary: 140 24% 94%;
+  --secondary-foreground: 150 25% 15%;
+  --muted: 140 24% 94%;
+  --muted-foreground: 150 12% 42%;
+  --accent-bg: 145 32% 92%;
+  --destructive: 4 72% 48%;
+  --success: 152 58% 30%;
+  --warning: 32 90% 38%;
+  --border: 145 20% 87%;
+  --input: 145 20% 87%;
+  --ring: 152 58% 28%;
+  --shadow: 0 4px 14px hsl(150 25% 10% / .12);
+}
+
+[data-scheme="forest"][data-theme="dark"] {
+  --background: 155 20% 10%;
+  --foreground: 140 18% 95%;
+  --card: 154 18% 13%;
+  --popover: 155 19% 11%;
+  --primary: 150 58% 52%;
+  --primary-foreground: 155 30% 8%;
+  --secondary: 153 14% 21%;
+  --secondary-foreground: 140 18% 95%;
+  --muted: 153 14% 21%;
+  --muted-foreground: 145 11% 68%;
+  --accent-bg: 153 15% 24%;
+  --destructive: 2 74% 64%;
+  --success: 150 58% 52%;
+  --warning: 40 90% 62%;
+  --border: 152 12% 24%;
+  --input: 152 12% 24%;
+  --ring: 150 58% 50%;
+  --shadow: 0 8px 24px hsl(155 40% 2% / .6);
+}
+
+[data-scheme="forest"] {
+  --term-bg: #0d1712;
+  --term-fg: #d4e5d8;
+  --term-dim: #7b9285;
+  --term-line: #17241b;
+  --term-cursor: #57d18a;
+  --term-selection: #1f3a2a;
+  --term-black: #14201a;
+  --term-green: #6bd99a;
+  --term-cyan: #58cfc0;
+  --term-white: #d4e5d8;
+}
+
+/* Violet. The loudest of the six, and the only one that reads as a choice
+   rather than a shade of grey. */
+[data-scheme="violet"][data-theme="light"] {
+  --background: 270 40% 99%;
+  --foreground: 265 30% 12%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 263 70% 52%;
+  --primary-foreground: 270 40% 99%;
+  --secondary: 270 28% 95%;
+  --secondary-foreground: 265 30% 16%;
+  --muted: 270 28% 95%;
+  --muted-foreground: 265 12% 46%;
+  --accent-bg: 268 42% 94%;
+  --destructive: 350 75% 50%;
+  --success: 150 58% 32%;
+  --warning: 32 90% 42%;
+  --border: 268 25% 90%;
+  --input: 268 25% 90%;
+  --ring: 263 70% 52%;
+  --shadow: 0 4px 14px hsl(265 30% 12% / .12);
+}
+
+[data-scheme="violet"][data-theme="dark"] {
+  --background: 264 26% 11%;
+  --foreground: 270 25% 96%;
+  --card: 264 24% 14%;
+  --popover: 264 25% 12%;
+  --primary: 263 85% 72%;
+  --primary-foreground: 265 40% 10%;
+  --secondary: 264 18% 23%;
+  --secondary-foreground: 270 25% 96%;
+  --muted: 264 18% 23%;
+  --muted-foreground: 266 14% 73%;
+  --accent-bg: 264 20% 26%;
+  --destructive: 350 84% 68%;
+  --success: 150 58% 54%;
+  --warning: 40 90% 64%;
+  --border: 264 16% 26%;
+  --input: 264 16% 26%;
+  --ring: 263 85% 70%;
+  --shadow: 0 8px 24px hsl(265 50% 2% / .6);
+}
+
+[data-scheme="violet"] {
+  --term-bg: #151020;
+  --term-fg: #e0d8f0;
+  --term-dim: #8b81a3;
+  --term-line: #1e1830;
+  --term-cursor: #b58cf6;
+  --term-selection: #33255a;
+  --term-black: #1a1428;
+  --term-magenta: #c79cff;
+  --term-blue: #8aa8ff;
+  --term-white: #e0d8f0;
+}
+
+/* Sand. Warm greys instead of cool ones, and an amber where the blue is. */
+[data-scheme="sand"][data-theme="light"] {
+  --background: 40 40% 98%;
+  --foreground: 25 25% 12%;
+  --card: 40 50% 99%;
+  --popover: 40 50% 99%;
+  --primary: 25 68% 40%;
+  --primary-foreground: 40 40% 98%;
+  --secondary: 38 28% 92%;
+  --secondary-foreground: 25 25% 16%;
+  --muted: 38 28% 92%;
+  --muted-foreground: 30 10% 42%;
+  --accent-bg: 36 42% 90%;
+  --destructive: 5 70% 47%;
+  --success: 145 52% 29%;
+  --warning: 32 90% 38%;
+  --border: 34 22% 85%;
+  --input: 34 22% 85%;
+  --ring: 25 68% 40%;
+  --shadow: 0 4px 14px hsl(25 25% 12% / .12);
+}
+
+[data-scheme="sand"][data-theme="dark"] {
+  --background: 28 13% 11%;
+  --foreground: 40 28% 94%;
+  --card: 28 12% 14%;
+  --popover: 28 13% 12%;
+  --primary: 32 88% 62%;
+  --primary-foreground: 28 40% 10%;
+  --secondary: 30 11% 23%;
+  --secondary-foreground: 40 28% 94%;
+  --muted: 30 11% 23%;
+  --muted-foreground: 35 12% 69%;
+  --accent-bg: 30 12% 26%;
+  --destructive: 6 76% 66%;
+  --success: 145 50% 52%;
+  --warning: 38 92% 64%;
+  --border: 30 10% 26%;
+  --input: 30 10% 26%;
+  --ring: 32 88% 60%;
+  --shadow: 0 8px 24px hsl(28 40% 2% / .6);
+}
+
+[data-scheme="sand"] {
+  --term-bg: #1a1510;
+  --term-fg: #eadfd0;
+  --term-dim: #9c8b78;
+  --term-line: #241d15;
+  --term-cursor: #e5a44a;
+  --term-selection: #4a3820;
+  --term-black: #1f1913;
+  --term-yellow: #e8b96a;
+  --term-red: #ef7b62;
+  --term-white: #eadfd0;
+}
+
+/* Aurora. The one that is not a recolour. A theme owns --radius and --shadow
+   as well as the palette, so this one is rounder than the rest (12px against
+   8px), sits its cards a clear step above the ground rather than a shade, and
+   keeps the greys cool and the accent indigo. Everything reads it: buttons,
+   the composer, dialogs, the rail rows, the code blocks. */
+[data-scheme="aurora"][data-theme="light"] {
+  --background: 240 30% 99%;
+  --foreground: 240 24% 12%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 243 72% 58%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 24% 94%;
+  --secondary-foreground: 240 24% 16%;
+  --muted: 240 22% 93%;
+  --muted-foreground: 240 9% 45%;
+  --accent-bg: 243 40% 95%;
+  --destructive: 352 76% 52%;
+  --success: 158 62% 32%;
+  --warning: 35 92% 42%;
+  --border: 240 18% 91%;
+  --input: 240 18% 91%;
+  --ring: 243 72% 58%;
+  --radius: 0.75rem;
+  --shadow: 0 10px 30px hsl(240 30% 20% / .10);
+}
+
+[data-scheme="aurora"][data-theme="dark"] {
+  --background: 235 16% 10%;
+  --foreground: 240 20% 97%;
+  --card: 235 14% 14%;
+  --popover: 235 15% 12%;
+  --primary: 245 90% 74%;
+  --primary-foreground: 245 45% 12%;
+  --secondary: 235 14% 24%;
+  --secondary-foreground: 240 20% 97%;
+  /* The rail, the composer and every hover state are this colour at a third
+     of an alpha, so on a ground this dark it has to be lifted well clear of
+     it or the layers all collapse back into one flat sheet. */
+  --muted: 235 14% 24%;
+  --muted-foreground: 238 13% 71%;
+  --accent-bg: 235 13% 23%;
+  --destructive: 352 88% 70%;
+  --success: 158 62% 52%;
+  --warning: 38 92% 65%;
+  --border: 235 10% 23%;
+  --input: 235 10% 23%;
+  --ring: 245 90% 74%;
+  --radius: 0.75rem;
+  --shadow: 0 12px 32px hsl(240 50% 2% / .7);
+}
+
+[data-scheme="aurora"] {
+  --term-bg: #0e0e18;
+  --term-fg: #e4e3f2;
+  --term-dim: #8d8aab;
+  --term-line: #1c1b2b;
+  --term-cursor: #a5a1ff;
+  --term-selection: #2f2c55;
+  --term-black: #191826;
+  --term-blue: #8f9bff;
+  --term-magenta: #c39bff;
+  --term-cyan: #63d6e0;
+  --term-white: #e4e3f2;
+}
+
+/* Nord. Somebody else's palette, used as published: the Polar Night greys
+   under the dark theme, Snow Storm under the light one, and the Aurora hues
+   in the terminal rather than this file's own. */
+[data-scheme="nord"][data-theme="light"] {
+  --background: 218 27% 94%;
+  --foreground: 220 16% 22%;
+  --card: 218 27% 97%;
+  --popover: 218 27% 97%;
+  --primary: 213 34% 43%;
+  --primary-foreground: 218 27% 96%;
+  --secondary: 219 28% 88%;
+  --secondary-foreground: 220 16% 22%;
+  --muted: 219 28% 88%;
+  --muted-foreground: 220 16% 40%;
+  --accent-bg: 219 28% 88%;
+  --destructive: 354 42% 45%;
+  --success: 92 28% 34%;
+  --warning: 40 60% 38%;
+  --border: 219 24% 84%;
+  --input: 219 24% 84%;
+  --ring: 213 34% 43%;
+  --shadow: 0 4px 14px hsl(220 16% 22% / .14);
+}
+
+[data-scheme="nord"][data-theme="dark"] {
+  --background: 220 16% 15%;
+  --foreground: 218 27% 92%;
+  --card: 220 16% 18%;
+  --popover: 220 16% 17%;
+  --primary: 193 43% 67%;
+  --primary-foreground: 220 16% 15%;
+  --secondary: 222 16% 25%;
+  --secondary-foreground: 218 27% 92%;
+  --muted: 222 16% 25%;
+  --muted-foreground: 219 20% 71%;
+  --accent-bg: 220 17% 28%;
+  --destructive: 354 42% 58%;
+  --success: 92 28% 65%;
+  --warning: 40 71% 73%;
+  --border: 220 17% 27%;
+  --input: 220 17% 27%;
+  --ring: 193 43% 67%;
+  --shadow: 0 8px 24px hsl(220 20% 4% / .6);
+}
+
+[data-scheme="nord"] {
+  --term-bg: #2e3440;
+  --term-fg: #d8dee9;
+  --term-dim: #98a3bb;
+  --term-line: #3b4252;
+  --term-cursor: #88c0d0;
+  --term-selection: #434c5e;
+  --term-black: #3b4252;
+  --term-red: #bf616a;
+  --term-green: #a3be8c;
+  --term-yellow: #ebcb8b;
+  --term-blue: #81a1c1;
+  --term-magenta: #b48ead;
+  --term-cyan: #88c0d0;
+  --term-white: #e5e9f0;
 }
 
 * { box-sizing: border-box; }
@@ -168,7 +550,18 @@ kbd {
 /* The chat pane. React fills it, and the welcome state sits over it until a
    folder has been chosen, which is what the positioning is for. */
 #agent { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
-#agent-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The chat pane has its own type size, set apart from the shell's zoom and the
+   terminal's font. Scaling rather than sizing: the transcript is a mix of
+   inherited prose and Tailwind's own sizes, so a font-size here would grow the
+   paragraphs and leave every badge and tool row behind. Zoom takes the padding
+   with it and the pane keeps its proportions at any size. The number in
+   settings is what the body text ends up at; --chat-scale is that over the
+   13px this has always been. */
+#agent-root {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  zoom: var(--chat-scale, 1);
+  font-family: var(--chat-font, inherit);
+}
 
 /* --------------------------------------------------------- preview pane */
 
@@ -224,6 +617,10 @@ kbd {
 #terms { flex: 1; position: relative; }
 .term-host { position: absolute; inset: 0; padding: 8px 6px 6px 12px; display: none; }
 .term-host.active { display: block; }
-.xterm-viewport::-webkit-scrollbar-thumb { background: #2b3346; }
+/* The one thing in the panel that is not painted from a --term-* property
+   directly: a thumb the colour of the grid lines disappears against the
+   ground, so it is mixed up out of the terminal's own two colours and
+   follows the theme with them. */
+.xterm-viewport::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--term-fg) 22%, var(--term-bg)); }
 
 

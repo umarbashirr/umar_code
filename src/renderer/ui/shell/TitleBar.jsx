@@ -184,6 +184,7 @@ const MENUS = [
       ['Reset size', command('zoomReset'), '^0'],
       null,
       ['Light or dark', command('theme')],
+      ['Theme…', command('appearance')],
     ],
   },
   {

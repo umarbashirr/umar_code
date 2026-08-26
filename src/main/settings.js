@@ -16,11 +16,18 @@ const FILE = path.join(DIR, 'settings.json');
 const DEFAULTS = {
   appearance: {
     theme: 'system',        // system | light | dark
+    scheme: 'zinc',         // which palette that light or dark is made of
     zoom: 1,
   },
   terminal: {
     fontSize: 13,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace',
+  },
+  // The chat pane only: the transcript and the composer, not the rail, the
+  // toolbar or the terminal. 13 is what the window has always drawn it at.
+  chat: {
+    fontSize: 13,
+    fontFamily: 'ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif',
   },
   agent: {
     model: '',              // empty means whatever the CLI picks

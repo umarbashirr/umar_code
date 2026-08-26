@@ -31,7 +31,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { runCommand, themeState, toggleTheme } from '../../app.js';
+import { useTheme } from '@/hooks/use-theme';
+import { runCommand, toggleTheme } from '../../app.js';
 import { onProject, project } from '../../project.js';
 import {
   chosenEditor,
@@ -47,20 +48,6 @@ import { useLayout } from './Shell';
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
 // -------------------------------------------------------------------- theme
-
-function useTheme() {
-  const [theme, setTheme] = useState(themeState);
-  useEffect(() => {
-    const read = () => setTheme(themeState());
-    const offSettings = window.tandem.settings.onChanged(read);
-    const media = matchMedia('(prefers-color-scheme: dark)');
-    // Following the system means following it while the window is open, not
-    // only at launch.
-    media.addEventListener('change', read);
-    return () => { offSettings?.(); media.removeEventListener('change', read); };
-  }, []);
-  return theme;
-}
 
 function ThemeButton() {
   const { pref, resolved } = useTheme();

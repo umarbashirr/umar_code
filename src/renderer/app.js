@@ -5,6 +5,7 @@ import { layout, onRelayout, registerActions, setLayout } from './ui/shell/layou
 import { toast } from './ui/shell/toast.jsx';
 import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
 import { navigate, pickElement, toggleDrawer } from './ui/shell/browser-store.js';
+import { DEFAULT_SCHEME, isScheme } from './ui/lib/themes.js';
 
 export const $ = (sel) => document.querySelector(sel);
 
@@ -41,8 +42,9 @@ registerActions({ openPreview: () => openPreview(), toast });
 // is a copy that is replaced whenever it changes, from here or from the
 // settings page.
 let prefs = {
-  appearance: { theme: 'system', zoom: 1 },
+  appearance: { theme: 'system', scheme: DEFAULT_SCHEME, zoom: 1 },
   terminal: { fontSize: 13, fontFamily: 'ui-monospace, monospace' },
+  chat: { fontSize: 13, fontFamily: '' },
 };
 try { prefs = window.tandem.settings.snapshot() || prefs; } catch {}
 
@@ -84,25 +86,55 @@ const resolvedTheme = () => {
   return pref === 'system' ? (systemDark() ? 'dark' : 'light') : pref;
 };
 
+// Two attributes, one paint. data-theme is light or dark; data-scheme is which
+// palette that light or dark is made of. Everything else in the app reads the
+// custom properties those two select, so this function is the whole of theming.
 function applyTheme() {
-  const name = resolvedTheme();
-  document.documentElement.dataset.theme = name;
-  // xterm draws its own colours, so it has to be told separately.
+  const root = document.documentElement;
+  root.dataset.theme = resolvedTheme();
+  root.dataset.scheme = isScheme(prefs.appearance.scheme) ? prefs.appearance.scheme : DEFAULT_SCHEME;
+  // xterm paints on a canvas and reads no stylesheet, so it has to be told.
   for (const t of state.tabs) t.term.options.theme = termTheme();
 }
 
+// The terminal's colours come from the same stylesheet as everything else, off
+// the --term-* properties the scheme sets. Reading them back rather than
+// keeping a copy here is what stops the panel's own chrome, which is styled
+// from those properties, from drifting away from the canvas underneath it.
 function termTheme() {
-  // The terminal stays dark in both themes: a white terminal fights every
-  // prompt and colour scheme people already have.
+  const style = getComputedStyle(document.documentElement);
+  const at = (name, fallback) => style.getPropertyValue(`--term-${name}`).trim() || fallback;
   return {
-    background: '#0b0d12', foreground: '#d7dce6', cursor: '#6ea8fe',
-    selectionBackground: '#2a3550',
-    black: '#171b26', red: '#ef6a6a', green: '#58d18a', yellow: '#e5b567',
-    blue: '#6ea8fe', magenta: '#b58cf6', cyan: '#5fd0d0', white: '#d7dce6',
+    background: at('bg', '#0b0d12'),
+    foreground: at('fg', '#d7dce6'),
+    cursor: at('cursor', '#6ea8fe'),
+    selectionBackground: at('selection', '#2a3550'),
+    black: at('black', '#171b26'),
+    red: at('red', '#ef6a6a'),
+    green: at('green', '#58d18a'),
+    yellow: at('yellow', '#e5b567'),
+    blue: at('blue', '#6ea8fe'),
+    magenta: at('magenta', '#b58cf6'),
+    cyan: at('cyan', '#5fd0d0'),
+    white: at('white', '#d7dce6'),
   };
 }
 
+// The chat pane's own type. The size is a scale rather than a font-size: see
+// the #agent-root rule in styles.css for why. 13 is what the transcript has
+// always been drawn at, so it is the size everything else is measured from.
+const CHAT_BASE = 13;
+export const CHAT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20];
+
+function applyChat() {
+  const root = document.documentElement;
+  const size = prefs.chat?.fontSize || CHAT_BASE;
+  root.style.setProperty('--chat-scale', String(size / CHAT_BASE));
+  root.style.setProperty('--chat-font', prefs.chat?.fontFamily || 'inherit');
+}
+
 applyTheme();
+applyChat();
 
 // Following the system means following it while the window is open, not only at
 // launch. Desktops that switch at sunset do it without telling the app twice.
@@ -117,6 +149,11 @@ export const toggleTheme = () => save({ appearance: { theme: resolvedTheme() ===
 
 // 'system' is a preference; `resolved` is the colour it currently means.
 export const themeState = () => ({ pref: prefs.appearance.theme, resolved: resolvedTheme() });
+
+// Which palette is up. Guarded the same way applyTheme guards it: a
+// settings.json naming a theme this build has never heard of reads as zinc
+// rather than as nothing at all.
+export const schemeState = () => (isScheme(prefs.appearance.scheme) ? prefs.appearance.scheme : DEFAULT_SCHEME);
 
 // ------------------------------------------------------------------- zoom
 
@@ -157,10 +194,13 @@ window.tandem.settings.onChanged((next) => {
   if (!next) return;
   const before = prefs;
   prefs = next;
-  if (next.appearance.theme !== before.appearance.theme) applyTheme();
+  if (next.appearance.theme !== before.appearance.theme
+    || next.appearance.scheme !== before.appearance.scheme) applyTheme();
   if (next.appearance.zoom !== zoom) drawZoom(next.appearance.zoom || 1);
   if (next.terminal.fontSize !== before.terminal.fontSize
     || next.terminal.fontFamily !== before.terminal.fontFamily) applyTerminalFont();
+  if (next.chat?.fontSize !== before.chat?.fontSize
+    || next.chat?.fontFamily !== before.chat?.fontFamily) applyChat();
 });
 
 // Font changes reflow every line xterm has buffered, so the tab has to be
@@ -470,6 +510,7 @@ export function runCommand(name, arg) {
     // Both live in the React half, which registers them on window.tandemChat.
     case 'settings': return window.tandemChat?.settings?.(arg);
     case 'updates': return window.tandemChat?.settings?.('updates');
+    case 'appearance': return window.tandemChat?.settings?.('appearance');
     case 'newChat': return window.tandemChat?.newChat();
     case 'copyMcp': return copyMcpCommand();
     case 'about': return toast(
