@@ -26,10 +26,10 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
 } from '@/components/ui/sidebar';
 import { onProject, project, shortPath } from '../../project.js';
 import {
@@ -55,7 +55,15 @@ function Row({ chat, current, onDelete }) {
   const Icon = current ? MessageSquareDotIcon : MessageSquareIcon;
 
   return (
-    <SidebarMenuItem>
+    /* The chat you are in thickens the guide line beside it. The row already
+       takes the accent tint, but that tint stops at the row's own edge, and the
+       thing worth seeing from across the rail is which folder you are working
+       in. The marker sits on the border SidebarMenuSub draws, 11px left of the
+       row: 1px of border, then the list's 10px of padding. */
+    <SidebarMenuItem
+      className={current
+        ? 'before:absolute before:-left-[11px] before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-sidebar-foreground/50'
+        : undefined}>
       <SidebarMenuButton
         isActive={current}
         title={chat.title}
@@ -88,7 +96,18 @@ function Row({ chat, current, onDelete }) {
 
 /* One project and its chats. The Collapsible wraps the whole group, so the
    header folds the rows under it and nothing else, and the trigger is the
-   header itself rather than a chevron you have to aim at. */
+   header itself rather than a chevron you have to aim at.
+
+   The header and the rows have to read as two levels, not as one list of
+   lookalikes. The header takes the heading language the app already uses for
+   section labels, small uppercase and tracked, and it gives up the accent fill
+   on hover: that fill is what marks the chat you are in, and a heading should
+   never wear it. The chats sit on a SidebarMenuSub, which indents them and runs
+   a border down their left edge, so a row visibly hangs off the folder above.
+
+   The rows stay SidebarMenuItem rather than SidebarMenuSubItem. The delete
+   action reads its hover and active state off the menu-item group and the
+   menu-button peer, and the sub variants carry neither. */
 function Folder({ folder, active, onDelete }) {
   return (
     <Collapsible
@@ -96,28 +115,47 @@ function Folder({ folder, active, onDelete }) {
       open={projectOpen(folder.dir)}
       onOpenChange={(open) => setProjectOpen(folder.dir, open)}>
       <SidebarGroup>
-        <SidebarGroupLabel asChild>
+        {/* The heading styling rides on the label rather than on the trigger.
+            The label merges a className through twMerge, so text-[11px] beats
+            its text-xs; anything set on the trigger only gets concatenated and
+            would leave the stylesheet to break the tie. */}
+        <SidebarGroupLabel
+          asChild
+          className="text-[11px] font-semibold uppercase tracking-wide [&>svg]:size-3.5">
           <CollapsibleTrigger
             title={folder.dir}
-            className="w-full gap-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-            <FolderIcon />
-            <span className="truncate">{folder.name}</span>
+            className="w-full cursor-pointer gap-1.5 transition-colors hover:text-sidebar-foreground">
+            {/* The chevron leads, sitting a pixel off the guide line that starts
+                below it, so the fold and the chats it holds share one edge. */}
             <ChevronRightIcon
-              className="ml-auto transition-transform group-data-[state=open]/folder:rotate-90" />
+              className="transition-transform group-data-[state=open]/folder:rotate-90" />
+            <span className="truncate">{folder.name}</span>
           </CollapsibleTrigger>
         </SidebarGroupLabel>
 
         <CollapsibleContent>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {folder.rows.map((chat) => (
-                <Row
-                  key={chat.key || chat.id}
-                  chat={chat}
-                  current={!!chat.key && chat.key === active}
-                  onDelete={onDelete} />
-              ))}
-            </SidebarMenu>
+            {/* A folder you have just opened has no chats yet, and the guide
+                line down the left of an empty list is a stub hanging off
+                nothing. Say what is there instead. */}
+            {!folder.rows.length ? (
+              /* Sitting where the rows would, so the note reads as the folder's
+                 contents rather than as something loose under the heading. */
+              <p className="mx-3.5 px-2.5 py-1 text-muted-foreground text-xs">No chats here yet</p>
+            ) : (
+              /* The list keeps its left margin, which is where the border lives,
+                 and drops the right one. The rail is narrow and the rows carry a
+                 badge, a timestamp and a delete button on that edge. */
+              <SidebarMenuSub className="mr-0 pr-0">
+                {folder.rows.map((chat) => (
+                  <Row
+                    key={chat.key || chat.id}
+                    chat={chat}
+                    current={!!chat.key && chat.key === active}
+                    onDelete={onDelete} />
+                ))}
+              </SidebarMenuSub>
+            )}
           </SidebarGroupContent>
         </CollapsibleContent>
       </SidebarGroup>
