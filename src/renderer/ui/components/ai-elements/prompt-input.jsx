@@ -695,10 +695,15 @@ export const PromptInput = ({
           return (formData.get("message")) || "";
         })();
 
-    // Reset form immediately after capturing text to avoid race condition
-    // where user input during async blob conversion would be lost
+    // Clear the message box right after capturing its text, or anything typed
+    // during the async blob conversion below is lost. Only that one field:
+    // form.reset() fires a reset event, every Radix Select in the form listens
+    // for it and snaps back to the value it was mounted with, and the model
+    // picker lives in this form. That made a model you picked last exactly one
+    // message before the send put the old one back.
     if (!usingProvider) {
-      form.reset();
+      const field = form.elements.namedItem("message");
+      if (field) field.value = "";
     }
 
     try {
