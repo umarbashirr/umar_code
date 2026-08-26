@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('tandem', {
     history: () => ipcRenderer.invoke('agent:history'),
     transcript: (id) => ipcRenderer.invoke('agent:transcript', { id }),
     resume: (chat, id) => ipcRenderer.invoke('agent:resume', { chat, id }),
+    deleteSession: (id) => ipcRenderer.invoke('agent:deleteSession', { id }),
     info: (chat) => ipcRenderer.invoke('agent:info', { chat }),
     decide: (chat, id, decision, input) => ipcRenderer.send('agent:decide', { chat, id, decision, input }),
     onMessage: on('agent:message'),

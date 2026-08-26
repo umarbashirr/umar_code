@@ -12,7 +12,7 @@ const { Catalog } = require('./catalog');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
 const shellEnv = require('./shell-env');
-const { listSessions, readSession, readSubagent, listSubagents } = require('./history');
+const { listSessions, readSession, readSubagent, listSubagents, deleteSession } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const diff = require('./diff');
@@ -696,6 +696,16 @@ function registerIpc() {
   });
   ipcMain.handle('agent:subagent', (_e, { session, agentId }) =>
     readSubagent(agentCwd(), session, agentId));
+  // Deleting a chat. A session still running would write its transcript
+  // straight back after the unlink, so the process behind it goes first.
+  ipcMain.handle('agent:deleteSession', (_e, { id } = {}) => {
+    for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
+    try {
+      return { ok: deleteSession(agentCwd(), id) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
     activeChat = { chat: chat || 'main', session: session || null };
   });

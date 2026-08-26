@@ -208,10 +208,17 @@ export default function App() {
       newChat: agent.reset,
       // The folder changed under us, so every chat here goes with it.
       clearChats: agent.clear,
+      // Deleting one, transcript and all. The draft goes with it: half a
+      // message typed into a chat that no longer exists is nobody's to keep.
+      remove: async (chat) => {
+        const res = await agent.removeChat(chat);
+        if (chat.key) setDrafts(({ [chat.key]: _gone, ...rest }) => rest);
+        return res;
+      },
       settings: (at) => setSettingsAt(typeof at === 'string' ? at : 'appearance'),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat]);
 
   // News, once. A version the person has already been shown and ignored is not
   // worth a second interruption, so the version each toast named is written to

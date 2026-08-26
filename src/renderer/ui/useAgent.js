@@ -636,6 +636,53 @@ export function useAgent() {
     window.tandemRail?.refresh();
   }, []);
 
+  // Deleting a chat, from the rail or from anywhere else that has a row. Two
+  // halves, and a chat can be either or both: the transcript on disk, which is
+  // what the rail lists and what `claude --resume` offers, and the copy in
+  // memory with its process behind it. A chat that was never written to disk
+  // has no session id and only the second half applies.
+  const removeChat = useCallback(async (row) => {
+    const key = row.key || null;
+    // rows() names a chat with no session by its key, so id and key matching is
+    // how a chat that never reached disk says it has nothing to delete there.
+    const session = row.id && row.id !== key ? row.id : null;
+
+    if (session) {
+      const res = await tandem().agent.deleteSession(session).catch((e) => ({ error: e.message }));
+      if (res?.error) return res;
+    } else if (key) {
+      // No transcript to remove, so the process is ours to stop. (With one,
+      // main stops it before the unlink.)
+      await tandem().agent.reset(key).catch(() => {});
+    }
+
+    if (key) {
+      for (const [k, st] of streams.current) {
+        if (!k.startsWith(`${key}\0`)) continue;
+        if (st.raf) cancelAnimationFrame(st.raf);
+        streams.current.delete(k);
+      }
+
+      const all = chatsRef.current;
+      const at = all.findIndex((c) => c.key === key);
+      const rest = all.filter((c) => c.key !== key);
+      // Deleting the last chat leaves the pane on a blank one rather than on
+      // nothing at all.
+      const next = rest.length ? rest : [blankChat()];
+      chatsRef.current = next;
+      setChats(next);
+      if (activeRef.current === key) {
+        // The row that took its place, or the one above it if it was last.
+        const land = next[Math.min(at, next.length - 1)];
+        activeRef.current = land.key;
+        setActiveKey(land.key);
+      }
+    }
+
+    window.tandemRail?.refresh();
+    return { ok: true };
+  }, []);
+
   // Open a stored chat. One already in memory is just brought forward, live
   // turn and all. One off disk is replayed here and resumed on the next
   // message, so clicking through the rail costs nothing.
@@ -721,7 +768,7 @@ export function useAgent() {
     models, model, driver,
     chats, activeKey,
     send, enqueue, unqueue, flushQueue,
-    decide, interrupt, reset, clear, open, switchTo, changeModel, forgetModel, changeMode,
+    decide, interrupt, reset, clear, open, removeChat, switchTo, changeModel, forgetModel, changeMode,
     stopAgent, backgroundAgent, openAgent,
   };
 }

@@ -5,9 +5,14 @@
    it owns the width and the collapsing, so all this needs from the component is
    its structure and its palette. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { FolderIcon, MessageSquareDotIcon, MessageSquareIcon, SearchIcon, SquarePenIcon } from 'lucide-react';
+import {
+  FolderIcon, MessageSquareDotIcon, MessageSquareIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import {
@@ -19,11 +24,13 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { onProject, project, shortPath } from '../../project.js';
 import { activeKey, getRailVersion, grouped, refreshRail, relative, subscribeRail } from './rail-store';
+import { toast } from './toast';
 
 function useRail() {
   useSyncExternalStore(subscribeRail, getRailVersion, getRailVersion);
@@ -38,7 +45,7 @@ function useProjectDir() {
   return project.dir;
 }
 
-function Row({ chat, current }) {
+function Row({ chat, current, onDelete }) {
   const Icon = current ? MessageSquareDotIcon : MessageSquareIcon;
 
   return (
@@ -58,7 +65,52 @@ function Row({ chat, current }) {
           {relative(chat.at)}
         </span>
       </SidebarMenuButton>
+
+      {/* The row is a button, so this one stops the click on its way up rather
+          than opening the chat it is about to delete. */}
+      <SidebarMenuAction
+        showOnHover
+        title="Delete chat"
+        aria-label={`Delete ${chat.title}`}
+        className="hover:text-destructive"
+        onClick={(e) => { e.stopPropagation(); onDelete(chat); }}>
+        <Trash2Icon />
+      </SidebarMenuAction>
     </SidebarMenuItem>
+  );
+}
+
+/* The confirm. A transcript is the only copy of a conversation and this unlinks
+   it, so the question gets asked, and it names the chat: the rail is a list of
+   near-identical rows and the wrong one is easy to hit. */
+function ConfirmDelete({ chat, onCancel, onConfirm }) {
+  const [working, setWorking] = useState(false);
+
+  return (
+    <Dialog open={!!chat} onOpenChange={(next) => { if (!next && !working) onCancel(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete this chat?</DialogTitle>
+          <DialogDescription>
+            {chat?.busy
+              ? 'This chat is mid-turn. Deleting stops it and removes its transcript for good.'
+              : 'Its transcript goes with it, here and from claude --resume. This cannot be undone.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <p className="truncate rounded-md bg-muted px-3 py-2 text-sm">{chat?.title}</p>
+
+        <DialogFooter>
+          <Button variant="ghost" disabled={working} onClick={onCancel}>Cancel</Button>
+          <Button
+            variant="destructive"
+            disabled={working}
+            onClick={async () => { setWorking(true); await onConfirm(chat); setWorking(false); }}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -66,8 +118,17 @@ export default function Rail() {
   useRail();
   const dir = useProjectDir();
   const [filter, setFilter] = useState('');
+  const [doomed, setDoomed] = useState(null);
   const groups = grouped(filter);
   const active = activeKey();
+
+  const remove = async (chat) => {
+    const res = await window.tandemChat?.remove(chat);
+    setDoomed(null);
+    // Deleting is one click and a confirm; failing at it silently would leave
+    // the row sitting there looking like nothing happened.
+    if (res?.error) toast('Could not delete that chat', res.error, [{ label: 'OK' }]);
+  };
 
   return (
     <Sidebar collapsible="none" className="h-full w-full border-r">
@@ -113,7 +174,11 @@ export default function Rail() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {group.rows.map((chat) => (
-                    <Row key={chat.key || chat.id} chat={chat} current={!!chat.key && chat.key === active} />
+                    <Row
+                      key={chat.key || chat.id}
+                      chat={chat}
+                      current={!!chat.key && chat.key === active}
+                      onDelete={setDoomed} />
                   ))}
                 </SidebarMenu>
               </SidebarGroupContent>
@@ -128,6 +193,8 @@ export default function Rail() {
           <span dir="rtl" className="truncate font-mono [unicode-bidi:plaintext]">{shortPath(dir)}</span>
         </div>
       </SidebarFooter>
+
+      <ConfirmDelete chat={doomed} onCancel={() => setDoomed(null)} onConfirm={remove} />
     </Sidebar>
   );
 }

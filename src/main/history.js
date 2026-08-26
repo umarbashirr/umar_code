@@ -127,6 +127,38 @@ function listSessions(cwd, limit = 200) {
   return rows.slice(0, limit);
 }
 
+// Deleting a chat for good. The transcript is the chat: drop the file and
+// `claude --resume` stops offering it, the rail stops listing it, and nothing
+// here has a second copy to go stale. A session that spawned agents or wrote a
+// long tool result also has a sibling folder of its own.
+//
+// The id has to be a session uuid before anything is unlinked. That folder also
+// holds memory/ and every other chat in this project, and a caller passing a
+// chat key or a stray path is a bug that would take one of those with it.
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function deleteSession(cwd, id) {
+  if (!SESSION_ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
+  const dir = projectDir(cwd);
+  const file = path.join(dir, `${id}.jsonl`);
+
+  let gone = false;
+  try {
+    fs.rmSync(file);
+    gone = true;
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  // Subagent transcripts and spilled tool results. Missing for most chats.
+  try {
+    fs.rmSync(path.join(dir, id), { recursive: true, force: true });
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  titles.delete(file);
+  return gone;
+}
+
 const MAX_MESSAGES = 400;
 const MAX_TEXT = 6000;
 const MAX_IMAGES = 12;
@@ -260,4 +292,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, projectDir };
+module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, projectDir };
