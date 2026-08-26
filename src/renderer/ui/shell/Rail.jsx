@@ -7,8 +7,8 @@
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  CheckIcon, ChevronRightIcon, CircleCheckIcon, FolderIcon, MessageSquareDotIcon,
-  MessageSquareIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  CheckIcon, ChevronRightIcon, CircleCheckIcon, FolderIcon, FolderPlusIcon,
+  MessageSquareDotIcon, MessageSquareIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,7 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
-import { onProject, project, shortPath } from '../../project.js';
+import { onProject, openFolder, project, shortPath } from '../../project.js';
 import {
   activeKey, doneOpen, getRailVersion, grouped, isDone, markDone, projectOpen, refreshRail,
   relative, setDoneOpen, setProjectOpen, subscribeRail,
@@ -303,6 +303,20 @@ export default function Rail() {
           }}>
           <SquarePenIcon />
           New chat
+        </Button>
+
+        {/* Adding a folder to this window, which is a different thing from
+            opening one in a new window. The rail is the list of folders, so the
+            way to add one belongs at the top of it rather than only in a menu.
+            The picker is main's, so a folder that is already open here is
+            brought forward instead of opened twice. */}
+        <Button
+          variant="outline"
+          className="justify-start"
+          title="Open another folder in this window"
+          onClick={() => openFolder()}>
+          <FolderPlusIcon />
+          New project
         </Button>
 
         <InputGroup>
