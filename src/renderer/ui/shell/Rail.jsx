@@ -7,8 +7,8 @@
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  CheckIcon, ChevronRightIcon, CircleCheckIcon, FolderIcon, FolderPlusIcon,
-  MessageSquareDotIcon, MessageSquareIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  CheckIcon, ChevronRightIcon, CircleCheckIcon, FolderPlusIcon, MessageSquareDotIcon,
+  MessageSquareIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,6 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -31,7 +30,7 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
-import { onProject, openFolder, project, shortPath } from '../../project.js';
+import { openFolder } from '../../project.js';
 import {
   activeKey, doneOpen, getRailVersion, grouped, isDone, markDone, projectOpen, refreshRail,
   relative, setDoneOpen, setProjectOpen, subscribeRail,
@@ -43,12 +42,6 @@ function useRail() {
   // The store owns which folders are open and what is in them, including the
   // fold state, which has to survive a restart.
   useEffect(() => { refreshRail(); }, []);
-}
-
-function useProjectDir() {
-  const [, bump] = useState(0);
-  useEffect(() => onProject(() => bump((n) => n + 1)), []);
-  return project.dir;
 }
 
 function Row({ chat, current, onDelete }) {
@@ -277,7 +270,6 @@ function ConfirmDelete({ chat, onCancel, onConfirm }) {
 
 export default function Rail() {
   useRail();
-  const dir = useProjectDir();
   const [filter, setFilter] = useState('');
   const [doomed, setDoomed] = useState(null);
   const folders = grouped(filter);
@@ -348,13 +340,6 @@ export default function Rail() {
           ))
         )}
       </SidebarContent>
-
-      <SidebarFooter>
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" title={dir}>
-          <FolderIcon className="size-3.5 shrink-0" />
-          <span dir="rtl" className="truncate font-mono [unicode-bidi:plaintext]">{shortPath(dir)}</span>
-        </div>
-      </SidebarFooter>
 
       <ConfirmDelete chat={doomed} onCancel={() => setDoomed(null)} onConfirm={remove} />
     </Sidebar>
