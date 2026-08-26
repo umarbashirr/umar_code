@@ -220,12 +220,17 @@ function Diff() {
   // has already been landed on is remembered, because the pane re-reads the
   // open file every few seconds and a re-read must not throw away where you
   // had scrolled to.
+  // The folder is part of that memory now. Two projects can have a file at the
+  // same path, and coming back to one you were reading is not the same gesture
+  // as opening a file: it should put you back where you were, which is what the
+  // jump effect above does from the block you left.
   useEffect(() => {
-    const key = `${s.selected}|${s.mode}`;
+    const key = `${s.dir}|${s.selected}|${s.mode}`;
     if (!blocks || landed.current === key) return;
     landed.current = key;
-    blockRefs.current[0]?.scrollIntoView({ block: 'center', behavior: 'auto' });
-  }, [s.selected, s.mode, blocks]);
+    const back = at > 0 ? blockRefs.current[at] : blockRefs.current[0];
+    back?.scrollIntoView({ block: 'center', behavior: 'auto' });
+  }, [s.dir, s.selected, s.mode, blocks, at]);
 
   if (!s.selected) return null;
 

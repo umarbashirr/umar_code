@@ -155,6 +155,17 @@ class BrowserPane extends EventEmitter {
 
   setVisible(v) { this.view.setVisible(v); }
 
+  // The project this pane belonged to has closed. A WebContentsView left in the
+  // window keeps a renderer process alive and holds the debugger open, and
+  // neither of those has anything left to show, so both go.
+  dispose() {
+    try { if (this.debuggerAttached) this.wc.debugger.detach(); } catch {}
+    this.debuggerAttached = false;
+    try { this.win.contentView.removeChildView(this.view); } catch {}
+    try { this.wc.close(); } catch {}
+    this.removeAllListeners();
+  }
+
   // A still of the page, for the shell to paint in the pane's place while the
   // real view is hidden. Nothing lands on disk: this is thrown away seconds
   // later, and screenshot() is the one that keeps a file.

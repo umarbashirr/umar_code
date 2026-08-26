@@ -1,25 +1,72 @@
-/* Everything the Changes view knows: what git says has changed in the project
-   folder, the patch for whichever file is open, and where in that patch you
-   are.
+/* Everything the Changes view knows: what git says has changed in a project
+   folder, the patch for whichever file is open there, and where in that patch
+   you are.
+
+   The window holds several folders open at once, so there is one of these per
+   folder and `changesState` points at the focused one. Moving focus away and
+   back finds the same file, the same patch and the same place in it, because a
+   diff you were half way through reading is not something to throw away for
+   looking at another project for a minute.
 
    Nothing here writes. Staging, discarding and committing stay in the terminal,
    where the command you ran is the one you can find again tomorrow. */
 'use strict';
 import { act } from './layout-store.js';
 
-export const changesState = {
-  files: [],
-  repo: true,
-  reason: null,
-  error: null,
-  capped: 0,
-  selected: null,
-  patch: null,
-  mode: 'full',        // the whole file with its changes in place, or just the hunks
-  blockAt: 0,
-  loadingList: false,
-  loadingPatch: false,
-};
+/* How you want a diff drawn, the whole file with its changes in place or the
+   hunks on their own, belongs to the window and not to any one project. It is a
+   way of reading rather than a fact about a folder: nothing about the folder
+   you switched to says you now want the short form. Two projects each holding
+   their own answer would flip the toggle under you as focus moved, which reads
+   as a bug rather than as a setting. So it lives here, and every project's
+   state reports it. */
+let mode = 'full';
+
+// ------------------------------------------------------------------- state
+
+function blankState(dir) {
+  return {
+    dir,
+    files: [],
+    repo: true,
+    reason: null,
+    error: null,
+    capped: 0,
+    selected: null,
+    patch: null,
+    blockAt: 0,
+    loadingList: false,
+    loadingPatch: false,
+    // The counters that drop an answer a newer read has overtaken. They sit on
+    // the project rather than on the module, so one project's slow reply cannot
+    // be measured against another's clock, and it has nowhere to land but the
+    // state it was started from.
+    listSeq: 0,
+    patchSeq: 0,
+    // Parsed rows, cached on the patch object. See diffGroups.
+    groupedFrom: null,
+    grouped: { groups: [], blocks: 0, extra: 0 },
+    get mode() { return mode; },
+  };
+}
+
+const byProject = new Map();
+
+// The focused project's state. The view components read this object directly,
+// and it is swapped, not copied into, so they see the new folder's list the
+// moment focus moves.
+export let changesState = blankState(null);
+
+function stateFor(dir) {
+  let st = byProject.get(dir);
+  if (!st) { st = blankState(dir); byProject.set(dir, st); }
+  return st;
+}
+
+// An answer is worth keeping if no newer read has overtaken it and the folder
+// it belongs to is still open. A project that was closed while its read was in
+// flight has no state left to write to.
+const live = (st, seq, field) => seq === st[field] && byProject.get(st.dir) === st;
 
 const listeners = new Set();
 let version = 0;
@@ -36,54 +83,65 @@ function changed() {
   for (const fn of listeners) fn();
 }
 
-let started = false;
+// An answer for a folder nobody is looking at has nothing to redraw.
+const changedIf = (st) => { if (st === changesState) changed(); };
+
+let started = false;     // the pane has been opened at least once
+let onScreen = false;    // and it is the view showing now
 let timer = null;
-let listSeq = 0;
-let patchSeq = 0;
+let focusedDir = null;
 
 const POLL_MS = 5000;
 const MAX_ROWS = 6000;   // a whole file, not three lines around each change
 
 // ------------------------------------------------------------------ reading
 
-export async function refresh({ quiet = false } = {}) {
-  const seq = ++listSeq;
-  if (!quiet) { changesState.loadingList = true; changed(); }
+export const refresh = (opts) => readList(changesState, opts);
 
-  const res = await window.tandem.changes.list();
-  if (seq !== listSeq) return;   // a newer read already answered
+async function readList(st, { quiet = false } = {}) {
+  if (!st.dir) return;   // the window has not said which folder it is on yet
+  const seq = ++st.listSeq;
+  if (!quiet) { st.loadingList = true; changedIf(st); }
 
-  changesState.loadingList = false;
-  changesState.repo = !!res?.repo;
-  changesState.reason = res?.reason || null;
-  changesState.error = res?.error || null;
-  changesState.files = res?.files || [];
-  changesState.capped = res?.capped || 0;
+  // The folder goes with the question. Letting main fall back to whatever has
+  // focus means a reply that raced a focus change arrives as one project's diff
+  // under another project's heading.
+  const res = await window.tandem.changes.list(st.dir);
+  if (!live(st, seq, 'listSeq')) return;
+
+  st.loadingList = false;
+  st.repo = !!res?.repo;
+  st.reason = res?.reason || null;
+  st.error = res?.error || null;
+  st.files = res?.files || [];
+  st.capped = res?.capped || 0;
 
   // A file that stopped being changed takes the diff pane with it. One that is
   // still changed keeps its place, so a refresh under your cursor does not move
   // what you are reading.
-  const still = changesState.files.find((f) => f.path === changesState.selected);
+  const still = st.files.find((f) => f.path === st.selected);
   if (!still) {
-    changesState.selected = changesState.files[0]?.path || null;
-    changesState.patch = null;
-    changesState.blockAt = 0;
-    if (changesState.selected) loadPatch(changesState.selected);
+    st.selected = st.files[0]?.path || null;
+    st.patch = null;
+    st.blockAt = 0;
+    if (st.selected) readPatch(st, st.selected);
   } else {
-    loadPatch(changesState.selected, { quiet: true });
+    // Quiet because there is something on screen to keep. If the patch went
+    // away, a mode change drops them, then say it is reading instead.
+    readPatch(st, st.selected, { quiet: st.patch !== null });
   }
 
-  changed();
+  changedIf(st);
 }
 
-async function loadPatch(rel, { quiet = false } = {}) {
-  const seq = ++patchSeq;
-  if (!quiet) { changesState.loadingPatch = true; changed(); }
+async function readPatch(st, rel, { quiet = false } = {}) {
+  const seq = ++st.patchSeq;
+  if (!quiet) { st.loadingPatch = true; changedIf(st); }
 
-  const res = await window.tandem.changes.patch(rel, changesState.mode);
-  if (seq !== patchSeq) return;
+  const res = await window.tandem.changes.patch(rel, mode, st.dir);
+  if (!live(st, seq, 'patchSeq')) return;
 
-  changesState.loadingPatch = false;
+  st.loadingPatch = false;
 
   // The line counts are not enough to tell a stale patch from a current one:
   // swapping one line for another leaves them identical. So the open file is
@@ -92,37 +150,51 @@ async function loadPatch(rel, { quiet = false } = {}) {
   // identity, which is what the parse below caches on and what saves React
   // reconciling several thousand rows every five seconds.
   const same = quiet
-    && changesState.patch?.path === res?.path
-    && changesState.patch?.patch === res?.patch
-    && changesState.patch?.error === res?.error;
+    && st.patch?.path === res?.path
+    && st.patch?.patch === res?.patch
+    && st.patch?.error === res?.error;
   if (same) return;
 
-  changesState.patch = res || null;
-  changed();
+  st.patch = res || null;
+  changedIf(st);
 }
 
 export function selectFile(rel) {
-  if (changesState.selected === rel) return;
-  changesState.selected = rel;
-  changesState.patch = null;
-  changesState.blockAt = 0;
+  const st = changesState;
+  if (st.selected === rel) return;
+  st.selected = rel;
+  st.patch = null;
+  st.blockAt = 0;
   changed();
-  loadPatch(rel);
+  readPatch(st, rel);
 }
 
 // Where a change sits in the file is most of what makes it readable, so the
 // pane shows the whole file with its changed lines marked. "changes only" is
 // still there for a small edit in a very long file, where the rest is just
 // scrolling.
-export function setMode(mode) {
+export function setMode(next) {
   // A ToggleGroup hands back an empty string when you click the item that is
   // already on, and there is no third state to fall into.
-  if (!mode || changesState.mode === mode) return;
-  changesState.mode = mode;
-  changesState.patch = null;
-  changesState.blockAt = 0;
+  if (!next || mode === next) return;
+  mode = next;
+
+  const st = changesState;
+  st.patch = null;
+  st.blockAt = 0;
+
+  // Every other project is holding a patch cut the old way. Which file they
+  // have open and where they were in it are still good, the text is not, so it
+  // goes and is read again when you next look at that folder. Bumping the
+  // counter drops the answers already in flight for the old mode too.
+  for (const other of byProject.values()) {
+    if (other === st) continue;
+    other.patch = null;
+    other.patchSeq += 1;
+  }
+
   changed();
-  if (changesState.selected) loadPatch(changesState.selected);
+  if (st.selected) readPatch(st, st.selected);
 }
 
 // ------------------------------------------------------------ patch parsing
@@ -160,20 +232,20 @@ function parsePatch(text) {
   return rows;
 }
 
-let groupedFrom = null;
-let grouped = { groups: [], blocks: 0, extra: 0 };
-
 /* The rows the pane draws, with the runs of added and removed lines gathered
    up. A run that touches itself is one change: it is what the jump buttons step
    through and what wears the marker in the margin. Anything else, a context
    line or a hunk header, ends the run.
 
    Cached on the patch object, because both the view and the jump buttons ask
-   for this and a long file is a few thousand rows. */
+   for this and a long file is a few thousand rows. The cache belongs to the
+   project so that coming back to a folder you were reading is a lookup rather
+   than a parse. */
 export function diffGroups() {
-  const p = changesState.patch;
-  if (groupedFrom === p) return grouped;
-  groupedFrom = p;
+  const st = changesState;
+  const p = st.patch;
+  if (st.groupedFrom === p) return st.grouped;
+  st.groupedFrom = p;
 
   const rows = parsePatch(p?.patch);
   const groups = [];
@@ -190,8 +262,8 @@ export function diffGroups() {
     }
   }
 
-  grouped = { groups, blocks, extra: Math.max(0, rows.length - MAX_ROWS) };
-  return grouped;
+  st.grouped = { groups, blocks, extra: Math.max(0, rows.length - MAX_ROWS) };
+  return st.grouped;
 }
 
 export function jumpBlock(delta) {
@@ -239,46 +311,75 @@ export async function copyPatch() {
 
 // ------------------------------------------------------------------- wiring
 
-// One read every few seconds while the pane is on screen. git status on a
-// project this size costs a few milliseconds, and the alternative is a pane
-// that quietly goes stale while the agent works.
+/* One read every few seconds, and only for the folder on screen. Polling every
+   open project would cost a git status per project per five seconds to keep a
+   pane fresh that nobody is looking at, and four of those five answers get
+   thrown away.
+
+   So the folders you are not on go stale, and stale here is not just old: an
+   agent may have been rewriting one of them the whole time you were away, and
+   what is in memory can be a diff of a tree that has since moved a long way.
+   The answer is to read the moment focus comes back, before anything else
+   happens, and to leave what you were reading on screen for the few
+   milliseconds that takes. Drawing the old diff for that long is the right
+   trade: it is the thing you were looking at, and the alternative is the empty
+   pane this change exists to remove. The comparison in readPatch then keeps the
+   patch object when the text turns out to be the same, so a folder nobody
+   touched comes back exactly where you left it and React reconciles nothing. */
 function poll(on) {
   clearInterval(timer);
   timer = on ? setInterval(() => { if (!document.hidden) refresh({ quiet: true }); }, POLL_MS) : null;
 }
 
 let burst = null;
-window.tandem.files.onChanged(() => {
+window.tandem.files.onChanged(({ root } = {}) => {
   if (!started) return;
+  // The watcher names the project the write landed in. Only the folder on
+  // screen is being polled, so a write anywhere else is somebody else's news
+  // and gets read when you go back to it.
+  if (root && changesState.dir && root !== changesState.dir) return;
   clearTimeout(burst);
   burst = setTimeout(() => refresh({ quiet: true }), 400);
 });
 
-// Only a move of the focused folder means the diff on screen belongs to another
-// project. The window says its folders have changed for opens and reorders too,
-// and neither of those touches what this pane is showing.
-let showing = null;
-window.tandem.project.onChanged((info) => {
-  const next = info?.focused || info?.dir || null;
-  if (next === showing) return;
-  showing = next;
-  changesState.files = [];
-  changesState.selected = null;
-  changesState.patch = null;
-  changesState.blockAt = 0;
-  if (started) refresh();
-  else changed();
-});
+// The window says its folders have changed for opens, closes and reorders as
+// well as focus moves, so this compares with the folder it last saw.
+function applyInfo(info) {
+  // A folder that has been closed is not coming back, and its list and patch
+  // are only worth the memory while the window still has it open.
+  const open = new Set((info?.projects || []).map((p) => p.dir));
+  for (const dir of [...byProject.keys()]) if (!open.has(dir)) byProject.delete(dir);
+
+  const next = info?.focused || null;
+  if (next === focusedDir) return;
+  focusedDir = next;
+  changesState = next ? stateFor(next) : blankState(null);
+  changed();
+
+  if (onScreen) readList(changesState, { quiet: changesState.files.length > 0 });
+}
+
+window.tandem.project.onChanged(applyInfo);
 
 // app.js calls these as the right column switches. Nothing is read until the
 // tab is first opened, and the timer only runs while it is the view on screen.
 window.tandemChanges = {
   activate() {
     started = true;
-    refresh({ quiet: changesState.files.length > 0 });
+    onScreen = true;
     poll(true);
+
+    if (focusedDir) { refresh({ quiet: changesState.files.length > 0 }); return; }
+
+    // First open, and no focus event has arrived yet, so ask which folder the
+    // window is on. If an event beats the answer here, the event is the newer
+    // of the two and this one is dropped.
+    changesState.loadingList = true;
+    changed();
+    window.tandem.project.info().then((info) => { if (!focusedDir) applyInfo(info); });
   },
   deactivate() {
+    onScreen = false;
     poll(false);
   },
   count: changesCount,

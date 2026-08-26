@@ -46,12 +46,15 @@ contextBridge.exposeInMainWorld('tandem', {
   browser: {
     setBounds: (b) => ipcRenderer.send('browser:bounds', b),
     setVisible: (v) => ipcRenderer.send('browser:visible', v),
-    action: (action, arg) => ipcRenderer.invoke('browser:action', { action, arg }),
+    // Every project has a preview of its own. No project named means the one on
+    // screen, which is what the toolbar and the address bar always mean.
+    action: (action, arg, project) => ipcRenderer.invoke('browser:action', { action, arg, project }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),
-    // Which agent is currently driving the pane, and taking it back off them.
-    driver: () => ipcRenderer.invoke('preview:driver'),
-    seize: () => ipcRenderer.invoke('preview:seize'),
+    // Which agent is currently driving that project's pane, and taking it back
+    // off them.
+    driver: (project) => ipcRenderer.invoke('preview:driver', { project }),
+    seize: (project) => ipcRenderer.invoke('preview:seize', { project }),
     onDriver: on('preview:driver'),
   },
 
@@ -79,10 +82,10 @@ contextBridge.exposeInMainWorld('tandem', {
   // one call, each file's patch is another, because a repo mid-refactor holds
   // more diff than is worth sending at once.
   changes: {
-    list: () => ipcRenderer.invoke('changes:list'),
+    list: (project) => ipcRenderer.invoke('changes:list', { project }),
     // context: 'full' for the whole file with the changes in place, 'hunks' for
     // the few lines around each one.
-    patch: (path, context) => ipcRenderer.invoke('changes:patch', { path, context }),
+    patch: (path, context, project) => ipcRenderer.invoke('changes:patch', { path, context, project }),
   },
 
   // Everything that drives one conversation takes the panel's key for it, so

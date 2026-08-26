@@ -31,7 +31,10 @@ const HOME_URL = 'about:blank';
 const isDev = process.argv.includes('--dev');
 
 let win = null;
-let pane = null;
+// One preview per project, made the first time that project's preview is
+// actually used. A project nobody has previewed costs nothing, and a WebContents
+// per open folder is not a bill to run up on a maybe.
+const panes = new Map(); // dir -> BrowserPane
 // One AgentSession per chat, keyed by whatever the panel calls that chat. A
 // chat that is working keeps working while you read another one, which is the
 // whole reason this is a map and not a single session.
@@ -52,15 +55,30 @@ let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
+// Whether the preview column is open at all, remembered because a pane made
+// after the fact, or brought forward by a focus change, has to match it.
+let paneVisible = false;
 const terms = new Map();
 
 // Which chat the panel is showing. `tandem ask` from a terminal has to land in
 // the chat the human is looking at rather than opening one they cannot see.
 let activeChat = { chat: 'main', session: null };
 
-// One pane, and now more than one agent that wants to drive it. See
-// pane-lease.js for why looking is free and changing the page is not.
-const lease = new PaneLease({ onChange: (holder) => send('preview:driver', { holder }) });
+// One lease per project, because each has a pane of its own now. Two agents in
+// the same folder still take turns; two in different folders never contended in
+// the first place. See pane-lease.js for why looking is free and changing the
+// page is not.
+const leases = new Map(); // dir -> PaneLease
+
+function leaseFor(dir) {
+  const key = dir && open.has(dir) ? dir : focused;
+  let l = leases.get(key);
+  if (!l) {
+    l = new PaneLease({ onChange: (holder) => send('preview:driver', { holder, project: key }) });
+    leases.set(key, l);
+  }
+  return l;
+}
 
 // Nothing picked. Passing no --model does not mean "no opinion": the CLI runs
 // whatever the account defaults to, which on most plans is Fable, and the picker
@@ -86,7 +104,7 @@ function stopChat(chat) {
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
-  lease.releaseChat(chat);
+  leaseFor(cwdOfChat(chat)).releaseChat(chat);
   return true;
 }
 
@@ -102,7 +120,8 @@ function stopAllChats() {
   for (const a of sessions.values()) a.stop();
   sessions.clear();
   chatProjects.clear();
-  lease.stop();
+  for (const l of leases.values()) l.stop();
+  leases.clear();
 }
 
 // Everything rooted at one folder, stopped. The other projects in this window
@@ -117,19 +136,67 @@ function stopProject(dir) {
   }
   fileWatcher?.drop(dir);
   catalog.invalidate(dir);
+  panes.get(dir)?.dispose();
+  panes.delete(dir);
+  leases.get(dir)?.stop();
+  leases.delete(dir);
 }
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-function showPreview(open) {
-  send('app:command', { name: 'preview', open });
-  if (open === true && win && !win.isFocused()) win.show();
-  return { ok: true, preview: open === undefined ? 'toggled' : open ? 'open' : 'closed' };
+// `project` is whose preview this is about. Opening it brings that folder
+// forward: an agent in one project putting its dev server on screen while the
+// window is looking at another would otherwise show the wrong page under the
+// right heading.
+function showPreview(show, project) {
+  if (project && open.has(project) && project !== focused) focusProject(project);
+  send('app:command', { name: 'preview', open: show });
+  if (show === true && win && !win.isFocused()) win.show();
+  return { ok: true, preview: show === undefined ? 'toggled' : show ? 'open' : 'closed' };
 }
 
-const toolContext = () => ({ getPane: () => pane, showPreview });
+// The preview belonging to one project, made on first use. Everything that can
+// reach a pane goes through here, so a tool call from a chat in one folder can
+// never land on another folder's page.
+function paneFor(dir, { create = true } = {}) {
+  const key = dir && open.has(dir) ? dir : focused;
+  const held = panes.get(key);
+  if (held || !create || !win || win.isDestroyed()) return held || null;
+
+  const made = new BrowserPane(win, HOME_URL);
+  made.on('state', (st) => send('browser:state', { ...st, project: key }));
+  made.on('console', (c) => send('browser:console', { ...c, project: key }));
+  panes.set(key, made);
+  // Born parked. It only comes on screen if its project is the one showing, and
+  // the shell has already told us where the box is.
+  if (key === focused) {
+    if (lastBounds) made.setBounds(lastBounds);
+    made.setVisible(paneVisible);
+  } else {
+    made.setVisible(false);
+  }
+  return made;
+}
+
+// Only the focused project's preview is on screen. The rest keep loading,
+// keep their console and keep their place in history.
+function showFocusedPane() {
+  // Moving to a project while the preview column is up needs its pane now.
+  // Otherwise it waits until the shell asks that project for a state.
+  if (paneVisible) paneFor(focused);
+  for (const [dir, p] of panes) {
+    if (dir === focused) {
+      if (lastBounds) p.setBounds(lastBounds);
+      p.setVisible(paneVisible);
+    } else {
+      p.setVisible(false);
+    }
+  }
+}
+
+const toolContext = (dir) => ({ getPane: () => paneFor(dir), showPreview: (show) => showPreview(show, dir) });
 
 // The agent SDK and the MCP server both spawn `node`. A packaged app cannot
 // assume the user has one, so leave a shim at the end of PATH that runs this
@@ -260,6 +327,7 @@ function focusProject(dir) {
   if (!open.has(target)) return { error: `${target} is not open` };
   focused = target;
   projects.remember(target);
+  showFocusedPane();
   if (win && !win.isDestroyed()) win.setTitle(`${path.basename(target)} · Tandem`);
   announce();
   send('agent:catalog', catalog.current(target));
@@ -415,14 +483,15 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
       // Whoever is driving keeps driving until they stop. A second agent that
       // wants to change the page waits here rather than pulling the rug out
       // from under the first one's refs.
-      const busy = await lease.acquire(tool, who);
+      const l = leaseFor(cwd);
+      const busy = await l.acquire(tool, who);
       if (busy) throw new Error(busy);
       try {
-        if (tool === 'navigate') showPreview(true);
-        send('agent:activity', { tool, args, t: Date.now(), actor: who });
-        return await runTool(tool, args, toolContext());
+        if (tool === 'navigate') showPreview(true, cwd);
+        send('agent:activity', { tool, args, t: Date.now(), actor: who, project: cwd });
+        return await runTool(tool, args, toolContext(cwd));
       } finally {
-        lease.done(tool, who);
+        l.done(tool, who);
       }
     },
   });
@@ -432,8 +501,8 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
     // A subagent that finishes has stopped touching the page, whether or not
     // the turn around it has, so hand the pane on at that point rather than
     // making the next agent wait out the idle timer.
-    if (m?.type === 'system' && m.subtype === 'task_notification') lease.release(m.task_id);
-    if (m?.type === 'result') lease.releaseChat(chat);
+    if (m?.type === 'system' && m.subtype === 'task_notification') leaseFor(cwd).release(m.task_id);
+    if (m?.type === 'result') leaseFor(cwd).releaseChat(chat);
     send('agent:message', { chat, msg: lighten(m) });
   });
   agent.on('ready', (r) => {
@@ -497,17 +566,18 @@ async function createWindow() {
     win.on(ev, () => send('win:state', windowState()));
   }
 
-  pane = new BrowserPane(win, HOME_URL);
-  if (lastBounds) pane.setBounds(lastBounds);
-  pane.on('state', (s) => send('browser:state', s));
-  pane.on('console', (c) => send('browser:console', c));
+  // The focused project gets its pane straight away: the shell asks it for a
+  // still and a state as soon as the preview column can be opened, and there is
+  // nothing to be saved by making the first project wait for that.
+  paneFor(focused);
 
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
     terms.clear();
     fileWatcher?.clear();
+    for (const p of panes.values()) p.dispose();
+    panes.clear();
     win = null;
-    pane = null;
   });
 }
 
@@ -571,7 +641,7 @@ function registerIpc() {
     });
     t.on('data', (data) => send('term:data', { id, data }));
     t.on('exit', (code) => { send('term:exit', { id, code }); terms.delete(id); });
-    t.on('url', (url) => send('term:url', { id, url }));
+    t.on('url', (url) => send('term:url', { id, url, project: home }));
     t.project = home;
     terms.set(id, t);
     return { id, shell: path.basename(t.shell), project: home };
@@ -591,21 +661,24 @@ function registerIpc() {
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
     await sessions.get(chat)?.interrupt();
-    lease.releaseChat(chat);
+    leaseFor(cwdOfChat(chat)).releaseChat(chat);
     return { ok: true };
   });
   // Stopping one agent, not the turn it belongs to. `id` is the task id, which
   // is what task_started and the permission callback both call the agent.
   ipcMain.handle('agent:stopTask', async (_e, { chat, id } = {}) => {
-    lease.release(id);
+    leaseFor(cwdOfChat(chat)).release(id);
     return sessions.get(chat)?.stopTask(id) ?? { error: 'that chat is not running' };
   });
   // Hand a blocking agent to the background so the turn carries on without it.
   ipcMain.handle('agent:background', async (_e, { chat, toolUseId } = {}) =>
     sessions.get(chat)?.background(toolUseId) ?? { error: 'that chat is not running' });
   // The human taking the preview back off whichever agent is driving it.
-  ipcMain.handle('preview:seize', () => { lease.seize(); return { ok: true }; });
-  ipcMain.handle('preview:driver', () => ({ holder: lease.current() }));
+  ipcMain.handle('preview:seize', (_e, { project } = {}) => { leaseFor(project).seize(); return { ok: true }; });
+  ipcMain.handle('preview:driver', (_e, { project } = {}) => ({
+    holder: leaseFor(project).current(),
+    project: project && open.has(project) ? project : focused,
+  }));
   ipcMain.handle('agent:mode', async (_e, { chat, mode }) => {
     // The last mode picked is what the next new chat starts on, and it outlives
     // the window: settings owns the same value the composer is showing.
@@ -888,18 +961,27 @@ function registerIpc() {
   // --- uncommitted changes ---
   // The list is cheap enough to ask for on a timer while the pane is showing;
   // the patch for one file is only fetched when that file is opened.
-  ipcMain.handle('changes:list', () => diff.status(focusedCwd()));
-  ipcMain.handle('changes:patch', (_e, { path: rel, context } = {}) => diff.patch(focusedCwd(), rel, { context }));
+  ipcMain.handle('changes:list', (_e, { project } = {}) => diff.status(treeCwd(project)));
+  ipcMain.handle('changes:patch', (_e, { path: rel, context, project } = {}) =>
+    diff.patch(treeCwd(project), rel, { context }));
 
   // --- editors ---
   // What is installed, and handing the project folder to one of them.
   ipcMain.handle('editors:list', (_e, { fresh } = {}) => editors.detect({ fresh: !!fresh }));
   ipcMain.handle('editors:open', (_e, { id } = {}) => editors.open(id, focusedCwd()));
 
-  // --- browser pane ---
-  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; pane?.setBounds(b); });
-  ipcMain.on('browser:visible', (_e, v) => pane?.setVisible(!!v));
-  ipcMain.handle('browser:action', async (_e, { action, arg }) => {
+  // --- browser panes ---
+  // The box the preview sits in belongs to the window, and only the focused
+  // project's pane is ever in it.
+  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; paneFor(focused, { create: false })?.setBounds(b); });
+  ipcMain.on('browser:visible', (_e, v) => {
+    paneVisible = !!v;
+    paneFor(focused, { create: false })?.setVisible(paneVisible);
+  });
+  ipcMain.handle('browser:action', async (_e, { action, arg, project }) => {
+    // A read of a project that has never had a preview makes one, which is what
+    // opening the column on a fresh project does.
+    const pane = paneFor(project);
     if (!pane) return { error: 'no pane' };
     switch (action) {
       case 'navigate': return pane.navigate(arg);
@@ -945,7 +1027,8 @@ app.whenReady().then(async () => {
   projects.setOpenProjects(openDirs());
   bridge = new Bridge({
     cwds: openDirs(),
-    getPane: () => pane,
+    // `tandem go 3000` typed in one project drives that project's preview.
+    getPane: (cwd) => paneFor(cwd),
     // A shell in project B asking to be raised means bring B forward, not just
     // the window it happens to share with A.
     focusWindow: (cwd) => {
@@ -955,7 +1038,7 @@ app.whenReady().then(async () => {
       win.show();
       win.focus();
     },
-    onActivity: (tool, args) => send('agent:activity', { tool, args, t: Date.now() }),
+    onActivity: (tool, args, cwd) => send('agent:activity', { tool, args, t: Date.now(), project: cwd || focused }),
     showPreview,
     command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },
     // Development aid: answer the oldest pending permission prompt. Scoped to

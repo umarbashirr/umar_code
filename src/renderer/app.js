@@ -17,8 +17,12 @@ const wiring = [];
 const wire = (fn) => wiring.push(fn);
 
 const state = {
-  tabs: [],
-  active: null,
+  // One set of shells per open folder, keyed by its path, and the folder the
+  // panel is looking at. A shell belongs to the project it was opened in and
+  // stays there, so the strip can show one folder's tabs while the others go on
+  // working out of sight.
+  projects: new Map(),
+  focused: '',
 };
 
 // Which panels are up is React's to render, so it lives in the layout store and
@@ -94,7 +98,7 @@ function applyTheme() {
   root.dataset.theme = resolvedTheme();
   root.dataset.scheme = isScheme(prefs.appearance.scheme) ? prefs.appearance.scheme : DEFAULT_SCHEME;
   // xterm paints on a canvas and reads no stylesheet, so it has to be told.
-  for (const t of state.tabs) t.term.options.theme = termTheme();
+  for (const t of allTabs()) t.term.options.theme = termTheme();
 }
 
 // The terminal's colours come from the same stylesheet as everything else, off
@@ -206,7 +210,7 @@ window.tandem.settings.onChanged((next) => {
 // Font changes reflow every line xterm has buffered, so the tab has to be
 // measured again afterwards or the shell keeps writing to the old grid.
 function applyTerminalFont() {
-  for (const t of state.tabs) {
+  for (const t of allTabs()) {
     t.term.options.fontFamily = prefs.terminal.fontFamily;
     t.term.options.fontSize = prefs.terminal.fontSize;
   }
@@ -215,9 +219,45 @@ function applyTerminalFont() {
 
 // --------------------------------------------------------------- terminals
 
+/* Shells belong to the folder they were opened in. The window keeps a set of
+   tabs per project, hands the strip whichever set is focused, and leaves the
+   others running with their hosts hidden. Switching folders tears nothing down,
+   so a build started in one project is still going, and still scrolled where
+   you left it, when you come back. */
+
 let shellUid = 0;
 
+// The tabs for one folder, made the first time that folder needs them.
+function shellsOf(dir) {
+  let group = state.projects.get(dir);
+  if (!group) {
+    group = { dir, tabs: [], active: null };
+    state.projects.set(dir, group);
+  }
+  return group;
+}
+
+// Null until the focused folder has opened a shell, which is most of the time
+// for most folders, so every caller has to say what an empty panel means.
+const focusedShells = () => state.projects.get(state.focused) || null;
+
+function* allTabs() {
+  for (const group of state.projects.values()) yield* group.tabs;
+}
+
+function tabById(id) {
+  for (const tab of allTabs()) if (tab.id === id) return tab;
+  return null;
+}
+
+// Whether a tab is still one of its folder's. Asked of the tab rather than of
+// the group it was made in, because adoption moves a tab between groups and a
+// shell that is still being spawned has to be found wherever it ended up.
+const owns = (tab) => !!state.projects.get(tab.dir)?.tabs.includes(tab);
+
 function newTerminalTab(command) {
+  const dir = state.focused;
+  const group = shellsOf(dir);
   openPanel();
   const host = document.createElement('div');
   host.className = 'term-host';
@@ -238,10 +278,14 @@ function newTerminalTab(command) {
   term.attachCustomKeyEventHandler((e) => !isAppChord(e));
   term.open(host);
 
-  const tab = { id: null, uid: `shell-${++shellUid}`, term, fit, host, title: 'shell' };
-  state.tabs.push(tab);
+  const tab = { id: null, uid: `shell-${++shellUid}`, dir, term, fit, host, title: 'shell' };
+  group.tabs.push(tab);
 
-  window.tandem.term.create({ cols: term.cols, rows: term.rows }).then(({ id, shell }) => {
+  window.tandem.term.create({ cols: term.cols, rows: term.rows, project: dir }).then(({ id, shell }) => {
+    // The folder can be closed, or the tab closed by hand, while main is still
+    // spawning. The pty is real by then, so it has to be killed rather than
+    // forgotten.
+    if (!owns(tab)) return window.tandem.term.kill(id);
     tab.id = id;
     if (shell) tab.title = shell;
     term.onData((d) => window.tandem.term.input(id, d));
@@ -269,17 +313,23 @@ export function subscribeShells(fn) {
   return () => shellListeners.delete(fn);
 }
 
-// The shells, for the strip that lists them. xterm owns the host div under each
-// one, so the panel renders the tabs and leaves #terms alone.
-export const shells = () => state.tabs.map((tab, i) => ({
-  uid: tab.uid,
-  title: tab.title,
-  index: i,
-  active: tab === state.active,
-}));
+// The focused folder's shells, for the strip that lists them, and only those:
+// another project's shell in this strip is a tab that drops you into the wrong
+// prompt. xterm owns the host div under each one, so the panel renders the tabs
+// and leaves #terms alone.
+export const shells = () => {
+  const group = focusedShells();
+  if (!group) return [];
+  return group.tabs.map((tab, i) => ({
+    uid: tab.uid,
+    title: tab.title,
+    index: i,
+    active: tab === group.active,
+  }));
+};
 
-export const activateShell = (uid) => activate(state.tabs.find((t) => t.uid === uid));
-export const closeShell = (uid) => closeTab(state.tabs.find((t) => t.uid === uid));
+export const activateShell = (uid) => activate(focusedShells()?.tabs.find((t) => t.uid === uid));
+export const closeShell = (uid) => closeTab(focusedShells()?.tabs.find((t) => t.uid === uid));
 export const newShell = () => newTerminalTab();
 
 function renderStrip() {
@@ -287,10 +337,27 @@ function renderStrip() {
   for (const fn of shellListeners) fn();
 }
 
+// One terminal on screen: the focused folder's active tab. The rest keep their
+// host in the DOM with nothing drawn, because a hidden xterm goes on reading its
+// shell, and that is what lets a folder be looked away from without losing the
+// command it is in the middle of.
+function paint() {
+  const shown = focusedShells();
+  for (const group of state.projects.values()) {
+    for (const tab of group.tabs) tab.host.classList.toggle('active', group === shown && tab === group.active);
+  }
+}
+
 function activate(tab) {
   if (!tab) return;
-  state.active = tab;
-  for (const t of state.tabs) t.host.classList.toggle('active', t === tab);
+  const group = state.projects.get(tab.dir);
+  if (!group) return;
+  group.active = tab;
+  // A shell that finished spawning in a folder nobody is looking at is now that
+  // folder's active tab and nothing more. Drawing it would put it on screen over
+  // the project you are actually in.
+  if (group !== focusedShells()) return;
+  paint();
   renderStrip();
   tab.term.focus();
   resizeActive();
@@ -301,25 +368,43 @@ function closeTab(tab) {
   if (tab.id) window.tandem.term.kill(tab.id);
   tab.term.dispose();
   tab.host.remove();
-  state.tabs = state.tabs.filter((t) => t !== tab);
-  if (state.active === tab) state.active = state.tabs[state.tabs.length - 1] || null;
+  const group = state.projects.get(tab.dir);
+  if (!group) return;
+  group.tabs = group.tabs.filter((t) => t !== tab);
+  if (group.active === tab) group.active = group.tabs[group.tabs.length - 1] || null;
   renderStrip();
-  if (state.active) activate(state.active);
-  else closePanel(); // last shell closed: put the panel away rather than respawning
+  if (group.active) activate(group.active);
+  else if (group === focusedShells()) closePanel(); // last shell closed: put the panel away rather than respawning
+}
+
+// The folder is gone and main has already killed its shells, so this is xterm
+// and its nodes being let go of. Emptying the list first is what stops a shell
+// still being spawned for it from coming back to an owner that has left.
+function dropProject(dir) {
+  const group = state.projects.get(dir);
+  if (!group) return;
+  const tabs = group.tabs;
+  group.tabs = [];
+  group.active = null;
+  state.projects.delete(dir);
+  for (const tab of tabs) {
+    tab.term.dispose();
+    tab.host.remove();
+  }
 }
 
 function resizeActive() {
-  if (!state.active) return;
-  try { state.active.fit.fit(); } catch {}
+  const tab = focusedShells()?.active;
+  if (!tab) return;
+  try { tab.fit.fit(); } catch {}
 }
 
 window.tandem.term.onData(({ id, data }) => {
-  const tab = state.tabs.find((t) => t.id === id);
-  tab?.term.write(data);
+  tabById(id)?.term.write(data);
 });
 
 window.tandem.term.onExit(({ id }) => {
-  const tab = state.tabs.find((t) => t.id === id);
+  const tab = tabById(id);
   if (tab) { tab.title = 'exited'; renderStrip(); tab.term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n'); }
 });
 
@@ -330,7 +415,9 @@ function openPanel() {
   setLayout({ panelOpen: true });
   renderStrip();
   // The first open is what creates the shell: nothing is spawned until asked.
-  if (!state.tabs.length) requestAnimationFrame(() => newTerminalTab());
+  // The count is read on the frame it runs on rather than now, because the call
+  // that opened the panel is often a new shell that has yet to be pushed.
+  requestAnimationFrame(() => { if (!focusedShells()?.tabs.length) newTerminalTab(); });
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
 }
 
@@ -344,8 +431,88 @@ function closePanel() {
 const togglePanel = () => {
   if (state.panelOpen) return closePanel();
   openPanel();
-  requestAnimationFrame(() => state.active?.term.focus());
+  requestAnimationFrame(() => focusedShells()?.active?.term.focus());
 };
+
+// --------------------------------------------------------- project focus
+
+/* One window, several folders, one panel. Focus decides which folder's shells
+   the strip lists and which terminal is on screen; it decides nothing else, and
+   in particular it stops nothing. Moving focus is two class toggles and a
+   redraw.
+
+   project:changed also fires when a folder is opened, closed or reordered, so
+   the focused dir is compared against the last one seen and the panel is left
+   alone when it has not moved. Folders that have gone away are dropped first,
+   because main has killed their shells and their tabs would otherwise sit in
+   the map for the life of the window. */
+
+/* A shell opened in the gap before this window is told which folder it is
+   looking at is filed under no dir at all. It is not homeless: main has a
+   folder open the whole time, including the fallback to home when nobody chose
+   one, and it rooted that shell there. The dir the first project:changed names
+   is that same folder, so these tabs are not strays to throw away, they are
+   this folder's tabs with the label missing. */
+function adoptStrays(dir) {
+  const strays = state.projects.get('');
+  if (!strays) return;
+  state.projects.delete('');
+  for (const tab of strays.tabs) tab.dir = dir;
+
+  const group = state.projects.get(dir);
+  if (!group) {
+    // Nothing to merge into, so the group keeps its identity and changes its
+    // name. That is the whole of adoption in the case that actually happens.
+    strays.dir = dir;
+    state.projects.set(dir, strays);
+    return;
+  }
+
+  // A folder cannot have tabs before it has been focused, so this is the arm
+  // that never runs. If it ever does, the strays are the older shells and the
+  // strip reads left to right in the order they were opened, so they go first,
+  // and the one that was on screen is one of theirs and stays on screen.
+  group.tabs = [...strays.tabs, ...group.tabs];
+  group.active = strays.active || group.active;
+}
+
+function focusProject(dir) {
+  if (dir === state.focused) return;
+  // The one move that is a renaming rather than a switch: nothing was showing
+  // another folder, the folder just got its name.
+  if (dir && !state.focused) adoptStrays(dir);
+  state.focused = dir;
+  paint();
+  renderStrip();
+  const group = focusedShells();
+  // A folder with no shell yet gets one, on the same reasoning as opening the
+  // panel: a panel showing an empty strip is a black box with nothing to do.
+  if (state.panelOpen && !group?.tabs.length) { newTerminalTab(); return; }
+  requestAnimationFrame(() => {
+    resizeActive();
+    // This tab may have been hidden for a while with its shell printing the
+    // whole time, and fit() only repaints when the grid changed size, so the
+    // repaint is asked for outright. Read again rather than closed over: focus
+    // can move twice inside one frame.
+    const tab = focusedShells()?.active;
+    if (tab) tab.term.refresh(0, tab.term.rows - 1);
+  });
+}
+
+window.tandem.project.onChanged((info) => {
+  if (!info) return;
+  const open = new Set((info.projects || []).map((p) => p.dir));
+  for (const dir of [...state.projects.keys()]) {
+    // The empty dir is not a folder that can close, it is the startup gap, and
+    // the first real focus adopts whatever is filed under it.
+    if (dir && !open.has(dir)) dropProject(dir);
+  }
+  focusProject(info.focused || '');
+});
+
+(async () => {
+  try { focusProject((await window.tandem.project.info())?.focused || ''); } catch {}
+})();
 
 // -------------------------------------------------------------------- rail
 
@@ -544,7 +711,7 @@ window.addEventListener('keydown', (e) => {
   else if (mod && shift && k === 'e') { e.preventDefault(); pickElement(); }
   else if (mod && shift && k === 'j') { e.preventDefault(); toggleDrawer(); }
   else if (mod && e.key >= '1' && e.key <= '9' && state.panelOpen) {
-    const t = state.tabs[Number(e.key) - 1];
+    const t = focusedShells()?.tabs[Number(e.key) - 1];
     if (t) { e.preventDefault(); activate(t); }
   }
 });

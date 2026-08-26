@@ -3,11 +3,18 @@
 
    The pane itself is a native view the window paints over this document, so
    none of it is readable from here. Main sends it across and this is where it
-   lands. */
+   lands.
+
+   A window holds several folders open and each one has its own pane, so this is
+   one record per folder rather than one for the window. `browserState` is
+   whichever folder has focus, because there is one address bar and one drawer
+   to show a folder in. The rest of the panes are parked offscreen and still
+   running, and what they say still lands here: an error project A logged while
+   you were reading project B is in A's console when you go back to it. */
 'use strict';
 import { act } from './layout-store.js';
 
-export const browserState = {
+const blank = () => ({
   // The address bar is split so that http:// can be shown as a warning and
   // https:// left off entirely.
   scheme: '',
@@ -26,7 +33,29 @@ export const browserState = {
   picking: false,
   // Whether a local server the terminal printed opens without asking.
   autoOpen: false,
-};
+});
+
+// One record per folder, made the first time that folder's pane says something.
+const byProject = new Map();
+
+// The folder on screen, empty until project.info() answers. The first state
+// event can beat that answer, so there is a record filed under the empty name
+// for it to land in and the folder adopts it when it arrives.
+let focusedDir = '';
+
+/* Reassigned on every focus move rather than copied into, so the record a
+   folder gathered while it was parked is the same object it gets back. Everyone
+   reads this through the module binding, which follows, so StatusBar and
+   BrowserView never learn that there is more than one. */
+export let browserState = blank();
+byProject.set(focusedDir, browserState);
+
+function stateOf(dir) {
+  const key = dir || focusedDir;
+  let s = byProject.get(key);
+  if (!s) { s = blank(); byProject.set(key, s); }
+  return s;
+}
 
 const listeners = new Set();
 let version = 0;
@@ -58,13 +87,30 @@ function changed({ soon = false } = {}) {
 
 export const consoleErrors = () => browserState.console.filter((c) => c.level === 'error').length;
 
+// -------------------------------------------------------------------- focus
+
+function focusOn(dir) {
+  if (dir === focusedDir) return;
+  focusedDir = dir;
+  browserState = stateOf(dir);
+  // A network fetch still out for the folder we just left would otherwise land
+  // in this folder's drawer.
+  fetchSeq += 1;
+  changed();
+}
+
 // ------------------------------------------------------------- navigation
 
-export async function navigate(url) {
-  browserState.url = url;
-  act('openPreview');
-  changed();
-  await window.tandem.browser.action('navigate', url);
+export async function navigate(url, project) {
+  const b = stateOf(project);
+  b.url = url;
+  // Only the folder on screen has a pane worth revealing. The others load where
+  // they stand and are done by the time you look.
+  if (b === browserState) {
+    act('openPreview');
+    changed();
+  }
+  await window.tandem.browser.action('navigate', url, project || undefined);
 }
 
 export const go = (action) => window.tandem.browser.action(action);
@@ -180,49 +226,90 @@ export function askAboutError() {
 // ------------------------------------------------------------------ wiring
 
 window.tandem.browser.onState((s) => {
-  // Retyping an address while the page is still loading should not have the
-  // old one land back on top of it.
-  const editing = document.activeElement?.id === 'url';
+  const b = stateOf(s.project);
+  const showing = b === browserState;
+
+  // Retyping an address while the page is still loading should not have the old
+  // one land back on top of it. Only the folder on screen has a bar to type in.
+  const editing = showing && document.activeElement?.id === 'url';
   if (!editing && s.url && s.url !== 'about:blank') {
     const m = /^(https?:\/\/)(.*)$/.exec(s.url);
-    browserState.scheme = m ? (m[1] === 'https://' ? '' : 'http://') : '';
-    browserState.url = m ? m[2] : s.url;
+    b.scheme = m ? (m[1] === 'https://' ? '' : 'http://') : '';
+    b.url = m ? m[2] : s.url;
   }
 
-  browserState.canGoBack = !!s.canGoBack;
-  browserState.canGoForward = !!s.canGoForward;
+  b.canGoBack = !!s.canGoBack;
+  b.canGoForward = !!s.canGoForward;
 
   if (s.error) {
-    browserState.error = { message: s.error, url: s.failedUrl || s.url };
-    act('openPreview');
+    b.error = { message: s.error, url: s.failedUrl || s.url };
+    // A folder you are not looking at does not get to pull the preview open in
+    // front of the one you are. Its error keeps until you go there.
+    if (showing) act('openPreview');
   } else if (s.loading || s.url) {
-    browserState.error = null;
+    b.error = null;
   }
 
-  const blank = !s.url || s.url === 'about:blank';
-  browserState.live = !blank;
+  const empty = !s.url || s.url === 'about:blank';
+  b.live = !empty;
   // Hiding the pane is done by parking it offscreen, never by making it
   // invisible: a hidden view stops laying out and the agent gets a 0x0 page.
-  window.tandem.browser.setVisible(true);
+  // A parked folder loading a page is no reason to lift a cover off the folder
+  // in front of it, so only the one on screen says this.
+  if (showing) window.tandem.browser.setVisible(true);
 
-  browserState.status = s.error
+  b.status = s.error
     ? `error: ${s.error}`
-    : blank ? '' : (s.loading ? 'loading…' : (s.title || ''));
+    : empty ? '' : (s.loading ? 'loading…' : (s.title || ''));
 
-  changed();
+  // Nothing on screen moved for a folder that is not showing, and the record is
+  // read whole when focus comes back to it.
+  if (showing) changed();
 });
 
 window.tandem.browser.onConsole((c) => {
-  browserState.console.push(c);
-  if (browserState.console.length > 500) browserState.console.shift();
-  changed({ soon: true });
+  const b = stateOf(c.project);
+  b.console.push(c);
+  if (b.console.length > 500) b.console.shift();
+  if (b === browserState) changed({ soon: true });
 });
 
-window.tandem.term.onUrl(({ url }) => {
-  if (browserState.autoOpen) { navigate(url); return; }
-  act('toast', 'Local server detected', url, [
-    { label: 'Open', primary: true, run: () => navigate(url) },
-    { label: 'Always', run: () => { browserState.autoOpen = true; navigate(url); } },
+window.tandem.term.onUrl(({ url, project }) => {
+  const b = stateOf(project);
+  if (b.autoOpen) { navigate(url, project); return; }
+  // A shell in a folder you are not looking at prints an address too, and it is
+  // that folder's pane the address belongs in, so say whose it is.
+  const name = (project || '').split('/').pop();
+  const where = b === browserState || !name ? url : `${url} in ${name}`;
+  act('toast', 'Local server detected', where, [
+    { label: 'Open', primary: true, run: () => navigate(url, project) },
+    { label: 'Always', run: () => { b.autoOpen = true; navigate(url, project); } },
     { label: 'Ignore' },
   ]);
 });
+
+/* Opens, closes, reorders and focus moves all arrive as this one event with the
+   whole set, so the only way to tell what happened is to compare. */
+function projectsChanged(info) {
+  const dir = info?.focused || '';
+  const open = new Set((info?.projects || []).map((p) => p.dir));
+
+  // An event that arrived before the first answer, carrying no folder of its
+  // own, belongs to the folder that answer names: the pane was speaking for it
+  // all along and there was no name to file it under. One that did carry a
+  // folder is already filed, and keeps what it said.
+  if (dir && !focusedDir && byProject.has('') && !byProject.has(dir)) {
+    byProject.set(dir, byProject.get(''));
+    byProject.delete('');
+  }
+
+  // A closed folder took its pane with it and nobody will ask what its console
+  // said, so let it go rather than hold a window's worth of logs for a folder
+  // that is gone.
+  for (const key of [...byProject.keys()]) if (key !== dir && !open.has(key)) byProject.delete(key);
+
+  if (dir) focusOn(dir);
+}
+
+window.tandem.project.onChanged(projectsChanged);
+window.tandem.project.info().then(projectsChanged).catch(() => {});

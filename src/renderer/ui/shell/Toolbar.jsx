@@ -99,16 +99,24 @@ function Activity() {
    the pane back: the next agent to ask waits for you instead. */
 function Driver() {
   const [holder, setHolder] = useState(null);
+  // Every folder has a preview and a lease of its own, and this badge sits over
+  // the one on screen. An agent driving a preview you are not looking at is
+  // that folder's business.
+  const [, bump] = useState(0);
+  useEffect(() => onProject(() => bump((n) => n + 1)), []);
+  const focused = project.focused || project.dir;
 
   useEffect(() => {
-    const apply = ({ holder: h }) => {
+    setHolder(null);
+    const apply = ({ holder: h, project }) => {
+      if (project && focused && project !== focused) return;
       const mine = !h || h.id === 'human' || String(h.id).startsWith('main:');
       setHolder(mine ? null : h);
     };
     const off = window.tandem.browser.onDriver?.(apply);
-    window.tandem.browser.driver?.().then(apply).catch(() => {});
+    window.tandem.browser.driver?.(focused).then(apply).catch(() => {});
     return () => off?.();
-  }, []);
+  }, [focused]);
 
   if (!holder) return null;
 
@@ -118,7 +126,7 @@ function Driver() {
       size="sm"
       title="This agent is driving the preview. Click to take it back."
       className="h-auto max-w-[30ch] rounded-full border-ring/30 px-[9px] py-[3px] font-mono text-[11px] font-normal"
-      onClick={() => { window.tandem.browser.seize?.(); setHolder(null); }}>
+      onClick={() => { window.tandem.browser.seize?.(focused); setHolder(null); }}>
       <span className="size-1.5 shrink-0 rounded-full bg-[hsl(var(--success))] motion-safe:animate-pulse" />
       <span className="truncate">{holder.label} is driving</span>
     </Button>
