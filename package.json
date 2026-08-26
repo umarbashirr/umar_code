@@ -11,7 +11,7 @@
     "start": "npm run build:renderer && node scripts/launch.js",
     "dev": "npm run build:renderer && node scripts/launch.js --dev",
     "mcp": "node mcp/server.js",
-    "postinstall": "electron-rebuild -f -w node-pty || true",
+    "postinstall": "electron-rebuild -f -w node-pty || echo skipped-pty-rebuild",
     "enable-sandbox": "bash scripts/enable-sandbox.sh",
     "icon": "electron scripts/make-icon.js",
     "pack": "npm run build:renderer && electron-builder --dir",

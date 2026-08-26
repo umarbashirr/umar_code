@@ -110,7 +110,13 @@ function Install-Tandem {
   if (-not $latest) { throw 'GitHub answered with a release that has no tag' }
 
   $asset = Select-Asset $release.assets $arch
-  if (-not $asset) { throw "release v$latest has no Windows installer for $arch" }
+  if (-not $asset) {
+    $have = @($release.assets | ForEach-Object { $_.name })
+    if ($have.Count -eq 0) {
+      throw "release v$latest has no files attached yet"
+    }
+    throw "release v$latest has no Windows installer for $arch. Attached: $($have -join ', '). The .exe is built on Windows and has to be uploaded to the release; it cannot be cross-built from Linux."
+  }
 
   Say "Tandem $latest, $($asset.name)"
 

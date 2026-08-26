@@ -1,0 +1,70 @@
+# The PowerShell install line downloads an .exe from the GitHub release. Linux
+# builds are attached from the machine that produced them. The Windows one
+# cannot be: node-pty compiles against the OS it is built on, and the claude
+# binary ships as a per-platform package, so a cross-build from Linux would
+# carry Linux binaries inside the installer.
+#
+# This job is that Windows machine. It runs when a release is published, and
+# can be started by hand against an existing tag so a release that shipped
+# without the .exe can catch up.
+
+name: Windows installer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the installer to, for example v0.8.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  dist-win:
+    runs-on: windows-2022
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron
+            ~\AppData\Local\electron-builder
+          key: win-electron-${{ hashFiles('package-lock.json') }}
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the installer
+        run: npm run dist:win
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(dist/tandem-*-x64.exe)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no NSIS installer in dist/" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber

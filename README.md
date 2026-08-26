@@ -88,7 +88,8 @@ npm run dist:win    # writes dist/tandem-<version>-x64.exe
 
 `dist:win` has to run on Windows. node-pty compiles against the machine it is built on, and the
 claude binary the agent runs ships as a per-platform package, so a Windows installer cross-built from
-Linux would carry Linux binaries inside it.
+Linux would carry Linux binaries inside it. A GitHub Action does that when a release is published,
+and can be run by hand against an existing tag if the .exe was not attached the first time.
 
 To run from source:
 
