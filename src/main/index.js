@@ -70,9 +70,14 @@ let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get(
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
-// Whether the preview column is open at all, remembered because a pane made
-// after the fact, or brought forward by a focus change, has to match it.
-let paneVisible = false;
+// The shell hangs a photograph over the pane while a menu is open above it,
+// and that is the only thing outside this file with a say in whether the
+// preview in the box is on screen. Everything else follows from `shownTab`: a
+// pane made after the fact, or brought forward by a focus change, shows
+// because it is the one in the box and for no other reason. It used to follow
+// a flag the shell set, and the shell stopped setting it, so every preview was
+// born hidden and stayed that way until the first menu closed over it.
+let paneCovered = false;
 const terms = new Map();
 
 // Which chat the panel is showing. `tandem ask` from a terminal has to land in
@@ -187,7 +192,7 @@ function paneOf(tab, { create = true, project = focused } = {}) {
   // the box, and the shell has already said where the box is.
   if (tab === shownTab) {
     if (lastBounds) made.setBounds(lastBounds);
-    made.setVisible(paneVisible);
+    made.setVisible(!paneCovered);
   } else {
     made.setVisible(false);
   }
@@ -215,7 +220,7 @@ function applyShown() {
   for (const [tab, rec] of panes) {
     if (tab === shownTab) {
       if (lastBounds) rec.pane.setBounds(lastBounds);
-      rec.pane.setVisible(paneVisible);
+      rec.pane.setVisible(!paneCovered);
     } else {
       rec.pane.setVisible(false);
     }
@@ -1084,11 +1089,15 @@ function registerIpc() {
   // the folder on screen.
   ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; paneOf(shownTab, { create: false })?.setBounds(b); });
   ipcMain.on('browser:visible', (_e, v) => {
-    paneVisible = !!v;
-    paneOf(shownTab, { create: false })?.setVisible(paneVisible);
+    paneCovered = !v;
+    paneOf(shownTab, { create: false })?.setVisible(!paneCovered);
   });
   ipcMain.on('browser:show', (_e, { tab, project } = {}) => {
     shownTab = tab || null;
+    // The cover was of the page that was in the box when the menu opened, so
+    // another preview arriving retires it. This is also the way back from a
+    // cover nobody lifted, which a menu unmounted while open would leave up.
+    paneCovered = false;
     // A tab the shell knows about and main has never made a page for: opening
     // the column on a fresh preview tab is the ordinary way here.
     if (shownTab) paneOf(shownTab, { project: owner(project) });
