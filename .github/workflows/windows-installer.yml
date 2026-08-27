@@ -1,8 +1,7 @@
 # The PowerShell install line downloads an .exe from the GitHub release. Linux
 # builds are attached from the machine that produced them. The Windows one
-# cannot be: node-pty compiles against the OS it is built on, and the claude
-# binary ships as a per-platform package, so a cross-build from Linux would
-# carry Linux binaries inside the installer.
+# cannot be: node-pty compiles against the OS it is built on, so a cross-build
+# from Linux would carry a Linux .node inside the installer.
 #
 # This job is that Windows machine. It runs when a release is published, and
 # can be started by hand against an existing tag so a release that shipped
