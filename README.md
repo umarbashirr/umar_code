@@ -82,14 +82,16 @@ To build the packages yourself:
 
 ```sh
 npm install
-npm run dist        # writes dist/*.deb and dist/*.AppImage
-npm run dist:win    # writes dist/tandem-<version>-x64.exe
+npm run dist            # writes dist/*.deb and dist/*.AppImage
+npm run dist:win        # writes dist/tandem-<version>-x64.exe, needs Windows or wine
+npm run dist:win:docker # the same .exe, cross-built on Linux in docker
 ```
 
-`dist:win` has to run on Windows. node-pty compiles against the machine it is built on, and the
-claude binary the agent runs ships as a per-platform package, so a Windows installer cross-built from
-Linux would carry Linux binaries inside it. A GitHub Action does that when a release is published,
-and can be run by hand against an existing tag if the .exe was not attached the first time.
+`dist:win` needs a Windows machine, or wine. `npm run dist:win:docker` is the second option: it
+builds the installer on Linux inside `electronuserland/builder:wine`. That works because node-pty
+ships N-API prebuilds for win32-x64 in its own npm package, so nothing has to compile on Windows.
+A GitHub Action does the same job when a release is published, and can be run by hand against an
+existing tag if the .exe was not attached the first time.
 
 To run from source:
 
@@ -98,7 +100,10 @@ npm install
 npm start           # npm run enable-sandbox once, to turn Chromium's sandbox back on
 ```
 
-The agent uses your existing Claude Code login. If `claude` works in your terminal, the panel works.
+Tandem does not ship a claude of its own. It runs the one on your PATH, with the login you already
+have, so if `claude --version` answers in your terminal the panel works. If it does not, the model
+picker stays empty and says so. Install it with `npm install -g @anthropic-ai/claude-code`, or point
+Tandem at an unusual location under Settings, Agent.
 
 ## Opening a project
 

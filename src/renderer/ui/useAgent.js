@@ -71,8 +71,71 @@ function replay(messages, parent) {
 // an agent carries that agent's Agent-call id as `parent`, and the tree is put
 // back together at render time. Patching a tool result by id then works the
 // same whoever ran it.
-const blankChat = (project = null) => ({
+/* The conversation so far, as something the other CLI can read. A fork cannot
+   hand over a thread, so it hands over the transcript: neither CLI can open the
+   other's, and the new model starting from nothing is the thing a fork exists
+   to avoid.
+
+   Everything said goes across. Both sides of it, and every tool call by name
+   and argument, because "I ran this and then that" is most of what a coding
+   conversation is and a handover missing it reads as a summary of itself.
+
+   The two caps below are the only things dropped, and both are announced in the
+   text where they bite rather than silently.
+
+   OUTPUT is per tool result. One `cat` of a large file or one verbose build log
+   can be bigger than everything else combined, and it is also the most stale
+   thing in the transcript: the new model is about to run its own commands
+   against a tree that may have moved on. So the head of each result goes and
+   the rest is marked.
+
+   TOTAL is the backstop against a chat that will not fit in any window. It is
+   set against real context windows rather than caution: 400k characters is
+   roughly 100k tokens, which leaves room in a 200k window for the reply and the
+   work after it. Trimming takes from the front, because a follow-up is nearly
+   always about the recent end. */
+const OUTPUT = 4000;
+const TOTAL = 400000;
+
+const clip = (text, n) => {
+  const str = typeof text === 'string' ? text : JSON.stringify(text ?? null);
+  if (!str || str.length <= n) return str || '';
+  return `${str.slice(0, n)}\n… ${str.length - n} more characters of output, not carried over`;
+};
+
+function carriedHistory(items) {
+  const lines = [];
+  for (const it of items) {
+    if (it.kind === 'user') lines.push(`Me:\n${it.text}`);
+    else if (it.kind === 'assistant' && it.text?.trim()) lines.push(`Other assistant:\n${it.text}`);
+    else if (it.kind === 'tool') {
+      const args = clip(it.input, OUTPUT);
+      const out = it.output === undefined ? '' : `\nResult:\n${clip(it.output, OUTPUT)}`;
+      lines.push(`Other assistant ran ${it.name}:\n${args}${out}`);
+    }
+  }
+
+  let body = lines.join('\n\n');
+  const cut = body.length > TOTAL;
+  if (cut) body = body.slice(-TOTAL);
+
+  return [
+    '<handover>',
+    cut
+      ? 'A conversation I was having with a different coding assistant. It was too long to carry whole, so this is the end of it:'
+      : 'A conversation I was having with a different coding assistant, in full:',
+    body,
+    '</handover>',
+    'Pick it up from here. Anything above is what the other assistant said, not something you did,',
+    'and its tool output may be out of date. Read the files yourself before relying on any of it.',
+  ].join('\n');
+}
+
+const blankChat = (project = null, provider = 'claude') => ({
   key: uid('c'),
+  // Which CLI this chat runs on. Fixed once it sends: a thread belongs to the
+  // binary that made it and no switch can carry it across. See changeModel.
+  provider,
   // The folder this chat runs in. A chat keeps it for life: you can open a
   // second project, read it, come back, and this one is still working where it
   // started. Null only until the window has told us which folders are open.
@@ -154,6 +217,12 @@ export function useAgent() {
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
   const [driver, setDriver] = useState(null);
+  // Which CLI the panel is driving. Kept beside the model list because the two
+  // move together: switching provider replaces the list under the picker.
+  const [provider, setProvider] = useState('claude');
+  // Both CLIs and whether each is installed, so the picker can draw a locked
+  // row for one that is missing instead of leaving it off the list.
+  const [providers, setProviders] = useState([]);
   // How hard the model thinks, and which levels this build of the CLI takes.
   // Empty means the CLI's own default rather than a level we picked for it.
   const [effort, setEffort] = useState('');
@@ -167,6 +236,10 @@ export function useAgent() {
   const chatsRef = useRef(chats);
   const activeRef = useRef(activeKey);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
+  // Same reason: the callbacks that open a new chat are memoised on other
+  // things and would otherwise hand it the CLI that was picked on first render.
+  const providerRef = useRef(provider);
+  useEffect(() => { providerRef.current = provider; }, [provider]);
   useEffect(() => { activeRef.current = activeKey; }, [activeKey]);
 
   // Text deltas arrive per token, and two chats can be streaming at once, so
@@ -480,7 +553,20 @@ export function useAgent() {
   useEffect(() => {
     const apply = (d) => {
       if (!d) return;
-      setDriver({ installed: d.installed, version: d.version, message: d.message, endpoint: d.endpoint });
+      setDriver({
+        installed: d.installed, version: d.version, message: d.message,
+        endpoint: d.endpoint, binaryPath: d.binaryPath || null,
+      });
+      if (d.providers?.length) setProviders(d.providers);
+      if (d.provider) {
+        setProvider(d.provider);
+        // The chat on screen at first paint was built before main had said which
+        // CLI it prefers. One that has said nothing yet still belongs to nobody,
+        // so it follows; one with a transcript keeps what it has.
+        setChats((cur) => cur.map((c) => (c.items.length || c.session
+          ? c
+          : { ...c, provider: d.provider })));
+      }
       if (d.efforts?.length) setEfforts(d.efforts);
       if (typeof d.effort === 'string') setEffort(d.effort);
       if (typeof d.long === 'boolean') setLongContext({ on: d.long, capable: !!d.longCapable });
@@ -571,12 +657,22 @@ export function useAgent() {
       items: [...c.items, { id: uid('u'), kind: 'user', text: said, images }],
     }));
     try {
-      await tandem().agent.send(key, chat?.session || null, text, images, chat?.project || focusedProject.current);
+      const res = await tandem().agent.send(
+        key, chat?.session || null, text, images, chat?.project || focusedProject.current,
+        chat?.provider || providerRef.current,
+      );
+      // A session that could not start says why. Worth printing as it stands:
+      // it names the missing CLI, and prefixing it would only muddy that.
+      if (res?.error) throw new Error(res.error, { cause: 'said' });
     } catch (e) {
+      const said = e.cause === 'said';
       edit(key, (c) => ({
         ...c,
         busy: false,
-        items: [...c.items, { id: uid('e'), kind: 'note', error: true, text: `could not reach the agent: ${e.message}` }],
+        items: [...c.items, {
+          id: uid('e'), kind: 'note', error: true,
+          text: said ? e.message : `could not reach the agent: ${e.message}`,
+        }],
       }));
     }
   }, [edit]);
@@ -672,6 +768,11 @@ export function useAgent() {
     const prev = chatsRef.current.find((c) => c.key === activeRef.current);
     activeRef.current = key;
     setActiveKey(key);
+    // Each chat runs on its own CLI, so the picker has to name that one rather
+    // than whatever was last chosen somewhere else.
+    const next = chatsRef.current.find((c) => c.key === key);
+    if (next?.provider) setProvider(next.provider);
+    if (next?.usage?.model) setModel(next.usage.model);
     if (prev && prev.key !== key && !prev.busy && prev.session) {
       tandem().agent.reset(prev.key).catch(() => {});
     }
@@ -686,17 +787,30 @@ export function useAgent() {
     const dir = project || focusedProject.current;
     const cur = chatsRef.current.find((c) => c.key === activeRef.current);
     if (cur && !cur.items.length && !cur.session && (cur.project || dir) === dir) return;
-    const next = blankChat(dir);
+    const next = blankChat(dir, providerRef.current);
     setChats((all) => [...all, next]);
     switchTo(next.key);
   }, [switchTo]);
+
+  /* Pointing the chat on screen at another folder, which is what the chip under
+     the box is for. A chat nobody has typed in yet moves: the chip names the
+     folder the next message runs in, and picking one from it is how you say
+     where you meant that message to go. A chat that has already said something
+     stays where it ran, transcript and session and all, so picking a folder for
+     one of those starts a new chat there instead of dragging the old one over. */
+  const setProject = useCallback((dir) => {
+    if (!dir) return;
+    const cur = chatsRef.current.find((c) => c.key === activeRef.current);
+    if (cur && !cur.session && !cur.items.length) edit(cur.key, (c) => ({ ...c, project: dir }));
+    else reset(dir);
+  }, [edit, reset]);
 
   // The folder moved. Main has already stopped every session, and the chats
   // here belong to the folder that was open when they ran.
   const clear = useCallback(() => {
     for (const st of streams.current.values()) if (st.raf) cancelAnimationFrame(st.raf);
     streams.current.clear();
-    const next = blankChat(focusedProject.current);
+    const next = blankChat(focusedProject.current, providerRef.current);
     setChats([next]);
     activeRef.current = next.key;
     setActiveKey(next.key);
@@ -735,7 +849,7 @@ export function useAgent() {
       const rest = all.filter((c) => c.key !== key);
       // Deleting the last chat leaves the pane on a blank one rather than on
       // nothing at all.
-      const next = rest.length ? rest : [blankChat(focusedProject.current)];
+      const next = rest.length ? rest : [blankChat(focusedProject.current, providerRef.current)];
       chatsRef.current = next;
       setChats(next);
       if (activeRef.current === key) {
@@ -765,7 +879,11 @@ export function useAgent() {
     const known = chatsRef.current.find((c) => (s.key ? c.key === s.key : c.session === s.id));
     if (known) return switchTo(known.key);
 
-    const chat = { ...blankChat(s.project || focusedProject.current), session: s.id, title: s.title.slice(0, 80) };
+    const chat = {
+      ...blankChat(s.project || focusedProject.current, s.provider || providerRef.current),
+      session: s.id,
+      title: s.title.slice(0, 80),
+    };
     setChats((all) => [...all, chat]);
     switchTo(chat.key);
 
@@ -828,15 +946,43 @@ export function useAgent() {
     }
   }, []);
 
+  /* Picking a model, and sometimes forking because of it.
+     The list holds both CLIs. Crossing from one to the other is fine on a chat
+     that has said nothing, and impossible on one that has: the conversation
+     lives inside a thread only its own CLI can open. So a chat with messages
+     forks. The old one is left exactly as it was, still on its own CLI, and the
+     new one opens with the conversation carried over as text. */
   const changeModel = useCallback(async (value) => {
+    const chat = chatsRef.current.find((c) => c.key === activeRef.current);
+    const want = models.find((m) => m.value === value)?.provider;
+    const crossing = want && chat?.provider && want !== chat.provider;
+
+    if (crossing && chat.items.length) {
+      const next = { ...blankChat(chat.project, want), title: chat.title };
+      setChats((all) => [...all, next]);
+      switchTo(next.key);
+      setModel(value);
+      setProvider(want);
+      const res = await tandem().agent.setModel(value);
+      if (res?.models?.length) setModels(res.models);
+      if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
+      sendTo(next.key, carriedHistory(chat.items));
+      return;
+    }
+
     setModel(value);
+    if (want) setProvider(want);
     // Every chat follows the picker, and the window and prices follow with it.
-    setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: value, window: 0 } })));
+    setChats((cur) => cur.map((c) => (c.key === activeRef.current || !c.items.length
+      ? { ...c, ...(want ? { provider: want } : {}), usage: { ...c.usage, model: value, window: 0 } }
+      : c)));
     // A name typed by hand comes back as part of the list, so the picker has it
     // the next time it opens rather than only while it is selected.
     const res = await tandem().agent.setModel(value);
     if (res?.models?.length) setModels(res.models);
-  }, []);
+    if (res?.provider) setProvider(res.provider);
+    if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
+  }, [models, switchTo, sendTo]);
 
   // Drops a hand-typed name. The main process answers with what is left and
   // which of those the picker should land on.
@@ -848,6 +994,18 @@ export function useAgent() {
       setModel(res.model);
       setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: res.model, window: 0 } })));
     }
+  }, []);
+
+  /* Switching CLI. The model has to move with it or the picker keeps showing
+     the last one's name over the new one's list, and the first message would go
+     out asking codex for a claude model. Main answers with both. */
+  const changeProvider = useCallback(async (value) => {
+    const res = await tandem().agent.setProvider?.(value);
+    if (!res) return;
+    setProvider(res.provider);
+    setModels(res.models || []);
+    setModel(res.current || '');
+    setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: res.current || '', window: 0 } })));
   }, []);
 
   const changeMode = useCallback(async (value) => {
@@ -869,10 +1027,11 @@ export function useAgent() {
     mode: active.mode,
     queued: active.queued,
     usage,
-    models, model, driver, effort, efforts, longContext,
+    models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey,
     send, enqueue, unqueue, flushQueue,
-    decide, interrupt, reset, clear, open, removeChat, switchTo, changeModel, forgetModel, changeMode,
+    decide, interrupt, reset, setProject, clear, open, removeChat, switchTo, changeModel, forgetModel,
+    changeProvider, changeMode,
     changeEffort, changeLongContext,
     stopAgent, backgroundAgent, openAgent,
   };

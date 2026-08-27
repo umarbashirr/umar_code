@@ -101,7 +101,10 @@ contextBridge.exposeInMainWorld('tandem', {
   // several can run at once and each event finds its way back.
   agent: {
     onActivity: on('agent:activity'),
-    send: (chat, session, text, images, project) => ipcRenderer.invoke('agent:send', { chat, session, text, images, project }),
+    // `provider` is which CLI this chat runs on. It rides along on every send
+    // because a chat keeps the one it was made on, whatever the picker says now.
+    send: (chat, session, text, images, project, provider) =>
+      ipcRenderer.invoke('agent:send', { chat, session, text, images, project, provider }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
     // One subagent, by the id task_started gave it.
     stopTask: (chat, id) => ipcRenderer.invoke('agent:stopTask', { chat, id }),
@@ -110,6 +113,9 @@ contextBridge.exposeInMainWorld('tandem', {
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: () => ipcRenderer.invoke('agent:models'),
     setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
+    // Which CLI the panel drives. Idle chats are dropped so the next message
+    // starts on the new one; a chat mid-turn finishes on the old one.
+    setProvider: (provider) => ipcRenderer.invoke('agent:setProvider', { provider }),
     // How hard the model thinks. The CLI takes this when a session starts and
     // has no setter for it, so changing it parks the idle chats and the next
     // message on each resumes at the new level.

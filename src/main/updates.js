@@ -1,6 +1,7 @@
 'use strict';
-// Two questions the settings page asks, and one it asks on launch: is there a
-// newer Tandem, and is there a newer Claude CLI than the one the agent runs.
+// Three questions the settings page asks, and one it asks on launch: is there a
+// newer Tandem, and is there a newer CLI than the one the agent runs, for either
+// of the two CLIs it can drive.
 //
 // There is no auto-updater here on purpose. Tandem ships as a .deb and an
 // AppImage; electron-updater can only replace an AppImage in place, and a .deb
@@ -14,12 +15,14 @@ const https = require('https');
 const { EventEmitter } = require('events');
 
 const { DIR } = require('./projects');
-const { compareVersions, probeVersion, bundledBinary, systemBinary } = require('./driver');
+const { compareVersions, probeVersion, claudeBinary } = require('./driver');
+const { probeVersion: probeCodexVersion, codexBinary } = require('./codex-driver');
 
 const CACHE = path.join(DIR, 'update-check.json');
 const TTL_MS = 6 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 const CLAUDE_PACKAGE = '@anthropic-ai/claude-code';
+const CODEX_PACKAGE = '@openai/codex';
 
 // GitHub sends the release JSON from api.github.com and the asset bytes from a
 // signed URL on another host, so every request here has to be prepared to be
@@ -114,6 +117,16 @@ const currentVersion = () => {
   try { return require('../../package.json').version; } catch { return '0.0.0'; }
 };
 
+// One cached CLI, read the way the settings page wants it. Both CLIs answer the
+// same three questions, so they get the same four fields and the tab does not
+// have to know which one it is drawing.
+function cliFor(cached) {
+  const c = cached || {};
+  const running = c.path ? { path: c.path, version: c.version || null } : null;
+  const behind = !!(c.latest && running?.version && compareVersions(c.latest, running.version) > 0);
+  return { ...c, running, behind, missing: !running };
+}
+
 const readCache = () => { try { return JSON.parse(fs.readFileSync(CACHE, 'utf8')); } catch { return null; } };
 
 function writeCache(data) {
@@ -125,18 +138,23 @@ function writeCache(data) {
 }
 
 class Updates extends EventEmitter {
-  // `usingSystem` answers whether the agent is set to run the person's own
-  // claude rather than the bundled one. It is a callback because the setting can
-  // change under us and the answer decides what counts as out of date.
-  constructor({ usingSystem = () => false } = {}) {
+  constructor() {
     super();
-    this.usingSystem = usingSystem;
     this.cache = readCache() || {};
     this.downloading = null;
   }
 
   get stale() {
-    return !this.cache.checkedAt || Date.now() - this.cache.checkedAt > TTL_MS;
+    if (!this.cache.checkedAt) return true;
+    // Written before Tandem stopped shipping its own claude, so it describes a
+    // binary that is no longer there. Anything is better than telling someone
+    // their CLI is missing for the next six hours.
+    if (this.cache.claude && !('path' in this.cache.claude)) return true;
+    // Written by a build that only knew about claude. The Updates tab has a
+    // codex row now and it would sit there saying nothing until the cache aged
+    // out, which is six hours of looking broken to anyone running codex.
+    if (!this.cache.codex) return true;
+    return Date.now() - this.cache.checkedAt > TTL_MS;
   }
 
   // What the settings page draws on open: the last answer, straight away. A
@@ -149,7 +167,8 @@ class Updates extends EventEmitter {
   snapshot() {
     return {
       app: this.cache.app || { current: currentVersion(), latest: null, behind: false },
-      claude: this.claudeFor(this.usingSystem()),
+      claude: this.claudeFor(),
+      codex: this.codexFor(),
       kind: installKind(),
       checkedAt: this.cache.checkedAt || null,
       error: this.cache.error || null,
@@ -164,12 +183,13 @@ class Updates extends EventEmitter {
   }
 
   async #check() {
-    const [app, claude] = await Promise.all([this.#checkApp(), this.#checkClaude()]);
+    const [app, claude, codex] = await Promise.all([this.#checkApp(), this.#checkClaude(), this.#checkCodex()]);
     this.cache = writeCache({
       app: app.value,
       claude: claude.value,
+      codex: codex.value,
       checkedAt: Date.now(),
-      error: app.error || claude.error || null,
+      error: app.error || claude.error || codex.error || null,
     });
     const snap = this.snapshot();
     this.emit('changed', snap);
@@ -211,42 +231,48 @@ class Updates extends EventEmitter {
     }
   }
 
-  // The CLI the agent runs is the one bundled in the app, so a newer release on
-  // npm normally means "wait for the next Tandem". The exception is a claude the
-  // person installed themselves, which settings can switch to today.
+  // The CLI belongs to the person now, not to the release. So a newer one on
+  // npm is something they can go and get today, and something worth saying.
   async #checkClaude() {
-    const bundledPath = bundledBinary();
-    const systemPath = systemBinary();
+    const bin = claudeBinary();
 
-    const [bundled, system, latest] = await Promise.all([
-      bundledPath ? probeVersion(bundledPath) : null,
-      systemPath ? probeVersion(systemPath) : null,
+    const [version, latest] = await Promise.all([
+      bin ? probeVersion(bin) : null,
       fetchJson(`https://registry.npmjs.org/${CLAUDE_PACKAGE}/latest`)
         .then((j) => j.version || null)
         .catch(() => null),
     ]);
 
-    // Whether any of this counts as "behind" depends on which binary the agent
-    // is set to run, and that setting lives elsewhere. See claudeFor.
-    return {
-      value: {
-        bundled: bundledPath ? { path: bundledPath, version: bundled } : null,
-        system: systemPath ? { path: systemPath, version: system } : null,
-        latest,
-      },
-      error: null,
-    };
+    return { value: { path: bin, version, latest }, error: null };
   }
 
-  // The running version depends on the setting, which lives outside this file,
-  // so the comparison is finished here rather than baked into the cache.
-  claudeFor(usingSystem) {
-    const c = this.cache.claude || {};
-    const running = (usingSystem ? c.system : c.bundled) || c.bundled || null;
-    const canSwitch = !!(c.system?.version && running?.version
-      && compareVersions(c.system.version, running.version) > 0);
-    const behind = !!(c.latest && running?.version && compareVersions(c.latest, running.version) > 0);
-    return { ...c, running, behind, canSwitch };
+  // The same again for the other CLI. Nobody has to have this one, so a missing
+  // codex is not an error to report anywhere; it is a row the Updates tab draws
+  // as an offer rather than a warning.
+  async #checkCodex() {
+    const bin = codexBinary();
+
+    const [version, latest] = await Promise.all([
+      bin ? probeCodexVersion(bin) : null,
+      fetchJson(`https://registry.npmjs.org/${CODEX_PACKAGE}/latest`)
+        .then((j) => j.version || null)
+        .catch(() => null),
+    ]);
+
+    return { value: { path: bin, version, latest }, error: null };
+  }
+
+  // What the settings page and the launch toast read. `missing` is the one that
+  // matters: no claude means no chat, and the app has nothing to fall back on.
+  claudeFor() {
+    return cliFor(this.cache.claude);
+  }
+
+  // Same fields, so the tab draws the two rows with one component. `missing`
+  // reads differently here: the app still has claude, so this is a CLI the
+  // person has not installed rather than one that has gone.
+  codexFor() {
+    return cliFor(this.cache.codex);
   }
 
   // Streams the asset into the downloads folder, reporting progress as it goes.

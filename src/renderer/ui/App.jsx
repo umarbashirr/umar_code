@@ -235,22 +235,19 @@ export default function App() {
       ]);
     }
 
-    // The bundled CLI moving is Tandem's problem, not the person's. What is
-    // worth interrupting for is a newer claude already sitting on their PATH.
+    // The CLI is theirs to update, so this is news rather than a chore Tandem
+    // can do for them. Nothing here replaces a binary; it points at the tab
+    // that names the command.
     const c = updates.claude;
-    if (c?.canSwitch && told.claude !== c.system.version) {
-      set({ notices: { claude: c.system.version } });
-      toast(
-        `Claude ${c.system.version} is on your PATH`,
-        `The agent is running ${c.running?.version || 'the bundled build'}`,
-        [
-          { label: 'Use it', primary: true, run: () => set({ claude: { binary: 'path' } }) },
-          { label: 'Not now' },
-        ],
-      );
+    if (c?.behind && told.claude !== c.latest) {
+      set({ notices: { claude: c.latest } });
+      toast(`Claude ${c.latest} is out`, `You are running ${c.running?.version}`, [
+        { label: 'How', primary: true, run: () => setSettingsAt('updates') },
+        { label: 'Later' },
+      ]);
     }
   }, [
-    updates.app.behind, updates.app.latest, updates.claude?.canSwitch,
+    updates.app.behind, updates.app.latest, updates.claude?.behind, updates.claude?.latest,
     settings?.startup.checkUpdates, settings?.notices.app, settings?.notices.claude,
   ]);
 

@@ -269,8 +269,9 @@ finish() {
   tandem ~/code/shop  open another one
   tandem go 3000      point the preview at a port
 
-The agent uses your existing Claude Code login. If \`claude\` works in your
-terminal, the panel works.
+The agent runs the claude on your PATH, with the login you already have. If
+\`claude --version\` answers in your terminal, the panel works. If nothing is
+there yet: npm install -g @anthropic-ai/claude-code
 EOF
 }
 

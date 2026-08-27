@@ -8,13 +8,17 @@ const { Bridge } = require('./bridge');
 const { runTool } = require('./tools');
 const { AgentSession, SHOT_NOTE } = require('./agent');
 const {
-  Driver, claudeBinary, preferBinary, systemBinary, isLong, withLong, withoutLong, hasLong,
+  Driver, claudeBinary, preferBinary, isLong, withLong, withoutLong, hasLong,
 } = require('./driver');
+const { CodexDriver, preferBinary: preferCodexBinary } = require('./codex-driver');
+const { CodexSession } = require('./codex');
 const { Catalog } = require('./catalog');
+const { CodexCatalog } = require('./codex-catalog');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
 const shellEnv = require('./shell-env');
-const { listSessions, readSession, readSubagent, listSubagents, deleteSession } = require('./history');
+const history = require('./history');
+const codexHistory = require('./codex-history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const diff = require('./diff');
@@ -52,7 +56,12 @@ let paneSeq = 0;
 const sessions = new Map();
 let bridge = null;
 let driver = null;
+let codexDriver = null;
 let catalog = null;
+let codexCatalog = null;
+// Whichever catalogue answers for the CLI the panel is driving. They hold the
+// same surface, so nothing downstream has to ask which one it got.
+const cat = () => (provider === 'codex' ? codexCatalog : catalog);
 // Read before the window exists: the terminal font, the theme and which claude
 // to run are all settled by the time anything paints.
 const settings = new Settings();
@@ -60,8 +69,16 @@ let updates = null;
 // Survives the agent it was picked for. `default` is not a model, and anyone
 // running a build that offered it has it saved here; read it as nothing chosen
 // so settleModel names a real one instead. See driver.js.
-let chosenModel = settings.get('agent').model || null;
-if (chosenModel === 'default') chosenModel = null;
+// Which CLI the panel drives. Everything downstream reads this rather than
+// asking the settings file again, so a chat and its picker cannot disagree.
+let provider = settings.get('agent').provider === 'codex' ? 'codex' : 'claude';
+// One choice per provider. A claude model id means nothing to codex and the
+// other way round, so switching back has to find the old answer still there.
+const chosenModels = {
+  claude: settings.get('agent').model || null,
+  codex: settings.get('agent').codexModel || null,
+};
+if (chosenModels.claude === 'default') chosenModels.claude = null;
 let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
 // How hard the model thinks. Empty means the CLI's own default, which is the
 // right starting point: naming a level here would pin every chat to whatever
@@ -70,9 +87,14 @@ let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get(
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
-// Whether the preview column is open at all, remembered because a pane made
-// after the fact, or brought forward by a focus change, has to match it.
-let paneVisible = false;
+// The shell hangs a photograph over the pane while a menu is open above it,
+// and that is the only thing outside this file with a say in whether the
+// preview in the box is on screen. Everything else follows from `shownTab`: a
+// pane made after the fact, or brought forward by a focus change, shows
+// because it is the one in the box and for no other reason. It used to follow
+// a flag the shell set, and the shell stopped setting it, so every preview was
+// born hidden and stayed that way until the first menu closed over it.
+let paneCovered = false;
 const terms = new Map();
 
 // Which chat the panel is showing. `tandem ask` from a terminal has to land in
@@ -97,19 +119,102 @@ function leaseFor(tab) {
   return l;
 }
 
-// Nothing picked. Passing no --model does not mean "no opinion": the CLI runs
+// Whichever driver answers for the provider in use. Both keep the same shape:
+// a cached snapshot with models on it, refreshed behind the caller.
+const driverFor = (p) => (p === 'codex' ? codexDriver : driver);
+const activeDriver = () => driverFor(provider);
+
+/* Where a provider keeps its past chats: claude's transcripts on disk, codex's
+   over the app-server. Same names, same shapes, so the handlers below never
+   learn which one answered.
+
+   The rail lists both at once rather than only the running provider's. A chat
+   belongs to whichever CLI made it, and switching provider to read one is a
+   trade nobody would make on purpose. `owners` remembers which module claimed
+   an id while listing, so opening or deleting a row goes back to the same
+   place; a row the rail has not listed this run falls back to the provider in
+   use, which is what a fresh window resuming its own chat does. */
+const historyFor = (p) => (p === 'codex' ? codexHistory : history);
+const owners = new Map();          // session id -> 'claude' | 'codex'
+const ownerOf = (id) => historyFor(owners.get(id) || provider);
+
+// Only ask a CLI that is actually here. codex answers over a spawned process,
+// and someone who has never used it should not pay for one to draw the rail.
+const HAS = { claude: () => true, codex: () => codexDriver?.current({ refresh: false }).installed };
+
+async function sessionsIn(dir) {
+  const out = [];
+  for (const p of ['claude', 'codex']) {
+    if (!HAS[p]()) continue;
+    // claude answers synchronously and codex with a promise, so both go through
+    // resolve() before anything is caught off them.
+    const rows = await Promise.resolve()
+      .then(() => historyFor(p).listSessions(dir))
+      .catch(() => []);
+    for (const r of rows) { owners.set(r.id, p); out.push({ ...r, provider: p }); }
+  }
+  // One rail, so the two lists interleave by age rather than sitting in blocks.
+  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+
+// Where a provider's model choice is written down. Two keys, one per provider,
+// so neither overwrites the other.
+const MODEL_KEY = { claude: 'model', codex: 'codexModel' };
+const rememberModel = (p, model) => settings.patch({ agent: { [MODEL_KEY[p]]: model || '' } });
+
+/* Every model both CLIs offer, in one list, each row saying which one it came
+   from. The picker shows them together because a person opening it wants to
+   choose a model, not to first remember that the choice is filed under two
+   different CLIs. Picking across the line switches provider on the way; see
+   agent:setModel.
+
+   Codex first only when it is the one running, so the list opens on what is in
+   use rather than reordering itself under the cursor. */
+function allModels() {
+  const rows = (p) => (driverFor(p)?.current({ refresh: false }).models || [])
+    .map((m) => ({ ...m, provider: p }));
+  return provider === 'codex' ? [...rows('codex'), ...rows('claude')] : [...rows('claude'), ...rows('codex')];
+}
+
+// Which CLI a name belongs to. Falls back to whatever is running, so a name
+// typed by hand is asked of the provider the person is looking at.
+const providerOf = (model) => allModels().find((m) => m.value === model)?.provider || provider;
+
+/* Both CLIs, whether or not either is here. The picker draws a row for each so
+   a missing one is a locked row that says what to install, rather than an
+   absence that reads as though Tandem only ever supported the other. */
+const PROVIDERS = ['claude', 'codex'];
+
+function providerStates() {
+  return PROVIDERS.map((id) => {
+    const d = driverFor(id)?.current({ refresh: false }) || {};
+    return {
+      id,
+      installed: !!d.installed,
+      version: d.version || null,
+      // Only worth carrying when something is wrong: a working CLI has none.
+      message: d.installed ? null : d.message || null,
+      count: (d.models || []).length,
+    };
+  });
+}
+
+// Nothing picked. Passing no model does not mean "no opinion": the CLI runs
 // whatever the account defaults to, which on most plans is Fable, and the picker
 // meanwhile says "Pick a model". Two different answers to the same question.
 // Land on the first model the driver lists, write it down, and hand it back so
 // the label and the session agree from the first message on.
-function settleModel() {
-  if (chosenModel) return chosenModel;
-  const first = driver?.current({ refresh: false }).models[0]?.value;
+function modelFor(p) {
+  if (chosenModels[p]) return chosenModels[p];
+  const first = driverFor(p)?.current({ refresh: false }).models[0]?.value;
   if (!first) return null;
-  chosenModel = first;
-  settings.patch({ agent: { model: first } });
-  return chosenModel;
+  chosenModels[p] = first;
+  rememberModel(p, first);
+  return first;
 }
+
+// The same question for whichever CLI the picker is pointed at.
+const settleModel = () => modelFor(provider);
 
 const liveSessions = () => [...sessions.values()].filter((a) => !a.closed);
 // Anything that asks the CLI a question rather than driving one chat: any live
@@ -131,12 +236,14 @@ function stopChat(chat) {
 function forgetChat(chat) {
   stopChat(chat);
   chatProjects.delete(chat);
+  chatProviders.delete(chat);
 }
 
 function stopAllChats() {
   for (const a of sessions.values()) a.stop();
   sessions.clear();
   chatProjects.clear();
+  chatProviders.clear();
   for (const l of leases.values()) l.stop();
   leases.clear();
 }
@@ -152,7 +259,7 @@ function stopProject(dir) {
     terms.delete(id);
   }
   fileWatcher?.drop(dir);
-  catalog.invalidate(dir);
+  cat().invalidate(dir);
   for (const [tab, rec] of [...panes]) if (rec.project === dir) dropPane(tab);
 }
 
@@ -187,7 +294,7 @@ function paneOf(tab, { create = true, project = focused } = {}) {
   // the box, and the shell has already said where the box is.
   if (tab === shownTab) {
     if (lastBounds) made.setBounds(lastBounds);
-    made.setVisible(paneVisible);
+    made.setVisible(!paneCovered);
   } else {
     made.setVisible(false);
   }
@@ -215,7 +322,7 @@ function applyShown() {
   for (const [tab, rec] of panes) {
     if (tab === shownTab) {
       if (lastBounds) rec.pane.setBounds(lastBounds);
-      rec.pane.setVisible(paneVisible);
+      rec.pane.setVisible(!paneCovered);
     } else {
       rec.pane.setVisible(false);
     }
@@ -300,6 +407,15 @@ const focusedCwd = () => focused;
 const chatProjects = new Map(); // chat key -> dir
 const cwdOfChat = (chat) => (chat && chatProjects.get(chat)) || focused;
 
+/* Which CLI a chat runs on, settled the first time it sends and kept for good.
+   A chat is a thread on one CLI and nothing can move it: claude's transcript
+   lives in ~/.claude/projects and codex's in its own rollout store, and neither
+   reads the other's. So the picker moving does not drag an existing chat with
+   it. Switching a chat that already has messages forks a new one instead; see
+   changeModel in useAgent.js. */
+const chatProviders = new Map();  // chat key -> 'claude' | 'codex'
+const providerOfChat = (chat) => chatProviders.get(chat) || provider;
+
 const openDirs = () => [...open.keys()];
 
 const oneProject = (dir) => ({
@@ -331,17 +447,38 @@ function refreshMenu() {
   });
 }
 
-// Point the agent at the claude the settings page picked. Chats already running
-// keep the binary they started with; a new one gets this. The driver cache is
-// re-probed because the model list is filtered by the CLI's version, and the
-// two binaries are rarely the same version.
+// Point the agent at the claude the settings page named, if it named one. Chats
+// already running keep the binary they started with; a new one gets this. The
+// driver cache is re-probed because the model list is filtered by the CLI's
+// version, and a hand-picked binary is rarely the version PATH offers.
 async function applyClaudeBinary() {
-  const wanted = settings.get('claude').binary === 'path' ? systemBinary() : null;
-  preferBinary(wanted);
-  if (!driver) return null;
-  const d = await driver.refresh().catch(() => null);
-  if (d) send('agent:driver', d);
+  preferBinary(settings.get('claude').binary);
+  preferCodexBinary(settings.get('codex').binary);
+  const d = await activeDriver()?.refresh().catch(() => null);
+  if (d) send('agent:driver', { ...d, provider, providers: providerStates(), models: allModels(), current: settleModel() });
   return d;
+}
+
+/* Which CLI a new chat starts on. Existing chats are untouched: each one is a
+   thread on the CLI that made it, and there is no move that keeps the
+   conversation. Crossing that line on a chat with messages forks a new chat
+   instead; the panel decides that, because only it knows what has been said. */
+async function applyProvider(next) {
+  if (next !== 'claude' && next !== 'codex') return provider;
+  if (next === provider) return provider;
+  provider = next;
+  settings.patch({ agent: { provider } });
+  // Nothing already running is disturbed. A chat keeps the CLI it was made on
+  // for as long as it exists, so this only decides what the next new one gets.
+  // The skills and servers belong to the CLI, so the panel's lists change with
+  // it. Without this the footer keeps counting the other one's.
+  send('agent:catalog', cat().current(focusedCwd()));
+  const d = await activeDriver()?.refresh().catch(() => null);
+  send('agent:driver', {
+    ...(d || activeDriver().current({ refresh: false })),
+    provider, providers: providerStates(), models: allModels(), current: settleModel(),
+  });
+  return provider;
 }
 
 // Adding a folder to the window. Nothing that was already open is disturbed:
@@ -381,7 +518,7 @@ function focusProject(dir) {
   applyShown();
   if (win && !win.isDestroyed()) win.setTitle(`${path.basename(target)} · Tandem`);
   announce();
-  send('agent:catalog', catalog.current(target));
+  send('agent:catalog', cat().current(target));
   return projectInfo();
 }
 
@@ -507,9 +644,15 @@ function lighten(msg) {
 // under it: a chat the panel parked is resumed on the next message, under the
 // same key. Every event carries the key back so the panel knows which chat it
 // belongs to.
-async function ensureAgent({ chat = 'main', resume, project } = {}) {
+async function ensureAgent({ chat = 'main', resume, project, provider: want } = {}) {
   const live = sessions.get(chat);
   if (live && !live.closed) return live;
+
+  // The panel says which CLI this chat is on, because it knows whether the chat
+  // was just forked. Failing that it is whatever the chat already ran on, and
+  // only a chat that has never sent falls through to the picker's choice.
+  const runs = want || providerOfChat(chat);
+  chatProviders.set(chat, runs);
 
   // Where this chat runs, settled once and remembered. Not the focused project:
   // a chat keeps its folder when you go and read another one, which is the
@@ -517,36 +660,48 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
   const cwd = project && open.has(project) ? project : cwdOfChat(chat);
   chatProjects.set(chat, cwd);
 
-  const agent = new AgentSession({
-    resume: resume || null,
-    model: settleModel(),
-    mode: chosenMode,
-    effort: chosenEffort || undefined,
-    cwd,
-    settings: catalog.sessionSettings(cwd),
-    mcpOff: catalog.offAtRuntime(cwd),
-    invoke: async (tool, args, actor) => {
-      // Two chats each have a main thread, so the chat key is part of who this
-      // is. Without it the two would look like the same driver and neither
-      // would ever wait for the other.
-      const who = actor?.id && actor.id !== 'main'
-        ? { ...actor, chat }
-        : { id: `main:${chat}`, label: 'the main thread', chat };
-      // Whoever is driving keeps driving until they stop. A second agent that
-      // wants to change the page waits here rather than pulling the rug out
-      // from under the first one's refs.
-      const l = leaseFor(previewOf(cwd).tab);
-      const busy = await l.acquire(tool, who);
-      if (busy) throw new Error(busy);
-      try {
-        if (tool === 'navigate') showPreview(true, cwd);
-        send('agent:activity', { tool, args, t: Date.now(), actor: who, project: cwd });
-        return await runTool(tool, args, toolContext(cwd));
-      } finally {
-        l.done(tool, who);
-      }
-    },
-  });
+  // codex reaches the preview the same way a terminal agent does, through the
+  // MCP server on the bridge, so it needs the bridge's address rather than the
+  // in-process tools the SDK gets. See codex.js.
+  const agent = runs === 'codex'
+    ? new CodexSession({
+      resume: resume || null,
+      model: modelFor(runs),
+      mode: chosenMode,
+      effort: chosenEffort || undefined,
+      cwd,
+      bridgeEnv: bridge.env(),
+    })
+    : new AgentSession({
+      resume: resume || null,
+      model: modelFor(runs),
+      mode: chosenMode,
+      effort: chosenEffort || undefined,
+      cwd,
+      settings: catalog.sessionSettings(cwd),
+      mcpOff: catalog.offAtRuntime(cwd),
+      invoke: async (tool, args, actor) => {
+        // Two chats each have a main thread, so the chat key is part of who this
+        // is. Without it the two would look like the same driver and neither
+        // would ever wait for the other.
+        const who = actor?.id && actor.id !== 'main'
+          ? { ...actor, chat }
+          : { id: `main:${chat}`, label: 'the main thread', chat };
+        // Whoever is driving keeps driving until they stop. A second agent that
+        // wants to change the page waits here rather than pulling the rug out
+        // from under the first one's refs.
+        const l = leaseFor(previewOf(cwd).tab);
+        const busy = await l.acquire(tool, who);
+        if (busy) throw new Error(busy);
+        try {
+          if (tool === 'navigate') showPreview(true, cwd);
+          send('agent:activity', { tool, args, t: Date.now(), actor: who, project: cwd });
+          return await runTool(tool, args, toolContext(cwd));
+        } finally {
+          l.done(tool, who);
+        }
+      },
+    });
   sessions.set(chat, agent);
 
   agent.on('message', (m) => {
@@ -561,7 +716,7 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
     send('agent:ready', { ...r, chat });
     // A running session knows the account's real entitlements; the catalogue in
     // driver.js can only infer them from a version number.
-    agent.models().then((m) => driver.learn(m)).catch(() => {});
+    if (runs === 'claude') agent.models().then((m) => driver.learn(m)).catch(() => {});
     // Same trade for skills and servers: the disk scan cannot see the built-in
     // commands or whether a server actually came up, but a session can.
     learnCatalog();
@@ -571,7 +726,16 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
   agent.on('error', (e) => send('agent:error', { error: e, chat }));
   agent.on('closed', () => send('agent:closed', { chat }));
   agent.on('stderr', (d) => send('agent:stderr', { data: String(d).slice(0, 2000), chat }));
-  await agent.start();
+  try {
+    await agent.start();
+  } catch (e) {
+    // start() threw, so nothing is reading the queue and nothing ever will.
+    // Left in the map this corpse is handed back on every later message and the
+    // chat sits there looking busy forever.
+    sessions.delete(chat);
+    agent.closed = true;
+    throw e;
+  }
   return agent;
 }
 
@@ -580,10 +744,10 @@ async function ensureAgent({ chat = 'main', resume, project } = {}) {
 async function learnCatalog() {
   const dir = focusedCwd();
   const agent = anySession();
-  if (!agent) return catalog.current(dir);
+  if (!agent) return cat().current(dir);
   const [commands, mcp] = await Promise.all([agent.commands(), agent.mcpStatus()]);
-  catalog.learn(dir, { commands, mcp });
-  const next = catalog.current(dir);
+  cat().learn(dir, { commands, mcp });
+  const next = cat().current(dir);
   send('agent:catalog', next);
   return next;
 }
@@ -592,6 +756,13 @@ async function createWindow() {
   win = new BrowserWindow({
     width: 1600,
     height: 980,
+    /* A floor. There was none, so the window could be dragged down to a size
+       where the rail, the chat and the right column are all at their minimums
+       at once and none of them has room to be what it is. This is the width
+       where the chat still reads and the column can still collapse out of the
+       way, and below it there is nothing left to show. */
+    minWidth: 800,
+    minHeight: 520,
     backgroundColor: '#0b0d12',
     title: `${path.basename(focusedCwd())} · Tandem`,
     // The window draws its own title bar: the menu, the folder, the view tabs
@@ -612,7 +783,9 @@ async function createWindow() {
 
   // The probe usually lands before the window does, and that push has nowhere
   // to go. Repeat it once there is something to receive it.
-  driverReady?.then((d) => { if (d) send('agent:driver', { ...d, current: settleModel() }); });
+  driverReady?.then((d) => {
+    if (d) send('agent:driver', { ...d, provider, providers: providerStates(), models: allModels(), current: settleModel() });
+  });
 
   for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) {
     win.on(ev, () => send('win:state', windowState()));
@@ -702,8 +875,16 @@ function registerIpc() {
   // `session` is what the chat was last known as. A chat parked while idle has
   // no session under it any more, so the first message back resumes that
   // transcript rather than opening a second one beside it.
-  ipcMain.handle('agent:send', async (_e, { chat, session, text, images, project }) => {
-    const a = await ensureAgent({ chat, resume: session, project });
+  ipcMain.handle('agent:send', async (_e, { chat, session, text, images, project, provider: on }) => {
+    let a;
+    try {
+      a = await ensureAgent({ chat, resume: session, project, provider: on });
+    } catch (e) {
+      // Mostly one thing: no claude on this machine. The panel prints this in
+      // the chat, and an IPC rejection would bury it under Electron's own
+      // wrapper text.
+      return { error: e.message };
+    }
     a.send(text, images);
     return { ok: true, sessionId: a.sessionId };
   });
@@ -739,18 +920,29 @@ function registerIpc() {
   // Answered from the driver cache. Asking the SDK would mean starting a
   // session, and the picker is drawn before anyone has said anything.
   ipcMain.handle('agent:models', () => {
-    const d = driver.current();
+    // Both drivers, so the picker can offer both. current() refreshes a stale
+    // snapshot behind the caller; the idle one costs a spawn every six hours
+    // and nothing at all when its CLI is not installed.
+    activeDriver().current();
+    driverFor(provider === 'codex' ? 'claude' : 'codex')?.current();
+    const d = { ...activeDriver().current({ refresh: false }), models: allModels() };
     const current = settleModel() || anySession()?.model || '';
     // A name pinned against a proxy is not always one this app can see. Keep it
     // on the list rather than move someone to a different model without saying so.
     const models = current && !d.models.some((m) => m.value === current)
       ? [...d.models, { value: current, displayName: current, custom: true }]
       : d.models;
+    // Codex reports the levels each model takes, and they are not the same set
+    // for every model: the 5.6 line adds `ultra`, the older ones stop at xhigh.
+    // Falling back to the fixed list keeps claude drawing what it always did.
+    const row = models.find((m) => m.value === current);
     return {
+      provider,
+      providers: providerStates(),
       models,
       current,
       effort: chosenEffort,
-      efforts: EFFORT,
+      efforts: row?.effortLevels?.length ? row.effortLevels : EFFORT,
       // Whether the name in the picker is the long-context half of a pair, and
       // what the other half is called. The suffix is the whole difference.
       long: isLong(current),
@@ -759,6 +951,7 @@ function registerIpc() {
       version: d.version,
       message: d.message,
       endpoint: d.endpoint,
+      binaryPath: d.binaryPath || null,
     };
   });
 
@@ -769,7 +962,11 @@ function registerIpc() {
      running turn to change how hard it thinks is a worse trade than the turn
      finishing at the old level. */
   ipcMain.handle('agent:setEffort', async (_e, { effort } = {}) => {
-    const next = EFFORT.includes(effort) ? effort : '';
+    // Codex reports its own levels per model and the 5.6 line has one claude
+    // does not, so the fixed list cannot be the only thing that says yes.
+    const row = allModels().find((m) => m.value === settleModel());
+    const allowed = row?.effortLevels?.length ? row.effortLevels : EFFORT;
+    const next = allowed.includes(effort) ? effort : '';
     chosenEffort = next;
     settings.patch({ agent: { effort: next } });
     for (const [chat, a] of [...sessions]) if (!a.busy) stopChat(chat);
@@ -783,8 +980,8 @@ function registerIpc() {
     const from = settleModel() || anySession()?.model || '';
     if (!from || !hasLong(from)) return { error: 'that model has no long-context twin' };
     const model = on ? withLong(from) : withoutLong(from);
-    chosenModel = model;
-    settings.patch({ agent: { model } });
+    chosenModels.claude = model;
+    rememberModel('claude', model);
     // The CLI lists one half of the pair and not the other, so the name we just
     // switched to is usually not on its list. Remember it the way a hand-typed
     // name is remembered, or the picker goes blank on a model that is running
@@ -794,22 +991,35 @@ function registerIpc() {
     return { model, long: isLong(model), models: d.models };
   });
   ipcMain.handle('agent:setModel', async (_e, { model }) => {
-    chosenModel = model || null;
-    settings.patch({ agent: { model: chosenModel || '' } });
+    const next = model || null;
+    // Picking a codex model while claude is running is how someone switches
+    // CLI. Doing it here rather than behind a separate control is the whole
+    // point of one list: the model is the choice, the CLI follows it.
+    if (next) await applyProvider(providerOf(next));
+    chosenModels[provider] = next;
+    rememberModel(provider, next);
     // A name no probe offered is remembered for this endpoint, so it is still
-    // in the picker after a restart.
-    const d = chosenModel ? driver.remember(chosenModel) : driver.current({ refresh: false });
+    // in the picker after a restart. Only claude keeps a hand-typed list: codex
+    // answers model/list from the account, so there is nothing to type in.
+    if (provider === 'claude' && next) driver.remember(next);
     // Every chat follows the picker, and a cold one starts on the choice.
-    await Promise.all(liveSessions().map((a) => a.setModel(model)));
-    return { model: chosenModel, models: d.models };
+    await Promise.all(liveSessions().map((a) => a.setModel(next)));
+    // The window pills are a property of the name, not a setting on the session,
+    // and a codex model has no long twin. Without these the pill keeps whatever
+    // the last claude model made it say and offers 1M on a model that has none.
+    return { model: next, provider, models: allModels(), long: isLong(next), longCapable: hasLong(next) };
+  });
+  ipcMain.handle('agent:setProvider', async (_e, { provider: next } = {}) => {
+    await applyProvider(next);
+    return { provider, models: allModels(), current: settleModel() || '' };
   });
   ipcMain.handle('agent:forgetModel', (_e, { model }) => {
     const d = driver.forget(model);
-    if (chosenModel === model) {
-      chosenModel = d.models[0]?.value || null;
-      settings.patch({ agent: { model: chosenModel || '' } });
+    if (chosenModels.claude === model) {
+      chosenModels.claude = d.models[0]?.value || null;
+      rememberModel('claude', chosenModels.claude);
     }
-    return { model: chosenModel, models: d.models };
+    return { model: chosenModels.claude, models: d.models };
   });
   // The two reports the meter opens onto. Both come off the live session, and
   // both are asked for only when someone opens the panel: the running totals it
@@ -851,10 +1061,13 @@ function registerIpc() {
       send('agent:mode', { mode: chosenMode });
     }
     if (partial?.agent?.model !== undefined) {
-      chosenModel = partial.agent.model || null;
-      await Promise.all(liveSessions().map((a) => a.setModel(chosenModel)));
+      chosenModels[provider] = partial.agent.model || null;
+      await Promise.all(liveSessions().map((a) => a.setModel(chosenModels[provider])));
     }
-    if (partial?.claude?.binary !== undefined) await applyClaudeBinary();
+    if (partial?.claude?.binary !== undefined || partial?.codex?.binary !== undefined) {
+      await applyClaudeBinary();
+    }
+    if (partial?.agent?.provider !== undefined) await applyProvider(partial.agent.provider);
     send('settings:changed', next);
     return next;
   });
@@ -893,12 +1106,15 @@ function registerIpc() {
 
   // --- skills and MCP servers ---
   // Read off disk, so the panel can draw the list before any session exists.
-  ipcMain.handle('catalog:info', () => catalog.current(focusedCwd()));
+  ipcMain.handle('catalog:info', () => cat().current(focusedCwd()));
   ipcMain.handle('catalog:refresh', async () => {
-    catalog.invalidate(focusedCwd());
+    cat().invalidate(focusedCwd());
+    // codex has no session to ask: the probe is the whole answer.
+    if (provider === 'codex') return codexCatalog.refresh(focusedCwd());
     return learnCatalog();
   });
   ipcMain.handle('catalog:connectors', async (_e, { enabled }) => {
+    if (provider === 'codex') return codexCatalog.setConnectors(focusedCwd());
     const next = catalog.setConnectors(focusedCwd(), enabled);
     // The setting is read when a session starts, so a running one is told
     // separately; either way the next chat starts the way the switch says.
@@ -906,14 +1122,19 @@ function registerIpc() {
     return next;
   });
   ipcMain.handle('catalog:skill', async (_e, { name, enabled }) => {
-    const next = catalog.setSkill(focusedCwd(), name, enabled);
+    // codex writes the switch to its own config, which takes a round trip.
+    const next = await cat().setSkill(focusedCwd(), name, enabled);
+    if (provider === 'codex') return next;
     const overrides = catalog.sessionSettings(focusedCwd()).skillOverrides || {};
     await Promise.all(liveSessions().map((a) => a.setSkillOverrides(overrides)));
     return next;
   });
   ipcMain.handle('catalog:mcpToggle', async (_e, { name, enabled }) => {
-    const runtime = catalog.runtimeName(focusedCwd(), name);
-    const next = catalog.setMcp(focusedCwd(), name, enabled);
+    const runtime = cat().runtimeName(focusedCwd(), name);
+    const next = await cat().setMcp(focusedCwd(), name, enabled);
+    // codex was told through config.toml and a reload, so its live session has
+    // nothing to be asked and would only answer that it cannot help.
+    if (provider === 'codex') return next;
     const done = await Promise.all(liveSessions().map((a) => a.toggleMcp(runtime, enabled)));
     return { ...next, error: done.find((r) => r?.error)?.error || null };
   });
@@ -923,6 +1144,7 @@ function registerIpc() {
   // can see the browser prompt and answer it. The token it writes is the same
   // one the next chat reads.
   ipcMain.handle('catalog:mcpLogin', (_e, { name }) => {
+    if (provider === 'codex') return codexCatalog.mcpLogin(focusedCwd(), name);
     const server = catalog.current(focusedCwd()).mcp.find((s) => s.name === name);
     if (!server) return { error: `${name} is not a server this folder knows about` };
     if (server.type === 'stdio') return { error: `${name} runs as a local process, so there is nothing to sign in to` };
@@ -933,29 +1155,31 @@ function registerIpc() {
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
     const agent = anySession();
     const res = agent
-      ? await agent.reconnectMcp(catalog.runtimeName(focusedCwd(), name))
+      ? await agent.reconnectMcp(cat().runtimeName(focusedCwd(), name))
       : { error: 'no chat is running yet' };
     const next = await learnCatalog();
     return { ...next, error: res.error || null };
   });
   ipcMain.handle('catalog:mcpAdd', async (_e, { name, scope, config }) => {
     try {
-      catalog.addServer(focusedCwd(), { name, scope, config });
+      await cat().addServer(focusedCwd(), { name, scope, config });
     } catch (e) {
       return { error: e.message };
     }
+    if (provider === 'codex') return codexCatalog.current(focusedCwd());
     const done = await Promise.all(liveSessions().map((a) => a.addMcpServer(name, config)));
     const res = done.find((r) => r?.error) || {};
     const next = catalog.current(focusedCwd());
     return { ...next, error: res.error || null };
   });
   ipcMain.handle('catalog:mcpRemove', async (_e, { name, scope }) => {
-    const runtime = catalog.runtimeName(focusedCwd(), name);
+    const runtime = cat().runtimeName(focusedCwd(), name);
     try {
-      catalog.removeServer(focusedCwd(), name, scope);
+      await cat().removeServer(focusedCwd(), name, scope);
     } catch (e) {
       return { error: e.message };
     }
+    if (provider === 'codex') return codexCatalog.current(focusedCwd());
     await Promise.all(liveSessions().map((a) => a.removeMcpServer(runtime)));
     return catalog.current(focusedCwd());
   });
@@ -964,12 +1188,14 @@ function registerIpc() {
   // Every open project, because the rail is one list of folders now rather than
   // one folder's list. Each transcript is read once and its title cached, so the
   // cost of a refresh is a readdir and a stat per project.
-  ipcMain.handle('agent:history', () => ({
-    projects: openDirs().map((dir) => ({
+  ipcMain.handle('agent:history', async () => ({
+    // codex answers over a round trip rather than a readdir, so the projects
+    // are asked about together instead of one after another.
+    projects: await Promise.all(openDirs().map(async (dir) => ({
       dir,
       name: path.basename(dir) || dir,
-      sessions: listSessions(dir),
-    })),
+      sessions: await sessionsIn(dir),
+    }))),
     running: liveSessions().map((a) => a.sessionId).filter(Boolean),
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
@@ -983,19 +1209,21 @@ function registerIpc() {
   });
   ipcMain.handle('agent:transcript', async (_e, { id, project }) => {
     const dir = project && open.has(project) ? project : focusedCwd();
-    const t = await readSession(dir, id);
+    const h = ownerOf(id);
+    const t = await h.readSession(dir, id);
     // Which agents ran, so a replayed chat draws their rows straight away. The
     // transcripts behind them are only read if someone opens one.
-    return { ...t, subagents: listSubagents(dir, id) };
+    return { ...t, subagents: h.listSubagents(dir, id) };
   });
   ipcMain.handle('agent:subagent', (_e, { session, agentId, project }) =>
-    readSubagent(project && open.has(project) ? project : focusedCwd(), session, agentId));
+    ownerOf(session).readSubagent(project && open.has(project) ? project : focusedCwd(), session, agentId));
   // Deleting a chat. A session still running would write its transcript
   // straight back after the unlink, so the process behind it goes first.
-  ipcMain.handle('agent:deleteSession', (_e, { id, project } = {}) => {
+  ipcMain.handle('agent:deleteSession', async (_e, { id, project } = {}) => {
     for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
     try {
-      const gone = deleteSession(project && open.has(project) ? project : focusedCwd(), id);
+      const gone = await ownerOf(id).deleteSession(project && open.has(project) ? project : focusedCwd(), id);
+      owners.delete(id);
       // The transcript is what the mark was about, so it goes with it.
       completed.forget(id);
       return { ok: gone };
@@ -1077,11 +1305,15 @@ function registerIpc() {
   // the folder on screen.
   ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; paneOf(shownTab, { create: false })?.setBounds(b); });
   ipcMain.on('browser:visible', (_e, v) => {
-    paneVisible = !!v;
-    paneOf(shownTab, { create: false })?.setVisible(paneVisible);
+    paneCovered = !v;
+    paneOf(shownTab, { create: false })?.setVisible(!paneCovered);
   });
   ipcMain.on('browser:show', (_e, { tab, project } = {}) => {
     shownTab = tab || null;
+    // The cover was of the page that was in the box when the menu opened, so
+    // another preview arriving retires it. This is also the way back from a
+    // cover nobody lifted, which a menu unmounted while open would leave up.
+    paneCovered = false;
     // A tab the shell knows about and main has never made a page for: opening
     // the column on a fresh preview tab is the ordinary way here.
     if (shownTab) paneOf(shownTab, { project: owner(project) });
@@ -1125,15 +1357,28 @@ app.whenReady().then(async () => {
   // background if that file is stale. Nothing long-lived is started.
   // One `$SHELL -lic 'env'`, so the agent, its MCP servers and the model probe
   // see the directories and the credentials the user's own shell sees.
-  // systemBinary() reads this, so the claude preference is applied after it
-  // lands rather than against the launcher's stunted PATH.
+  // Finding claude reads this, so the model probe runs after it lands rather
+  // than against the launcher's stunted PATH.
   shellEnv.ready().then(() => applyClaudeBinary()).catch(() => {});
   driver = new Driver({ cacheDir: app.getPath('userData') });
+  codexDriver = new CodexDriver({ cacheDir: app.getPath('userData') });
   catalog = new Catalog({ cacheDir: app.getPath('userData') });
-  updates = new Updates({ usingSystem: () => settings.get('claude').binary === 'path' });
+  codexCatalog = new CodexCatalog({ cacheDir: app.getPath('userData') });
+  // codex answers from a spawned app-server, so a listing arrives after the
+  // call that asked for it rather than in its return value.
+  codexCatalog.on('changed', (dir, listing) => {
+    if (dir === focusedCwd()) send('agent:catalog', listing);
+  });
+  updates = new Updates();
   updates.on('changed', (snap) => send('updates:changed', snap));
-  driverReady = driver.refresh()
-    .then((d) => { send('agent:driver', { ...d, current: settleModel() }); return d; })
+  // Both, so the picker has the other CLI's models the first time it opens.
+  // The idle one is cheap when its binary is missing: no spawn, just a write.
+  driverFor(provider === 'codex' ? 'claude' : 'codex').refresh().catch(() => {});
+  driverReady = activeDriver().refresh()
+    .then((d) => {
+      send('agent:driver', { ...d, provider, providers: providerStates(), models: allModels(), current: settleModel() });
+      return d;
+    })
     .catch(() => null);
   if (open.get(focused)?.chosen) projects.remember(focused);
   projects.setOpenProjects(openDirs());
@@ -1210,4 +1455,4 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { stopAllChats(); bridge?.stop(); });
+app.on('before-quit', () => { stopAllChats(); bridge?.stop(); codexHistory.close(); });

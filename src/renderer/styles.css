@@ -478,6 +478,261 @@
   --term-white: #e5e9f0;
 }
 
+/* Brutalist. The colours are the smallest part of this one: what makes it is
+   the geometry. Corners come off entirely, the shadow stops being a blur and
+   becomes a solid slab thrown down and to the right, and anything that draws a
+   hairline draws two pixels instead. What is left to choose is paper, ink, and
+   one loud orange that only ever appears on something you can press. */
+[data-scheme="brutal"][data-theme="light"] {
+  --background: 45 62% 94%;
+  --foreground: 0 0% 5%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 14 88% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 45 48% 87%;
+  --secondary-foreground: 0 0% 5%;
+  --muted: 45 40% 89%;
+  --muted-foreground: 0 0% 30%;
+  /* Hover is the yellow. Every other theme darkens the row a shade; this one
+     lights it up, because a style with no soft edges has nothing else to say
+     "the pointer is here" with. */
+  --accent-bg: 47 100% 72%;
+  --destructive: 0 82% 45%;
+  --success: 145 70% 26%;
+  --warning: 35 100% 36%;
+  --border: 0 0% 5%;
+  --input: 0 0% 5%;
+  --ring: 14 88% 48%;
+  --radius: 0rem;
+  --shadow: 4px 4px 0 hsl(0 0% 5%);
+}
+
+[data-scheme="brutal"][data-theme="dark"] {
+  --background: 0 0% 7%;
+  --foreground: 45 40% 96%;
+  --card: 0 0% 11%;
+  --popover: 0 0% 9%;
+  --primary: 18 95% 56%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 45 40% 96%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 45 10% 70%;
+  --accent-bg: 0 0% 26%;
+  --destructive: 0 85% 62%;
+  --success: 145 60% 50%;
+  --warning: 40 95% 60%;
+  /* Bone rather than white. Two pixels of pure white around every card is a
+     window of light boxes with a dark room behind them, and the boxes win. */
+  --border: 45 18% 74%;
+  --input: 45 18% 74%;
+  --ring: 18 95% 56%;
+  --radius: 0rem;
+  --shadow: 4px 4px 0 hsl(45 18% 74%);
+}
+
+/* --radius is what the shell reads, and Tailwind's rounded-* utilities read
+   three steps derived from it in index.css, the smallest of which still leaves
+   two pixels of corner. Square means square, so the steps are pinned here as
+   well. rounded-full is left alone: it is scrollbar thumbs, status dots and
+   the loading bar, none of which are corners. */
+[data-scheme="brutal"] {
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+}
+
+[data-scheme="brutal"] {
+  --term-bg: #0a0a0a;
+  --term-fg: #f2ead7;
+  --term-dim: #8b8474;
+  --term-line: #262626;
+  --term-cursor: #ff6a1f;
+  --term-selection: #4a3a22;
+  --term-black: #171717;
+  --term-red: #ff5f4d;
+  --term-green: #4ede8a;
+  --term-yellow: #ffd21f;
+  --term-blue: #4d9dff;
+  --term-magenta: #ff6ad5;
+  --term-cyan: #3fd8d8;
+  --term-white: #f2ead7;
+}
+
+/* Named surfaces and named controls, rather than every border in the window: a
+   rule that thickened all of them would put a two-pixel box around each row of
+   the transcript and each line of a diff. Ghost buttons are left out for the
+   same reason, since the toolbars are made of them and they have no border to
+   thicken in the first place. */
+[data-scheme="brutal"] :is(
+  [data-slot="card"],
+  [data-slot="alert"],
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="menubar-content"],
+  [data-slot="select-content"],
+  [data-slot="select-trigger"],
+  [data-slot="input"],
+  [data-slot="input-group"],
+  [data-slot="textarea"],
+  [data-slot="button"]:is([data-variant="default"], [data-variant="destructive"], [data-variant="secondary"], [data-variant="outline"])
+) {
+  border-width: 2px;
+  border-color: hsl(var(--border));
+  box-shadow: var(--shadow);
+}
+
+/* The seams the shell draws itself, which are declared one side at a time, so
+   setting all four widths only lands on the side that has a style. */
+[data-scheme="brutal"] :is(#toolbar, #right, #panel) { border-width: 2px; }
+
+/* The one piece of motion the style gets: a press pushes the control into its
+   own shadow and lands flush, which is where the offset came from. */
+[data-scheme="brutal"] [data-slot="button"]:is([data-variant="default"], [data-variant="destructive"], [data-variant="secondary"], [data-variant="outline"]):active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+[data-scheme="brutal"] :is([data-slot="button"], [data-slot="tabs-trigger"], [data-slot="dialog-title"]) {
+  font-weight: 700;
+}
+
+/* The swatch in settings wears the attribute itself, which is the one element
+   a descendant rule cannot reach. */
+button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
+
+/* Glass. The window stops being a stack of opaque panels: there is one
+   coloured ground painted on <html>, and everything above it is a tint with a
+   blur behind it, so the rail shows you a smeared version of the chat it is
+   sitting on rather than a flat grey.
+
+   Two things stay solid on purpose. The terminal is a canvas xterm repaints
+   per frame and a transcript legible through it is a transcript in the way,
+   and the preview is a native view the window paints over this document, which
+   nothing in a stylesheet can see through. */
+[data-scheme="glass"][data-theme="light"] {
+  --background: 220 46% 95%;
+  --foreground: 224 40% 14%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 222 84% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 40% 90%;
+  --secondary-foreground: 224 40% 16%;
+  --muted: 220 40% 92%;
+  --muted-foreground: 222 16% 40%;
+  --accent-bg: 222 62% 92%;
+  --destructive: 352 78% 50%;
+  --success: 160 62% 30%;
+  --warning: 35 92% 40%;
+  --border: 224 30% 82%;
+  --input: 224 30% 82%;
+  --ring: 222 84% 55%;
+  --radius: 1rem;
+  --shadow: 0 16px 40px hsl(224 50% 30% / .18);
+}
+
+[data-scheme="glass"][data-theme="dark"] {
+  --background: 232 42% 9%;
+  --foreground: 220 30% 96%;
+  /* Read at roughly half alpha everywhere below, so this is the colour of the
+     sheet rather than the colour of a panel: too dark here and the blur behind
+     it stops being visible at all. */
+  --card: 230 30% 24%;
+  --popover: 230 32% 20%;
+  --primary: 214 95% 66%;
+  --primary-foreground: 230 45% 10%;
+  --secondary: 230 24% 30%;
+  --secondary-foreground: 220 30% 96%;
+  --muted: 230 24% 32%;
+  --muted-foreground: 224 20% 76%;
+  --accent-bg: 230 26% 34%;
+  --destructive: 352 88% 68%;
+  --success: 160 62% 52%;
+  --warning: 38 92% 65%;
+  --border: 228 22% 44%;
+  --input: 228 22% 44%;
+  --ring: 214 95% 66%;
+  --radius: 1rem;
+  --shadow: 0 18px 46px hsl(230 60% 3% / .6);
+}
+
+[data-scheme="glass"] {
+  --term-bg: #0b0f1e;
+  --term-fg: #dde3f5;
+  --term-dim: #7c86a8;
+  --term-line: #1a2038;
+  --term-cursor: #6aa8ff;
+  --term-selection: #2b3560;
+  --term-black: #151a2c;
+  --term-blue: #6aa8ff;
+  --term-magenta: #b39bff;
+  --term-cyan: #5ed3e0;
+  --term-white: #dde3f5;
+}
+
+/* The ground: one colour and three lights in it. Painted on whatever carries
+   the attribute, which is <html> for the window and the tile itself for the
+   swatch in settings, so the picker is a small picture of the real thing.
+
+   The three are spread across the whole window rather than tucked into the
+   corners. Corners are where the rail and the column sit, and a light nobody
+   can see through a panel is a light that may as well not be lit: the first
+   pass put them at 6% and 94% and the chat, which is most of the window, came
+   out flat. */
+[data-scheme="glass"] {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(70% 60% at 18% 8%, hsl(var(--primary) / .40), transparent 66%),
+    radial-gradient(60% 55% at 82% 34%, hsl(var(--token-skill) / .34), transparent 68%),
+    radial-gradient(75% 60% at 45% 96%, hsl(var(--token-path) / .30), transparent 70%);
+}
+
+/* <body> is what actually covers the window, so it has to get out of the way
+   of the gradient on <html> above it. */
+[data-scheme="glass"] body { background: transparent; }
+
+/* The two strips are already painted in --rail, which is a tint, so they only
+   want the blur. The panes are solid in every other theme and are cut back to
+   a sheet here. */
+[data-scheme="glass"] :is(#titlebar, #toolbar) {
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* The two panes are the biggest sheets in the window, so their tint is the one
+   number that decides whether the ground is visible at all. A third is about
+   the limit: past that the gradient is gone, under it the transcript starts
+   sitting on colour rather than on glass. */
+[data-scheme="glass"] :is(#agent, #right) {
+  background: hsl(var(--card) / .30);
+  backdrop-filter: blur(22px) saturate(150%);
+}
+
+[data-scheme="glass"] :is(
+  [data-slot="card"],
+  [data-slot="alert"],
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="menubar-content"],
+  [data-slot="select-content"],
+  [data-slot="command"],
+  [data-slot="input-group"],
+  [data-slot="sidebar-inner"]
+) {
+  background-color: hsl(var(--card) / .55);
+  border-color: hsl(var(--foreground) / .14);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+
+/* A dialog is the one time the whole window goes behind something, so the
+   whole window is what gets blurred. */
+[data-scheme="glass"] [data-slot="dialog-overlay"] { backdrop-filter: blur(6px); }
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -501,8 +756,13 @@ body { display: flex; flex-direction: column; }
 /* The chrome's own buttons are unstyled by default. The React panel styles its
    own, and its overlays (dialogs, menus) are portalled to <body>, outside
    #agent-root, so exempt anything sitting under a shadcn data-slot as well or
-   this rule strips their borders and colours. */
-button:not(#agent-root button):not([data-slot] button) { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+   this rule strips their borders and colours.
+
+   A shadcn button wears a data-slot of its own, and the two :not(#…) clauses
+   above make this selector outrank anything a theme can say, so a button that
+   happened to have no data-slot ancestor was one the Brutalist theme could not
+   put a border on. Carrying the slot is the same claim as sitting under one. */
+button:not(#agent-root button):not([data-slot] button):not([data-slot]) { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 .dim { color: var(--fg-dim); }
 
 kbd {
@@ -530,6 +790,10 @@ kbd {
   height: 34px; padding: 0 0 0 10px;
   background: var(--rail);
   -webkit-app-region: drag;
+  /* The search sits in the middle of the window rather than in the middle of
+     what the menus and the window buttons leave over, and those two ends are
+     not the same width. */
+  position: relative;
 }
 #titlebar button, #titlebar input { -webkit-app-region: no-drag; }
 
@@ -542,6 +806,15 @@ kbd {
 }
 #toolbar button, #toolbar input { -webkit-app-region: no-drag; }
 
+
+/* The preview's loading bar. A page load has no percentage worth reporting, so
+   this says "something is happening" and nothing else: a short bar crossing the
+   top of the pane until the load stops. */
+@keyframes pane-load {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(420%); }
+}
+.pane-load { animation: pane-load 1.05s ease-in-out infinite; }
 
 /* ------------------------------------------------------------------ shell */
 

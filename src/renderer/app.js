@@ -763,12 +763,9 @@ window.tandem.agent.onActivity(({ tool, project }) => {
 /* An agent asking for a preview in a folder that has none is answered by main,
    which mints the id and has a page loading on it before it says anything. The
    tab is opened under that same id, so the strip and the native view are the one
-   thing. Without this the agent's page is live with nothing to click. */
-window.tandem.browser.onOpenTab(({ project, tab }) => {
-  // The column is only brought up if this is the folder on screen. An agent
-  // working somewhere you are not looking at gets its tab made and waiting.
-  if (project && tab) openTab(project, 'browser', tab, { reveal: project === state.focused });
-});
+   thing. That is browser-store's job: it hears the same event, and it is the
+   half that also files the tab under its folder. Answering it here too put two
+   rows in the strip wearing one id, and closing either took the other's page. */
 
 // ------------------------------------------------------------- commands
 
@@ -780,6 +777,9 @@ export function runCommand(name, arg) {
       if (arg === false) return hidePreview();
       return togglePreview();
     case 'newPreview': return newPreview();
+    // The palette lives in the React half and registers itself on the window,
+    // the way the settings dialog does.
+    case 'palette': return window.tandemPalette?.toggle();
     case 'previewFull':
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();
@@ -830,7 +830,7 @@ wire(() => new ResizeObserver(() => syncBounds()).observe($('#paneslot')));
 function isAppChord(e) {
   const mod = e.ctrlKey || e.metaKey;
   const k = (e.key || '').toLowerCase();
-  if (mod && e.shiftKey && ['b', 'd', 'g', 't', 'l', 'e', 'j', 's', 'k'].includes(k)) return true;
+  if (mod && e.shiftKey && ['b', 'd', 'g', 't', 'l', 'e', 'j', 's', 'k', 'p'].includes(k)) return true;
   if (mod && k === '`') return true;
   if (mod && !e.shiftKey && k.length === 1 && k >= '1' && k <= '9') return true;
   return false;
@@ -845,7 +845,7 @@ window.addEventListener('keydown', (e) => {
   else if (mod && shift && k === 'd') { e.preventDefault(); toggleFiles(); }
   else if (mod && shift && k === 'g') { e.preventDefault(); toggleChanges(); }
   else if (mod && shift && k === 't') { e.preventDefault(); newTerminalTab(); }
-  else if (mod && shift && k === 'k') { e.preventDefault(); document.querySelector('#agent-root textarea')?.focus(); }
+  else if (mod && shift && k === 'k') { e.preventDefault(); document.querySelector('#agent-root [contenteditable="true"]')?.focus(); }
   else if (mod && shift && k === 'l') { e.preventDefault(); openPreview(); $('#url')?.select(); $('#url')?.focus(); }
   else if (mod && shift && k === 'e') { e.preventDefault(); pickElement(); }
   else if (mod && shift && k === 'j') { e.preventDefault(); toggleDrawer(); }

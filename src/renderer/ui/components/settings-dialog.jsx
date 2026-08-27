@@ -27,7 +27,7 @@ import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
 // The vanilla half owns the preview pane, which has to move out of the way of
 // any dialog that opens over it.
-import { CHAT_SIZES, parkPreview, ZOOM_STEPS } from '../../app.js';
+import { CHAT_SIZES, parkPreview, toast, ZOOM_STEPS } from '../../app.js';
 
 const SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
@@ -158,13 +158,14 @@ function Appearance({ settings, set }) {
       </Row>
       <Field className="gap-3 py-4">
         <FieldContent>
-          <FieldLabel>Colours</FieldLabel>
+          <FieldLabel>Style</FieldLabel>
           <FieldDescription>
             The whole window: chat, rail, panels, dialogs and the terminal. Each one has a light
-            and a dark version, and the switch above picks between them.
+            and a dark version, and the switch above picks between them. The last two change more
+            than the colours. Brutalist squares every corner, Glass makes the panels see-through.
           </FieldDescription>
         </FieldContent>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {SCHEMES.map(([id, label, note]) => (
             <SchemeTile
               key={id}
@@ -252,15 +253,76 @@ function ModelRow({ agent }) {
   );
 }
 
+/* The two CLIs the panel can drive. Neither ships with Tandem, so for each one
+   this is the name, where to get it, and what the box on the settings page
+   should suggest when someone has it somewhere odd. */
+const PROVIDERS = {
+  claude: {
+    label: 'Claude',
+    cli: 'claude',
+    install: 'npm install -g @anthropic-ai/claude-code',
+    where: '/usr/local/bin/claude',
+    missing: 'Nothing named claude on your PATH. Install it, check that claude --version answers in a terminal, then restart Tandem.',
+  },
+  codex: {
+    label: 'Codex',
+    cli: 'codex',
+    install: 'npm install -g @openai/codex',
+    where: '/usr/local/bin/codex',
+    missing: 'Nothing named codex on your PATH. Install it, run codex login once, then restart Tandem. If your only copy is the one inside the ChatGPT app, give its full path below.',
+  },
+};
+
+// The CLI updates itself whichever way it was installed, so one command covers
+// the npm copy and the one the native installer put down.
+const CLAUDE_UPDATE = 'claude update';
+// codex has a `codex update`, but it only works for the native install and
+// refuses on an npm one, which is how most people have it.
+const CODEX_UPDATE = 'npm install -g @openai/codex';
+
+// Copying in silence looks like a button that did nothing.
+const copy = (text) => {
+  navigator.clipboard?.writeText(text);
+  toast('Copied', text);
+};
+
 function Agent({ settings, set, agent, updates }) {
+  const provider = agent.provider === 'codex' ? 'codex' : 'claude';
+  const p = PROVIDERS[provider];
+  // The driver knows first: it probes on every launch, while the update check
+  // is a network call someone can switch off. Only the version comes from the
+  // update cache, and only when the driver has not reported one yet, and only
+  // for claude, which is the only one that check asks about.
   const claude = updates.claude || {};
-  const usingSystem = settings.claude.binary === 'path';
-  const system = claude.system;
-  const bundled = claude.bundled;
+  const running = agent.driver?.installed
+    ? {
+      path: agent.driver.binaryPath,
+      version: agent.driver.version || (provider === 'claude' ? claude.running?.version : null),
+    }
+    : null;
+  const saved = settings[provider].binary || '';
+  const [draft, setDraft] = useState(saved);
+  // Two things move this box: switching provider, and a settings reset. Either
+  // way a stale path would be written back on the next blur.
+  useEffect(() => { setDraft(saved); }, [saved]);
 
   return (
     <>
       <Section title="New chats" note="What a chat starts on. Changing it here changes the chats already open too.">
+        <Row
+          label="Agent"
+          hint="Which CLI the panel drives. Chats already open keep the one they started on; the next message starts a new one.">
+          <Select value={provider} onValueChange={agent.changeProvider}>
+            <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {Object.entries(PROVIDERS).map(([id, v]) => (
+                  <SelectItem key={id} value={id}>{v.label}</SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Row>
         <ModelRow agent={agent} />
         <Row label="Permission mode" hint={MODES.find(([v]) => v === settings.agent.mode)?.[2]}>
           <Select value={settings.agent.mode} onValueChange={(mode) => set({ agent: { mode } })}>
@@ -275,29 +337,23 @@ function Agent({ settings, set, agent, updates }) {
       </Section>
 
       <Section
-        title="Claude CLI"
-        note="Which binary the agent starts. A chat already running keeps the one it started with.">
-        <Row
-          label="Bundled with Tandem"
-          hint={bundled?.path || 'Not found in this build.'}>
-          <Mono>{bundled?.version || '—'}</Mono>
-          <Button
-            variant={usingSystem ? 'outline' : 'default'}
-            disabled={!usingSystem}
-            onClick={() => set({ claude: { binary: 'bundled' } })}>
-            {usingSystem ? 'Use' : 'In use'}
-          </Button>
+        title={`${p.label} CLI`}
+        note={`Tandem runs the ${p.cli} you installed. A chat already running keeps the one it started with.`}>
+        <Row label={running ? 'Found' : 'Not found'} hint={running?.path || p.missing}>
+          <Mono>{running?.version || '—'}</Mono>
+          {!running && <Button variant="outline" onClick={() => copy(p.install)}>Copy command</Button>}
         </Row>
         <Row
-          label="Yours, on PATH"
-          hint={system?.path || 'No separate claude found on your PATH.'}>
-          <Mono>{system?.version || '—'}</Mono>
-          <Button
-            variant={usingSystem ? 'default' : 'outline'}
-            disabled={!system || usingSystem}
-            onClick={() => set({ claude: { binary: 'path' } })}>
-            {usingSystem ? 'In use' : 'Use'}
-          </Button>
+          label="Somewhere else"
+          hint={`Leave this empty unless ${p.cli} lives where PATH cannot reach it. A full path to the binary.`}>
+          <Input
+            className="w-72 font-mono text-xs"
+            value={draft}
+            placeholder={p.where}
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => set({ [provider]: { binary: draft.trim() } })}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
         </Row>
       </Section>
     </>
@@ -468,8 +524,29 @@ function Downloading({ received, total }) {
   );
 }
 
+// Both CLIs answer the same three questions, so they get the same row: which
+// version is running, whether a newer one is out, and what to type for it.
+function CliSection({ title, note, state, update, absent }) {
+  const cli = state || {};
+  return (
+    <Section title={title} note={note}>
+      <Row
+        label={cli.missing ? 'Not found' : cli.behind ? `${cli.latest} is out` : 'Up to date'}
+        hint={cli.missing
+          ? absent
+          : cli.running?.version
+            ? `Running ${cli.running.version}${cli.latest ? `, latest is ${cli.latest}` : ''}.`
+            : 'No version reported yet.'}>
+        {cli.behind && (
+          <Button variant="outline" onClick={() => copy(update)}>Copy update command</Button>
+        )}
+      </Row>
+    </Section>
+  );
+}
+
 function Updates({ settings, set, updates }) {
-  const { app, claude, kind, progress, file, checking } = updates;
+  const { app, claude, codex, kind, progress, file, checking } = updates;
   const behind = app.behind;
 
   return (
@@ -553,21 +630,19 @@ function Updates({ settings, set, updates }) {
         </Row>
       </Section>
 
-      <Section
+      <CliSection
         title="Claude CLI"
-        note="The bundled binary only moves when Tandem does. Your own copy updates whenever you update it.">
-        <Row
-          label={claude.behind ? `${claude.latest} is out` : 'Up to date'}
-          hint={claude.running?.version
-            ? `Running ${claude.running.version}${claude.latest ? `, latest is ${claude.latest}` : ''}.`
-            : 'No version reported yet.'}>
-          {claude.canSwitch && (
-            <Button onClick={() => set({ claude: { binary: 'path' } })}>
-              Use yours ({claude.system.version})
-            </Button>
-          )}
-        </Row>
-      </Section>
+        note="Yours to update. Tandem only reads the version, so it never replaces the binary under you."
+        state={claude}
+        update={CLAUDE_UPDATE}
+        absent="No claude on your PATH, so Claude chats cannot start. See the Agent tab." />
+
+      <CliSection
+        title="Codex CLI"
+        note="Only needed if you drive codex. Same deal: Tandem reads the version and nothing else."
+        state={codex}
+        update={CODEX_UPDATE}
+        absent="No codex on your PATH. Install it if you want to drive codex from the Agent tab." />
 
       {updates.error && (
         <Alert variant="destructive">
@@ -673,7 +748,7 @@ export function SettingsDialog({ open, onOpenChange, section = 'appearance', set
               {label}
               {/* The one place a badge earns its keep: an update nobody has
                   looked at yet is the reason this page exists. */}
-              {id === 'updates' && (updates.app.behind || updates.claude?.canSwitch) && (
+              {id === 'updates' && (updates.app.behind || updates.claude?.behind || updates.codex?.behind) && (
                 <span className="ml-auto size-2 rounded-full bg-primary" />
               )}
             </Button>

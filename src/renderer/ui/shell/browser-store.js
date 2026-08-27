@@ -30,6 +30,9 @@ const blank = () => ({
   canGoForward: false,
   // A page is "live" once something other than about:blank is loaded.
   live: false,
+  // Fetching. The status line said so in words, which is not something anyone
+  // reads while they are waiting to see whether the pane is stuck.
+  loading: false,
   status: '',
   error: null,
   console: [],
@@ -394,6 +397,7 @@ window.tandem.browser.onState((s) => {
 
   const empty = !s.url || s.url === 'about:blank';
   b.live = !empty;
+  b.loading = !!s.loading && !s.error;
 
   b.status = s.error
     ? `error: ${s.error}`
@@ -426,7 +430,9 @@ window.tandem.browser.onOpenTab(({ project, tab }) => {
   if (!project || !tab) return;
   ownerOf.set(tab, project);
   if (previewTabs(project).includes(tab)) activateTab(project, tab);
-  else openTab(project, 'browser', tab);
+  // The column is only brought up for the folder on screen. An agent working
+  // somewhere you are not looking at gets its tab made and waiting.
+  else openTab(project, 'browser', tab, { reveal: project === focusedDir });
   syncPreview();
 });
 
