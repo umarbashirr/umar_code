@@ -111,6 +111,51 @@ const modelsFor = (version) => CATALOG.filter(
   (m) => !m.since || (version && compareVersions(version, m.since) >= 0),
 ).map(({ value, displayName }) => ({ value, displayName }));
 
+/* Claude Code names the long-context variant of a model by suffixing its id:
+   `opus` is the ordinary window, `opus[1m]` is the million-token one. The CLI
+   lists whichever it defaults to and not both, so a person who wants the other
+   one had no way to say so short of typing a name by hand. The suffix is the
+   whole difference, so the picker can offer both from either. */
+const LONG = '[1m]';
+
+const isLong = (value) => String(value || '').endsWith(LONG);
+const withLong = (value) => (isLong(value) ? value : `${value}${LONG}`);
+const withoutLong = (value) => (isLong(value) ? value.slice(0, -LONG.length) : value);
+
+// Haiku has no million-token window to offer, and asking for one gets an error
+// rather than a longer window.
+const LONG_CAPABLE = /(opus|fable|sonnet)/i;
+const hasLong = (value) => LONG_CAPABLE.test(withoutLong(value));
+
+/* Both halves of every pair, so the window is something you pick rather than
+   something you are stuck with. The CLI lists whichever it defaults to and only
+   that one, which is why the window looked unchangeable: there was no other row
+   to choose. It also matters that both are always on the list, because a picker
+   handed a value it cannot find falls back to its first item and quietly
+   changes the model out from under you.
+
+   The long one is named for what it is. Left alone, a pair reads as two rows
+   with the same name and no way to tell which is which. */
+const SUFFIX = ' (1M context)';
+
+function withVariants(models) {
+  const out = [];
+  const seen = new Set();
+  const add = (row) => { if (!seen.has(row.value)) { seen.add(row.value); out.push(row); } };
+
+  for (const m of models) {
+    const base = (m.displayName || m.value).replace(SUFFIX, '');
+    if (!hasLong(m.value)) { add(m); continue; }
+    // The row the CLI gave keeps its place; its twin follows it, so whatever
+    // was first stays first and settleModel lands where it always did.
+    const long = { ...m, value: withLong(m.value), displayName: base + SUFFIX };
+    const short = { ...m, value: withoutLong(m.value), displayName: base };
+    add(isLong(m.value) ? long : short);
+    add(isLong(m.value) ? short : long);
+  }
+  return out;
+}
+
 const parseVersion = (out) => out.match(/\b(\d+\.\d+\.\d+)\b/)?.[1] || null;
 
 // `claude --version` and nothing else: it prints a line and exits, so the
@@ -249,7 +294,7 @@ class Driver {
           : `Checking which models ${ep} serves…`,
       };
     }
-    return { ...this.snapshot, models: withCustom(pickable(this.snapshot.models), this.#custom(ep)) };
+    return { ...this.snapshot, models: withCustom(withVariants(pickable(this.snapshot.models)), this.#custom(ep)) };
   }
 
   // Answers with what the picker should show, hand-typed names included, since
@@ -322,8 +367,15 @@ class Driver {
     // A proxy already told us what it serves, and it knows better than the CLI,
     // which lists what Anthropic offers rather than what this key can reach.
     if (ep !== 'anthropic' && this.snapshot.served && this.snapshot.endpoint === ep) return;
-    const clean = pickable(models)
-      .map((m) => ({ value: m.value, displayName: m.displayName || m.value }));
+    const clean = pickable(models).map((m) => ({
+      value: m.value,
+      displayName: m.displayName || m.value,
+      // The CLI knows which effort levels each model takes and whether it has a
+      // long-context twin. Dropping that was why the picker could only ever
+      // offer a name.
+      ...(m.supportsEffort === undefined ? {} : { supportsEffort: !!m.supportsEffort }),
+      ...(Array.isArray(m.supportedEffortLevels) ? { effortLevels: m.supportedEffortLevels } : {}),
+    }));
     if (!clean.length) return;
     this.#write({
       ...this.snapshot, models: clean, learned: true, served: false,
@@ -358,5 +410,6 @@ class Driver {
 module.exports = {
   Driver, claudeBinary, bundledBinary, systemBinary, preferBinary,
   modelsFor, compareVersions, parseVersion, probeVersion, probeModels,
+  isLong, withLong, withoutLong, hasLong, withVariants,
   endpoint, CATALOG,
 };

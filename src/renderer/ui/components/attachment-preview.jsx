@@ -4,6 +4,7 @@ import { CheckIcon, CopyIcon, CrosshairIcon, FileIcon, TriangleAlertIcon } from 
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { sizeLabel } from '@/lib/attachments';
@@ -24,13 +25,14 @@ function PathRow({ label, path }) {
     <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
       <span className="shrink-0 text-muted-foreground text-xs">{label}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>{path}</span>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title="Copy the path"
         onClick={() => { navigator.clipboard?.writeText(path); setCopied(true); }}
-        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground">
+        className="text-muted-foreground">
         {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -60,7 +62,7 @@ function Body({ item }) {
   if (item.kind === 'element') {
     const { hit, shotPath } = item;
     return (
-      <div className="space-y-2.5">
+      <div className="flex flex-col gap-2.5">
         <Field label="element">{hit.role === 'generic' ? hit.tag : hit.role}</Field>
         {(hit.name || hit.text) && <Field label="text">{hit.name || hit.text}</Field>}
         <Field label="css" mono>{hit.css}</Field>
@@ -83,7 +85,7 @@ function Body({ item }) {
   }
 
   return (
-    <div className="space-y-2.5">
+    <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2.5">
         <FileIcon className="size-5 text-muted-foreground" />
         <div className="min-w-0">
@@ -150,7 +152,7 @@ export function AttachmentPreview({ item, onNote, onOpenChange }) {
       <DialogContent className="flex max-h-[82vh] max-w-3xl flex-col gap-3 p-4 sm:max-w-3xl">
         {item && (
           <>
-            <DialogHeader className="space-y-0 text-left">
+            <DialogHeader className="gap-0 text-left">
               <DialogTitle className="flex items-center gap-2 truncate pr-6 text-sm">
                 {item.kind === 'element' && <CrosshairIcon className="size-4 shrink-0 text-muted-foreground" />}
                 <span className="truncate">{item.kind === 'element' ? 'Element from the page' : item.name}</span>

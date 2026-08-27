@@ -55,13 +55,25 @@
   --code: hsl(var(--foreground) / .9);
   --shadow: 0 4px 14px hsl(240 10% 3.9% / .10);
   --scroll: hsl(var(--border));
+  /* The terminal stays dark in every theme: a white terminal fights the prompt
+     and colour scheme people already have. What a theme changes is which dark
+     it is. app.js reads these and hands them to xterm, so they are hex rather
+     than HSL triples, and anything the app paints on top of the terminal reads
+     the same four greys. */
   --term-bg: #0b0d12;
-  /* The terminal stays dark in both app themes, so anything painted on it
-     needs colours of its own rather than the greys that flip with the theme.
-     These match the xterm palette in termTheme(). */
   --term-fg: #d7dce6;
   --term-dim: #79839a;
   --term-line: #1b2130;
+  --term-cursor: #6ea8fe;
+  --term-selection: #2a3550;
+  --term-black: #171b26;
+  --term-red: #ef6a6a;
+  --term-green: #58d18a;
+  --term-yellow: #e5b567;
+  --term-blue: #6ea8fe;
+  --term-magenta: #b58cf6;
+  --term-cyan: #5fd0d0;
+  --term-white: #d7dce6;
   --r: var(--radius);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Code", monospace;
 }
@@ -96,19 +108,378 @@
   --token-element-fg: 40 92% 74%;
 }
 
+/* ---------------------------------------------------------------- themes */
+
+/* A theme is a palette, not a mode. The two are separate settings: data-theme
+   on <html> is light or dark, data-scheme is which colours that light or dark
+   is made of. Zinc is the pair above, so it needs nothing here.
+
+   Every rule below is written [data-scheme][data-theme], which outranks the
+   :root and [data-theme="dark"] blocks whatever order they land in. Nothing
+   else in the app has to know a theme exists: the aliases at the top of this
+   file, the Tailwind names in index.css and the token badges all read these
+   same triples. Set the two attributes on any element and its subtree is
+   painted in that theme, which is how the swatches in settings work. */
+
+/* Ocean. Blue, the way a code editor is blue. */
+[data-scheme="ocean"][data-theme="light"] {
+  --background: 210 40% 99%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 212 84% 43%;
+  --primary-foreground: 210 40% 99%;
+  --secondary: 210 38% 94%;
+  --secondary-foreground: 222 47% 16%;
+  --muted: 210 38% 94%;
+  --muted-foreground: 215 20% 45%;
+  --accent-bg: 210 55% 93%;
+  --destructive: 0 72% 48%;
+  --success: 160 78% 29%;
+  --warning: 32 92% 40%;
+  --border: 214 32% 88%;
+  --input: 214 32% 88%;
+  --ring: 212 84% 43%;
+  --shadow: 0 4px 14px hsl(222 47% 11% / .12);
+}
+
+[data-scheme="ocean"][data-theme="dark"] {
+  /* Zinc dark sits at 3.9% lightness, which is near enough to black that a hue
+     at that depth is invisible on a real screen. A theme that is not the
+     neutral one has to be light enough to see the colour in, so the grounds
+     here start around 11% and the chrome climbs from there. */
+  --background: 220 34% 11%;
+  --foreground: 210 38% 96%;
+  --card: 220 30% 14%;
+  --popover: 220 32% 12%;
+  --primary: 210 90% 62%;
+  --primary-foreground: 222 47% 10%;
+  --secondary: 217 26% 21%;
+  --secondary-foreground: 210 38% 96%;
+  --muted: 217 26% 21%;
+  --muted-foreground: 213 20% 70%;
+  --accent-bg: 217 27% 24%;
+  --destructive: 0 75% 66%;
+  --success: 160 60% 52%;
+  --warning: 38 92% 64%;
+  --border: 217 24% 24%;
+  --input: 217 24% 24%;
+  --ring: 210 90% 62%;
+  --shadow: 0 8px 24px hsl(222 60% 2% / .6);
+}
+
+[data-scheme="ocean"] {
+  --term-bg: #0b1826;
+  --term-fg: #cfe0f3;
+  --term-dim: #6d87a3;
+  --term-line: #14212f;
+  --term-cursor: #58a6ff;
+  --term-selection: #1c3a5a;
+  --term-black: #16202c;
+  --term-blue: #6cb6ff;
+  --term-cyan: #56d4dd;
+  --term-white: #cfe0f3;
+}
+
+/* Forest. Green, low saturation, easy to sit in front of for a long day. */
+[data-scheme="forest"][data-theme="light"] {
+  --background: 140 30% 99%;
+  --foreground: 150 25% 10%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 152 58% 28%;
+  --primary-foreground: 140 40% 98%;
+  --secondary: 140 24% 94%;
+  --secondary-foreground: 150 25% 15%;
+  --muted: 140 24% 94%;
+  --muted-foreground: 150 12% 42%;
+  --accent-bg: 145 32% 92%;
+  --destructive: 4 72% 48%;
+  --success: 152 58% 30%;
+  --warning: 32 90% 38%;
+  --border: 145 20% 87%;
+  --input: 145 20% 87%;
+  --ring: 152 58% 28%;
+  --shadow: 0 4px 14px hsl(150 25% 10% / .12);
+}
+
+[data-scheme="forest"][data-theme="dark"] {
+  --background: 155 20% 10%;
+  --foreground: 140 18% 95%;
+  --card: 154 18% 13%;
+  --popover: 155 19% 11%;
+  --primary: 150 58% 52%;
+  --primary-foreground: 155 30% 8%;
+  --secondary: 153 14% 21%;
+  --secondary-foreground: 140 18% 95%;
+  --muted: 153 14% 21%;
+  --muted-foreground: 145 11% 68%;
+  --accent-bg: 153 15% 24%;
+  --destructive: 2 74% 64%;
+  --success: 150 58% 52%;
+  --warning: 40 90% 62%;
+  --border: 152 12% 24%;
+  --input: 152 12% 24%;
+  --ring: 150 58% 50%;
+  --shadow: 0 8px 24px hsl(155 40% 2% / .6);
+}
+
+[data-scheme="forest"] {
+  --term-bg: #0d1712;
+  --term-fg: #d4e5d8;
+  --term-dim: #7b9285;
+  --term-line: #17241b;
+  --term-cursor: #57d18a;
+  --term-selection: #1f3a2a;
+  --term-black: #14201a;
+  --term-green: #6bd99a;
+  --term-cyan: #58cfc0;
+  --term-white: #d4e5d8;
+}
+
+/* Violet. The loudest of the six, and the only one that reads as a choice
+   rather than a shade of grey. */
+[data-scheme="violet"][data-theme="light"] {
+  --background: 270 40% 99%;
+  --foreground: 265 30% 12%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 263 70% 52%;
+  --primary-foreground: 270 40% 99%;
+  --secondary: 270 28% 95%;
+  --secondary-foreground: 265 30% 16%;
+  --muted: 270 28% 95%;
+  --muted-foreground: 265 12% 46%;
+  --accent-bg: 268 42% 94%;
+  --destructive: 350 75% 50%;
+  --success: 150 58% 32%;
+  --warning: 32 90% 42%;
+  --border: 268 25% 90%;
+  --input: 268 25% 90%;
+  --ring: 263 70% 52%;
+  --shadow: 0 4px 14px hsl(265 30% 12% / .12);
+}
+
+[data-scheme="violet"][data-theme="dark"] {
+  --background: 264 26% 11%;
+  --foreground: 270 25% 96%;
+  --card: 264 24% 14%;
+  --popover: 264 25% 12%;
+  --primary: 263 85% 72%;
+  --primary-foreground: 265 40% 10%;
+  --secondary: 264 18% 23%;
+  --secondary-foreground: 270 25% 96%;
+  --muted: 264 18% 23%;
+  --muted-foreground: 266 14% 73%;
+  --accent-bg: 264 20% 26%;
+  --destructive: 350 84% 68%;
+  --success: 150 58% 54%;
+  --warning: 40 90% 64%;
+  --border: 264 16% 26%;
+  --input: 264 16% 26%;
+  --ring: 263 85% 70%;
+  --shadow: 0 8px 24px hsl(265 50% 2% / .6);
+}
+
+[data-scheme="violet"] {
+  --term-bg: #151020;
+  --term-fg: #e0d8f0;
+  --term-dim: #8b81a3;
+  --term-line: #1e1830;
+  --term-cursor: #b58cf6;
+  --term-selection: #33255a;
+  --term-black: #1a1428;
+  --term-magenta: #c79cff;
+  --term-blue: #8aa8ff;
+  --term-white: #e0d8f0;
+}
+
+/* Sand. Warm greys instead of cool ones, and an amber where the blue is. */
+[data-scheme="sand"][data-theme="light"] {
+  --background: 40 40% 98%;
+  --foreground: 25 25% 12%;
+  --card: 40 50% 99%;
+  --popover: 40 50% 99%;
+  --primary: 25 68% 40%;
+  --primary-foreground: 40 40% 98%;
+  --secondary: 38 28% 92%;
+  --secondary-foreground: 25 25% 16%;
+  --muted: 38 28% 92%;
+  --muted-foreground: 30 10% 42%;
+  --accent-bg: 36 42% 90%;
+  --destructive: 5 70% 47%;
+  --success: 145 52% 29%;
+  --warning: 32 90% 38%;
+  --border: 34 22% 85%;
+  --input: 34 22% 85%;
+  --ring: 25 68% 40%;
+  --shadow: 0 4px 14px hsl(25 25% 12% / .12);
+}
+
+[data-scheme="sand"][data-theme="dark"] {
+  --background: 28 13% 11%;
+  --foreground: 40 28% 94%;
+  --card: 28 12% 14%;
+  --popover: 28 13% 12%;
+  --primary: 32 88% 62%;
+  --primary-foreground: 28 40% 10%;
+  --secondary: 30 11% 23%;
+  --secondary-foreground: 40 28% 94%;
+  --muted: 30 11% 23%;
+  --muted-foreground: 35 12% 69%;
+  --accent-bg: 30 12% 26%;
+  --destructive: 6 76% 66%;
+  --success: 145 50% 52%;
+  --warning: 38 92% 64%;
+  --border: 30 10% 26%;
+  --input: 30 10% 26%;
+  --ring: 32 88% 60%;
+  --shadow: 0 8px 24px hsl(28 40% 2% / .6);
+}
+
+[data-scheme="sand"] {
+  --term-bg: #1a1510;
+  --term-fg: #eadfd0;
+  --term-dim: #9c8b78;
+  --term-line: #241d15;
+  --term-cursor: #e5a44a;
+  --term-selection: #4a3820;
+  --term-black: #1f1913;
+  --term-yellow: #e8b96a;
+  --term-red: #ef7b62;
+  --term-white: #eadfd0;
+}
+
+/* Aurora. The one that is not a recolour. A theme owns --radius and --shadow
+   as well as the palette, so this one is rounder than the rest (12px against
+   8px), sits its cards a clear step above the ground rather than a shade, and
+   keeps the greys cool and the accent indigo. Everything reads it: buttons,
+   the composer, dialogs, the rail rows, the code blocks. */
+[data-scheme="aurora"][data-theme="light"] {
+  --background: 240 30% 99%;
+  --foreground: 240 24% 12%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 243 72% 58%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 24% 94%;
+  --secondary-foreground: 240 24% 16%;
+  --muted: 240 22% 93%;
+  --muted-foreground: 240 9% 45%;
+  --accent-bg: 243 40% 95%;
+  --destructive: 352 76% 52%;
+  --success: 158 62% 32%;
+  --warning: 35 92% 42%;
+  --border: 240 18% 91%;
+  --input: 240 18% 91%;
+  --ring: 243 72% 58%;
+  --radius: 0.75rem;
+  --shadow: 0 10px 30px hsl(240 30% 20% / .10);
+}
+
+[data-scheme="aurora"][data-theme="dark"] {
+  --background: 235 16% 10%;
+  --foreground: 240 20% 97%;
+  --card: 235 14% 14%;
+  --popover: 235 15% 12%;
+  --primary: 245 90% 74%;
+  --primary-foreground: 245 45% 12%;
+  --secondary: 235 14% 24%;
+  --secondary-foreground: 240 20% 97%;
+  /* The rail, the composer and every hover state are this colour at a third
+     of an alpha, so on a ground this dark it has to be lifted well clear of
+     it or the layers all collapse back into one flat sheet. */
+  --muted: 235 14% 24%;
+  --muted-foreground: 238 13% 71%;
+  --accent-bg: 235 13% 23%;
+  --destructive: 352 88% 70%;
+  --success: 158 62% 52%;
+  --warning: 38 92% 65%;
+  --border: 235 10% 23%;
+  --input: 235 10% 23%;
+  --ring: 245 90% 74%;
+  --radius: 0.75rem;
+  --shadow: 0 12px 32px hsl(240 50% 2% / .7);
+}
+
+[data-scheme="aurora"] {
+  --term-bg: #0e0e18;
+  --term-fg: #e4e3f2;
+  --term-dim: #8d8aab;
+  --term-line: #1c1b2b;
+  --term-cursor: #a5a1ff;
+  --term-selection: #2f2c55;
+  --term-black: #191826;
+  --term-blue: #8f9bff;
+  --term-magenta: #c39bff;
+  --term-cyan: #63d6e0;
+  --term-white: #e4e3f2;
+}
+
+/* Nord. Somebody else's palette, used as published: the Polar Night greys
+   under the dark theme, Snow Storm under the light one, and the Aurora hues
+   in the terminal rather than this file's own. */
+[data-scheme="nord"][data-theme="light"] {
+  --background: 218 27% 94%;
+  --foreground: 220 16% 22%;
+  --card: 218 27% 97%;
+  --popover: 218 27% 97%;
+  --primary: 213 34% 43%;
+  --primary-foreground: 218 27% 96%;
+  --secondary: 219 28% 88%;
+  --secondary-foreground: 220 16% 22%;
+  --muted: 219 28% 88%;
+  --muted-foreground: 220 16% 40%;
+  --accent-bg: 219 28% 88%;
+  --destructive: 354 42% 45%;
+  --success: 92 28% 34%;
+  --warning: 40 60% 38%;
+  --border: 219 24% 84%;
+  --input: 219 24% 84%;
+  --ring: 213 34% 43%;
+  --shadow: 0 4px 14px hsl(220 16% 22% / .14);
+}
+
+[data-scheme="nord"][data-theme="dark"] {
+  --background: 220 16% 15%;
+  --foreground: 218 27% 92%;
+  --card: 220 16% 18%;
+  --popover: 220 16% 17%;
+  --primary: 193 43% 67%;
+  --primary-foreground: 220 16% 15%;
+  --secondary: 222 16% 25%;
+  --secondary-foreground: 218 27% 92%;
+  --muted: 222 16% 25%;
+  --muted-foreground: 219 20% 71%;
+  --accent-bg: 220 17% 28%;
+  --destructive: 354 42% 58%;
+  --success: 92 28% 65%;
+  --warning: 40 71% 73%;
+  --border: 220 17% 27%;
+  --input: 220 17% 27%;
+  --ring: 193 43% 67%;
+  --shadow: 0 8px 24px hsl(220 20% 4% / .6);
+}
+
+[data-scheme="nord"] {
+  --term-bg: #2e3440;
+  --term-fg: #d8dee9;
+  --term-dim: #98a3bb;
+  --term-line: #3b4252;
+  --term-cursor: #88c0d0;
+  --term-selection: #434c5e;
+  --term-black: #3b4252;
+  --term-red: #bf616a;
+  --term-green: #a3be8c;
+  --term-yellow: #ebcb8b;
+  --term-blue: #81a1c1;
+  --term-magenta: #b48ead;
+  --term-cyan: #88c0d0;
+  --term-white: #e5e9f0;
+}
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-
-/* lucide renders inline SVG in place of <i data-lucide>. The React pane draws
-   its own icons through lucide-react, which stamps the same class name on them,
-   so every rule here that could reach into #agent-root excludes it: Tailwind's
-   utilities sit in a cascade layer and an unlayered rule like this one wins
-   against them. */
-svg.lucide:not(#agent-root svg) { width: 16px; height: 16px; stroke-width: 1.75; flex: none; }
-.icon svg.lucide, .c-btn svg.lucide { width: 15px; height: 15px; }
-.ghost.pill svg.lucide, .sess svg.lucide, .rail-search svg.lucide { width: 14px; height: 14px; }
-.c-send svg.lucide { width: 15px; height: 15px; stroke-width: 2.25; }
-.ph-mark svg.lucide, #page-error svg.lucide { width: 26px; height: 26px; }
 
 html, body {
   margin: 0; height: 100%;
@@ -119,12 +490,19 @@ html, body {
 }
 body { display: flex; flex-direction: column; }
 
+/* React renders the whole window, so the column that used to be <body>'s
+   children is now one level down. */
+#root { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* A resizable panel wraps its children in a div of its own. Nothing in here
+   should be the thing that decides a panel's size, so let them all shrink. */
+[data-panel], [data-panel] > * { min-width: 0; min-height: 0; }
+
 /* The chrome's own buttons are unstyled by default. The React panel styles its
    own, and its overlays (dialogs, menus) are portalled to <body>, outside
    #agent-root, so exempt anything sitting under a shadcn data-slot as well or
    this rule strips their borders and colours. */
 button:not(#agent-root button):not([data-slot] button) { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
-.spacer { flex: 1; }
 .dim { color: var(--fg-dim); }
 
 kbd {
@@ -155,19 +533,6 @@ kbd {
 }
 #titlebar button, #titlebar input { -webkit-app-region: no-drag; }
 
-.tb-mark { display: flex; color: var(--fg-dim); }
-.tb-mark svg.lucide { width: 15px; height: 15px; }
-
-#window-controls { display: flex; align-self: stretch; -webkit-app-region: no-drag; }
-.wc {
-  display: grid; place-items: center;
-  width: 44px; align-self: stretch;
-  color: var(--fg-dim); border-radius: 0;
-}
-.wc svg.lucide { width: 14px; height: 14px; stroke-width: 1.6; }
-.wc:hover { background: var(--bg-3); color: var(--fg); }
-.wc.close:hover { background: #e5484d; color: #fff; }
-
 #toolbar {
   display: flex; align-items: center; gap: 6px;
   height: 38px; padding: 0 8px;
@@ -175,418 +540,52 @@ kbd {
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }
-#toolbar button, #toolbar input, #toolbar .activity, #toolbar #viewstrip { -webkit-app-region: no-drag; }
-.tb-sep { width: 1px; height: 18px; background: var(--line); margin: 0 2px; }
+#toolbar button, #toolbar input { -webkit-app-region: no-drag; }
 
-.brand {
-  display: flex; align-items: center; gap: 7px;
-  font: 600 12px/1 var(--mono); letter-spacing: .08em;
-  color: var(--fg-dim);
-}
-.brand .dot { width: 7px; height: 7px; border-radius: 99px; background: var(--accent); }
-
-/* --------------------------------------------------------------- view strip */
-
-/* The preview, the files and every shell, as one row of tabs. The panes they
-   open are elsewhere in the window, so this is the only place that lists them. */
-#viewstrip {
-  display: flex; align-items: center; gap: 2px;
-  max-width: 64ch; overflow-x: auto; scrollbar-width: none;
-}
-#viewstrip::-webkit-scrollbar { display: none; }
-
-.vtab {
-  display: flex; align-items: center; gap: 6px;
-  height: 26px; padding: 0 9px;
-  border: 1px solid transparent; border-radius: 7px;
-  color: var(--fg-dim); font-size: 12px; white-space: nowrap;
-}
-.vtab svg.lucide { width: 14px; height: 14px; }
-.vtab:hover { color: var(--fg); background: var(--bg-3); }
-.vtab.on { color: var(--fg); background: var(--bg); border-color: var(--line); box-shadow: 0 1px 2px hsl(240 10% 3.9% / .06); }
-.vtab .close { display: grid; place-items: center; width: 14px; height: 14px; margin-right: -3px; border-radius: 4px; opacity: 0; }
-.vtab .close svg.lucide { width: 11px; height: 11px; }
-.vtab:hover .close, .vtab.on .close { opacity: .5; }
-.vtab .close:hover { opacity: 1; background: var(--bg-4); color: var(--err); }
-.vtab.add { padding: 0 6px; }
-
-/* --------------------------------------------------------------- menu bar */
-
-#menubar { display: flex; align-items: center; gap: 1px; -webkit-app-region: no-drag; }
-.menu-trigger { padding: 4px 9px; border-radius: var(--r); color: var(--fg-dim); font-size: 12.5px; }
-.menu-trigger:hover { color: var(--fg); background: var(--bg-3); }
-.menu-trigger.on { color: var(--fg); background: var(--bg-4); }
-
-.menu-pop {
-  position: fixed; z-index: 60; min-width: 230px; max-width: 340px;
-  padding: 5px; background: var(--bg);
-  /* The popup opens over the toolbar, and that strip is a drag handle. A press
-     inside a drag region never reaches the document, so without this the first
-     item in every menu is dead while the ones below the strip work. */
-  -webkit-app-region: no-drag;
-  border: 1px solid var(--line); border-radius: var(--r);
-  box-shadow: var(--shadow);
-  animation: rise .12s cubic-bezier(.2,.8,.3,1);
-}
-.menu-item {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 5px 8px; border-radius: 5px;
-  font-size: 12.5px; color: var(--fg); text-align: left;
-}
-.menu-item:hover { background: var(--bg-3); }
-.menu-item:disabled { color: var(--fg-faint); background: none; cursor: default; }
-.menu-item kbd { margin-left: auto; }
-.menu-item.on { color: var(--fg); }
-.menu-item.danger:hover { background: var(--err-soft); color: var(--err); }
-/* The leading glyph, and the tick on a checked row. The glyph sits in a fixed
-   slot so labels line up whether or not a row has one.
-   Both carry the :not(#agent-root svg) guard from the base icon rule: an id
-   inside :not() counts toward specificity, so a plain class selector loses to
-   it and the sizes here would never land. */
-.menu-item > svg.lucide:not(#agent-root svg) { width: 13px; height: 13px; margin-left: auto; color: var(--fg-dim); }
-.menu-note + svg.lucide:not(#agent-root svg) { margin-left: 6px; }
-.menu-icon { width: 15px; flex: none; display: grid; place-items: center; color: var(--fg-dim); }
-.menu-icon svg.lucide:not(#agent-root svg) { width: 15px; height: 15px; }
-.menu-item:hover .menu-icon, .menu-item.on .menu-icon { color: var(--fg); }
-.menu-item.danger .menu-icon { color: var(--err); }
-.menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.menu-note {
-  margin-left: auto; font: 10.5px var(--mono); color: var(--fg-faint);
-  direction: rtl; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20ch;
-}
-.menu-note.ltr { direction: ltr; }
-.menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
-.menu-header {
-  font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--fg-faint); padding: 8px 8px 5px;
-}
-
-.ghost { color: var(--fg-dim); padding: 4px 8px; border-radius: var(--r); border: 1px solid transparent; }
-.ghost:hover { color: var(--fg); background: var(--bg-3); }
-.ghost.square { width: 26px; height: 26px; padding: 0; line-height: 1; }
-.ghost.pill { display: flex; align-items: center; gap: 6px; height: 26px; border-color: var(--line); background: var(--bg); }
-.ghost.pill .glyph { font-size: 11px; opacity: .75; }
-.ghost.pill.on { color: var(--on-accent); background: var(--accent); border-color: transparent; }
-.ghost.pill.on kbd { background: rgba(0,0,0,.18); border-color: transparent; color: inherit; }
-
-/* Who has the preview pane. Outlined rather than filled: it is a statement of
-   fact sitting in a toolbar, not a call to action. */
-.driver {
-  display: flex; align-items: center; gap: 6px;
-  font: 11px var(--mono); color: var(--fg);
-  padding: 3px 9px; border-radius: 99px;
-  border: 1px solid hsl(var(--ring) / .3); background: none;
-  max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.driver::before {
-  content: ''; width: 6px; height: 6px; border-radius: 99px; flex: none;
-  background: var(--ok); animation: driver-pulse 1.6s ease-in-out infinite;
-}
-.driver:hover { background: var(--bg-3); }
-@keyframes driver-pulse { 50% { opacity: .3 } }
-@media (prefers-reduced-motion: reduce) { .driver::before { animation: none } }
-
-.activity {
-  font: 11px var(--mono); color: var(--accent-2);
-  padding: 3px 9px; border-radius: 99px;
-  background: var(--accent-2-soft); border: 1px solid var(--accent-2-soft);
-  max-width: 38ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  opacity: 0; transform: translateY(-2px);
-  transition: opacity .18s ease, transform .18s ease;
-}
-.activity.live { opacity: 1; transform: none; }
 
 /* ------------------------------------------------------------------ shell */
 
-#shell { flex: 1; display: flex; min-height: 0; }
-#content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-#panes { flex: 1; display: flex; min-height: 0; }
-body.dragging { user-select: none; }
-body.dragging.col { cursor: col-resize; }
-body.dragging.row { cursor: row-resize; }
+[data-slot="resizable-handle"]:hover { background: var(--accent); }
 
-.gutter-v { width: 1px; background: var(--line); position: relative; cursor: col-resize; flex: none; }
-.gutter-v::after { content: ''; position: absolute; inset: 0 -4px; }
-.gutter-v:hover { background: var(--accent); }
-.gutter-h { height: 1px; background: var(--line); position: relative; cursor: row-resize; flex: none; }
-.gutter-h::after { content: ''; position: absolute; inset: -4px 0; }
-.gutter-h:hover { background: var(--accent); }
-.closed { display: none; }
-
-/* ------------------------------------------------------------------- rail */
-
-#rail {
-  width: 236px; flex: none; min-width: 180px; max-width: 420px;
-  display: flex; flex-direction: column;
-  background: var(--rail); border-right: 1px solid var(--line);
+/* The chat pane. React fills it, and the welcome state sits over it until a
+   folder has been chosen, which is what the positioning is for. */
+#agent { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+/* The chat pane has its own type size, set apart from the shell's zoom and the
+   terminal's font. Scaling rather than sizing: the transcript is a mix of
+   inherited prose and Tailwind's own sizes, so a font-size here would grow the
+   paragraphs and leave every badge and tool row behind. Zoom takes the padding
+   with it and the pane keeps its proportions at any size. The number in
+   settings is what the body text ends up at; --chat-scale is that over the
+   13px this has always been. */
+#agent-root {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  zoom: var(--chat-scale, 1);
+  font-family: var(--chat-font, inherit);
 }
-#rail.closed { display: none; }
-
-.rail-new {
-  display: flex; align-items: center; gap: 8px;
-  margin: 10px 10px 6px; padding: 7px 10px;
-  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r);
-  font-size: 12.5px; color: var(--fg); box-shadow: 0 1px 0 rgba(0,0,0,.02);
-}
-.rail-new:hover { background: var(--bg-3); }
-.rail-new .plus { font-size: 14px; line-height: 1; color: var(--fg-dim); }
-
-.rail-search {
-  display: flex; align-items: center; gap: 7px;
-  margin: 0 10px 8px; padding: 0 9px; height: 30px;
-  border: 1px solid transparent; border-radius: var(--r);
-}
-.rail-search:focus-within { background: var(--bg); border-color: var(--line); }
-.rail-search .mag { color: var(--fg-faint); font-size: 12px; }
-#session-search { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--fg); font-size: 12.5px; }
-#session-search::placeholder { color: var(--fg-faint); }
-
-.rail-label {
-  font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--fg-faint); padding: 6px 16px 6px;
-}
-#session-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
-
-.sess-group { font: 10px var(--mono); color: var(--fg-faint); padding: 10px 8px 4px; text-transform: uppercase; letter-spacing: .08em; }
-.sess {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: var(--r); cursor: pointer;
-}
-.sess:hover { background: var(--bg-3); }
-.sess.current { background: var(--bg-4); cursor: default; }
-.sess > svg.lucide { color: var(--fg-faint); flex: none; }
-.sess.current > svg.lucide { color: var(--fg); }
-.sess-title { flex: 1; min-width: 0; font-size: 12.5px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sess-when { font: 10px var(--mono); color: var(--fg-faint); flex: none; }
-
-/* A chat with a turn in flight, whether or not it is the one on screen. The
-   sweep is the only moving thing in the rail, so it reads as "still going"
-   without a spinner shouting for attention. */
-.sess-working {
-  flex: none;
-  font: 9px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
-  padding: 3px 6px; border-radius: 99px;
-  border: 1px solid var(--line);
-  color: var(--fg-dim);
-  background:
-    linear-gradient(100deg, transparent 20%, var(--accent-soft) 45%, transparent 70%) 0 0 / 220% 100% no-repeat,
-    var(--bg-2);
-  animation: sess-sweep 1.6s linear infinite;
-}
-.sess.current .sess-working { border-color: var(--line-soft); }
-
-@keyframes sess-sweep { to { background-position: -220% 0, 0 0 } }
-
-@media (prefers-reduced-motion: reduce) {
-  .sess-working { animation: none; }
-}
-.sess-empty { padding: 12px 10px; font-size: 12px; color: var(--fg-dim); line-height: 1.6; }
-
-.rail-foot {
-  display: flex; align-items: center; gap: 7px;
-  padding: 8px 12px; border-top: 1px solid var(--line);
-  font: 11px var(--mono); color: var(--fg-faint);
-}
-.folder-mark { font-size: 10px; }
-.ah-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* ------------------------------------------------------------ agent panel */
-
-#agent { position: relative; flex: 1; min-width: 380px; display: flex; flex-direction: column; background: var(--bg); }
-#agent.closed { display: none; }
-#agent-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-
-/* ------------------------------------------------- no folder open yet */
-
-#welcome {
-  position: absolute; inset: 0; z-index: 20;
-  display: grid; place-items: center; padding: 32px;
-  background: var(--bg);
-}
-/* The single implicit column would size itself to the longest recent path,
-   overflow the 46ch box and drag the whole card off to the right. Pin the
-   column to the card instead so the paths truncate. */
-.wel-card {
-  display: grid; grid-template-columns: minmax(0, 1fr);
-  justify-items: center; gap: 10px; text-align: center; max-width: 46ch;
-}
-.wel-card h1 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
-.wel-card p { margin: 0; color: var(--fg-dim); line-height: 1.6; }
-.wel-actions { display: flex; gap: 8px; margin-top: 6px; }
-.wel-actions button { padding: 7px 16px; border-radius: 99px; font-size: 12.5px; border: 1px solid var(--line); }
-.wel-actions .primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600; }
-.wel-actions .ghost-btn { background: var(--bg); color: var(--fg); }
-.wel-actions .ghost-btn:hover { background: var(--bg-3); }
-
-.wel-recent { width: 100%; margin-top: 10px; display: flex; flex-direction: column; gap: 1px; }
-.wel-label {
-  font: 600 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--fg-faint); padding: 4px 8px 6px; text-align: left;
-}
-.wel-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: var(--r);
-  color: var(--fg); font-size: 12.5px; text-align: left;
-}
-.wel-row:hover { background: var(--bg-3); }
-.wel-row > svg.lucide { width: 14px; height: 14px; color: var(--fg-faint); }
-.wel-name { flex: none; }
-.wel-path {
-  flex: 1; min-width: 0; font: 10.5px var(--mono); color: var(--fg-faint);
-  direction: rtl; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-#wel-skip { margin-top: 12px; }
 
 /* --------------------------------------------------------- preview pane */
 
-#right { display: flex; flex-direction: column; flex: none; width: 42%; min-width: 420px; background: var(--bg-2); border-left: 1px solid var(--line); }
-#right.closed { display: none; }
+#right { height: 100%; display: flex; flex-direction: column; background: var(--bg-2); border-left: 1px solid var(--line); }
 
-/* Full width: the chat and its splitter go away and the preview takes the whole
-   content column. The width set by dragging the splitter is an inline style, so
-   it has to be overridden here rather than cleared. The rail is untouched: it
-   stays open if it was open, and closing it gives the page the last of the
+/* Full width: the chat panel and its splitter are not rendered at all, and the
+   right column is the only panel left in the group. The rail is untouched, so
+   it stays open if it was open, and closing it hands the page the last of the
    window. */
-#panes.preview-full #agent,
-#panes.preview-full #agent-gutter { display: none; }
-#panes.preview-full #right { flex: 1; width: auto !important; min-width: 0; border-left: none; }
+#right[data-full] { border-left: none; }
 
-#urlbar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line); }
-.nav { display: flex; align-items: center; gap: 2px; }
-.icon {
-  width: 28px; height: 28px; border-radius: var(--r);
-  color: var(--fg-dim); font-size: 13px; line-height: 1;
-  display: grid; place-items: center;
-}
-.icon:hover { background: var(--bg-3); color: var(--fg); }
-.icon:disabled { opacity: .3; cursor: default; background: none; }
-.icon.armed { background: var(--accent-2); color: var(--on-accent); }
-.icon.on { background: var(--bg-4); color: var(--fg); }
-.icon.danger:hover { background: var(--err-soft); color: var(--err); }
-
-.urlwrap {
-  flex: 1; min-width: 0; display: flex; align-items: center;
-  height: 30px; padding: 0 4px 0 12px;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 99px;
-  transition: border-color .15s, box-shadow .15s;
-}
-.urlwrap:focus-within { border-color: hsl(var(--ring) / .4); box-shadow: 0 0 0 3px var(--accent-soft); }
-.scheme { font: 11px var(--mono); color: var(--fg-faint); flex: none; }
-#url { flex: 1; min-width: 0; height: 100%; background: none; border: none; outline: none; color: var(--fg); font: 12px var(--mono); }
-#url::placeholder { color: var(--fg-faint); }
-
+/* The page is a separate web contents the window paints on top of this
+   document, so this div is the hole it is flown into and stays empty. */
 #stage { position: relative; flex: 1; min-height: 0; background: var(--bg); }
 #paneslot { position: absolute; inset: 0; }
-/* A still of the page, standing in for the preview while a menu is open over
-   the pane. Same box as the view it replaces, so the swap does not show. */
-.pane-still { position: absolute; inset: 0; width: 100%; height: 100%; }
-#placeholder, #page-error {
-  position: absolute; inset: 0;
-  display: grid; align-content: center; justify-items: center; gap: 10px;
-  text-align: center; padding: 32px; color: var(--fg-dim);
-  background: var(--bg);
-}
-#placeholder.hidden, #page-error[hidden] { display: none; }
-.ph-mark { font-size: 26px; color: var(--fg-faint); }
-#placeholder h1 { font-size: 14px; font-weight: 600; color: var(--fg); margin: 0; }
-#placeholder p { margin: 0; max-width: 42ch; line-height: 1.6; }
-.ph-keys { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--fg-faint); }
-.ph-keys code { font: 11px var(--mono); color: var(--accent); }
 
-#page-error h1 { margin: 0; font-size: 20px; font-weight: 500; color: var(--fg); }
-#page-error p { margin: 0; font: 12.5px var(--mono); color: var(--fg-dim); max-width: 46ch; }
-.pe-actions { display: flex; gap: 8px; margin-top: 6px; }
-.pe-actions button { padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--bg); font-size: 12.5px; color: var(--fg); }
-.pe-actions button:hover { background: var(--bg-3); }
-.pe-actions button.primary { border-radius: 99px; font-size: 12.5px; padding: 6px 14px; }
+/* A menu opening over the pane would open behind it, so the page is
+   photographed and the picture hung here until the menu closes. */
+.pane-still { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 /* ----------------------------------------------------------- files pane */
 
-/* The right column holds one view at a time. Both fill it the same way, so the
-   splitter, the full-width mode and the pane's own bounds all keep working
-   whichever of the two is showing. */
-.rview { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-
-#filesbar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line); }
-#filesbar .filter {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px;
-  height: 30px; padding: 0 4px 0 11px;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 99px;
-  transition: border-color .15s, box-shadow .15s;
-}
-#filesbar .filter:focus-within { border-color: hsl(var(--ring) / .4); box-shadow: 0 0 0 3px var(--accent-soft); }
-#filesbar .filter > svg.lucide { width: 13px; height: 13px; color: var(--fg-faint); }
-#file-filter { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--fg); font: 12px var(--mono); }
-#file-filter::placeholder { color: var(--fg-faint); }
-.icon.tiny { width: 22px; height: 22px; }
-
-/* An application's own icon, in a menu row or on the toolbar button that opens
-   it. Square, and never bigger than the line drawings it sits among. */
-.menu-img { width: 15px; height: 15px; object-fit: contain; display: block; }
-#open-in img { width: 16px; height: 16px; object-fit: contain; }
-.icon.tiny svg.lucide { width: 12px; height: 12px; }
-
-#file-head {
-  display: flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 8px 0 4px;
-  border-bottom: 1px solid var(--line); background: var(--bg-2);
-}
-.fh-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-#fh-path { font: 12px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fh-meta { font: 10.5px var(--mono); color: var(--fg-faint); white-space: nowrap; flex: none; }
-
-#files-body { flex: 1; min-height: 0; position: relative; display: flex; background: var(--bg); }
-#file-tree, #file-view { flex: 1; min-width: 0; overflow: auto; }
-#file-tree { padding: 6px 0 12px; }
-
-.ftree-row {
-  display: flex; align-items: center; gap: 6px;
-  height: 24px; padding-right: 10px; cursor: pointer;
-  color: var(--fg); font-size: 12.5px;
-}
-.ftree-row:hover { background: var(--bg-3); }
-.ftree-row.on { background: var(--bg-4); }
-.ftree-row.faint { color: var(--fg-dim); }
-.ftree-row > svg.lucide { width: 13px; height: 13px; color: var(--fg-faint); flex: none; }
-/* The chevron is the first of two icons on a folder row; the second is the
-   folder itself and stays quiet. */
-.ftree-row.dir > svg.lucide:first-child { color: var(--fg-dim); }
-.ftree-row.dir .ftree-name { color: var(--fg); }
-.ftree-gap { width: 13px; flex: none; }
-.ftree-name { flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42ch; }
-.ftree-size { margin-left: auto; padding-left: 10px; font: 10px var(--mono); color: var(--fg-faint); flex: none; }
-.ftree-dir {
-  margin-left: auto; padding-left: 12px; min-width: 0;
-  font: 10.5px var(--mono); color: var(--fg-faint);
-  direction: rtl; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.ftree-note { padding: 4px 10px; font: 11px var(--mono); color: var(--fg-faint); }
-.ftree-note.bad { color: var(--err); }
-
-.fv-note {
-  display: grid; justify-items: center; gap: 10px;
-  padding: 40px 24px; text-align: center; color: var(--fg-dim);
-}
-.fv-note.bad { color: var(--err); }
-.fv-note p { margin: 0; max-width: 44ch; line-height: 1.6; }
-.fv-note svg.lucide { width: 22px; height: 22px; color: var(--fg-faint); }
-.fv-action { padding: 6px 14px; border-radius: 99px; border: 1px solid var(--line); background: var(--bg); font-size: 12.5px; color: var(--fg); }
-.fv-action:hover { background: var(--bg-3); }
-
-/* A checkerboard behind the image, so transparent pixels read as transparent
-   rather than as whatever the theme happens to be. */
-.fv-image {
-  display: grid; place-items: center; padding: 24px;
-  background-image:
-    linear-gradient(45deg, var(--bg-3) 25%, transparent 25%, transparent 75%, var(--bg-3) 75%),
-    linear-gradient(45deg, var(--bg-3) 25%, transparent 25%, transparent 75%, var(--bg-3) 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 8px 8px;
-}
-.fv-image img { max-width: 100%; max-height: 60vh; object-fit: contain; }
-.fv-image.svg { border-bottom: 1px solid var(--line); }
-
-.fv-code { padding: 10px 0 20px; }
+/* Shiki hands back finished HTML rather than components, so the highlighted
+   file is the one thing in this pane still styled from a stylesheet. */
 #file-view .shiki {
   margin: 0; padding: 0; background: transparent !important;
   font: 12px/1.55 var(--mono); tab-size: 2;
@@ -608,201 +607,20 @@ body.dragging.row { cursor: row-resize; }
 [data-theme="dark"] #file-view .shiki span { color: var(--shiki-dark) !important; }
 #file-view .shiki.plain .line { color: var(--code); }
 
-/* --------------------------------------------------------------- changes */
-
-/* The list on top, the patch below it. The split is fixed rather than draggable
-   because the list is short by nature: a run that touches forty files is a run
-   you read one file at a time anyway. */
-#changesbar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line); }
-#changesbar .ctitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-#changesbar .ctitle svg.lucide { width: 14px; height: 14px; color: var(--fg-faint); flex: none; }
-#changes-summary { font: 11.5px var(--mono); color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* The count on the tab is an outline, not a filled pill: a solid badge in dark
-   mode reads as a notification someone has to clear. */
-.vtab .count {
-  flex: none; min-width: 16px; padding: 0 4px;
-  border: 1px solid var(--line); border-radius: 99px;
-  font: 10px/15px var(--mono); text-align: center; color: var(--fg-dim);
-}
-.vtab.on .count { color: var(--fg); border-color: hsl(var(--muted-foreground) / .4); }
-
-#changes-body { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
-#changes-list { flex: 0 0 auto; max-height: 40%; overflow: auto; padding: 6px 0; border-bottom: 1px solid var(--line); }
-#changes-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-
-.crow {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  height: 24px; padding: 0 10px; text-align: left;
-  color: var(--fg); font-size: 12.5px;
-}
-.crow:hover { background: var(--bg-3); }
-.crow.on { background: var(--bg-4); }
-.cmark { flex: none; width: 12px; font: 10.5px var(--mono); color: var(--fg-faint); }
-.cmark.new, .cmark.added { color: var(--ok); }
-.cmark.deleted { color: var(--err); }
-.cmark.conflict { color: var(--warn); }
-.cpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cdir { color: var(--fg-faint); }
-.cname { color: var(--fg); }
-.ctag { flex: none; font: 10px var(--mono); color: var(--fg-faint); border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; }
-.cnums { flex: none; display: flex; gap: 6px; font: 10.5px var(--mono); }
-.cadd { color: var(--ok); }
-.cdel { color: var(--err); }
-.cbin { color: var(--fg-faint); }
-.cmore { padding: 6px 10px; font: 11px var(--mono); color: var(--fg-faint); }
-
-.cempty { display: grid; justify-items: center; gap: 8px; padding: 28px 24px; text-align: center; }
-.cempty h2 { margin: 0; font-size: 13px; font-weight: 500; color: var(--fg); }
-.cempty p { margin: 0; max-width: 46ch; font-size: 12px; line-height: 1.6; color: var(--fg-dim); }
-
-.chead {
-  display: flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 8px 0 10px; flex: none;
-  border-bottom: 1px solid var(--line); background: var(--bg-2);
-}
-.chead-path { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.cjump { flex: none; display: flex; align-items: center; gap: 2px; }
-.cat { min-width: 4ch; text-align: center; font: 10.5px var(--mono); color: var(--fg-faint); }
-.cjump .icon:disabled { opacity: .35; }
-.ctoggle {
-  flex: none; padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px;
-  font: 10.5px var(--mono); color: var(--fg-dim); background: none;
-}
-.ctoggle:hover { color: var(--fg); background: var(--bg-3); }
-.cdiff { flex: 1; min-height: 0; overflow: auto; padding: 6px 0 16px; font: 12px/1.55 var(--mono); }
-.cnote { padding: 10px 14px; font-size: 11.5px; color: var(--fg-faint); }
-
-/* One row per line, and the whole row tinted rather than just the text: a
-   patch is read by shape first, and a red block is a deletion before anyone has
-   read a word of it. */
-.dline { display: flex; white-space: pre; }
-.dgut {
-  flex: none; width: 5ch; padding-right: 10px; text-align: right;
-  color: var(--fg-faint); font-size: 11px; user-select: none;
-}
-.dsign { flex: none; width: 2ch; color: var(--fg-faint); user-select: none; }
-.dtext { flex: 1; min-width: 0; padding-right: 16px; color: var(--code); }
-.dadd { background: hsl(var(--success) / .10); }
-.dadd .dsign, .dadd .dtext { color: var(--ok); }
-.ddel { background: hsl(var(--destructive) / .10); }
-.ddel .dsign, .ddel .dtext { color: var(--err); }
-/* A run of changed lines is one thing on screen: the jump buttons step between
-   these, and the bar in the margin says where the file stops being what it was.
-   The current one is outlined rather than filled, so the lines inside it keep
-   the colour that says added or removed. */
-/* An inset shadow, not a border: a border would shift these lines two pixels
-   out of step with the unchanged ones around them. */
-.dblk.on { box-shadow: inset 2px 0 0 var(--accent); background: hsl(var(--primary) / .04); }
-.dblk.on .dgut { color: var(--fg-dim); }
-
-.dhunk { margin: 6px 0 2px; padding-left: 10px; color: var(--fg-faint); font-size: 11px; }
-.dhunk .dtext { color: var(--fg-faint); }
-.dnote { padding-left: 10px; color: var(--fg-faint); font-size: 11px; }
-.dnote .dtext { color: var(--fg-faint); }
-
-/* ---------------------------------------------------------------- drawer */
-
-#drawer { border-top: 1px solid var(--line); background: var(--bg-2); display: flex; flex-direction: column; height: 200px; }
-#drawer.collapsed { height: 30px; }
-#drawer.collapsed #drawer-body { display: none; }
-#drawer-tabs { display: flex; align-items: center; gap: 2px; height: 30px; padding: 0 8px; }
-#drawer-tabs button { font-size: 11px; color: var(--fg-dim); padding: 3px 9px; border-radius: var(--r); display: flex; align-items: center; gap: 6px; }
-#drawer-tabs button:hover { color: var(--fg); }
-#drawer-tabs button.active { color: var(--fg); background: var(--bg-3); }
-.badge { font: 10px var(--mono); padding: 0 5px; border-radius: 99px; background: var(--bg-4); color: var(--fg-dim); display: none; }
-.badge.show { display: inline-block; }
-.badge.err { background: var(--err-soft); color: var(--err); }
-
-#drawer-body { flex: 1; overflow: auto; padding: 2px 10px 10px; font: 11px/1.6 var(--mono); }
-.logline { display: flex; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line-soft); }
-.logline .lvl { flex: 0 0 56px; color: var(--fg-faint); text-transform: lowercase; }
-.logline .msg { white-space: pre-wrap; word-break: break-word; color: var(--fg-dim); }
-.logline.error .lvl, .logline.error .msg { color: var(--err); }
-.logline.warning .lvl, .logline.warning .msg { color: var(--warn); }
-.empty { color: var(--fg-faint); padding: 10px 0; }
-
 /* ------------------------------------------------------- terminal panel */
 
-#panel { flex: none; height: 280px; min-height: 124px; display: flex; flex-direction: column; background: var(--term-bg); border-top: 1px solid var(--line); }
-#panel.closed { display: none; }
+#panel { height: 100%; display: flex; flex-direction: column; background: var(--term-bg); border-top: 1px solid var(--line); }
 
-/* The shells list themselves here rather than in the toolbar, so the row has to
-   hold up against the terminal's own background in either app theme. The open
-   one is ringed rather than filled: a pale tab on a dark pane pulls more
-   attention than the tab deserves.
-   Every selector here carries the id, because the shell's button reset above
-   out-specifies a bare .vtab and would hand these back their inherited colour.
-   The ring is an inset shadow for the same reason: that reset sets
-   border-style: none, so a real border on a button never draws. */
-#term-tabs {
-  flex: none; display: flex; align-items: center; gap: 2px;
-  padding: 5px 6px; border-bottom: 1px solid var(--term-line);
-  overflow-x: auto; scrollbar-width: none;
-}
-#term-tabs::-webkit-scrollbar { display: none; }
-#term-tabs .vtab { height: 24px; }
-#term-tabs .vtab:not(.on) { color: var(--term-dim); }
-#term-tabs .vtab:hover { color: var(--term-fg); background: hsl(225 20% 60% / .10); }
-#term-tabs .vtab.on {
-  color: var(--term-fg); background: none;
-  box-shadow: inset 0 0 0 1px hsl(225 22% 62% / .30);
-}
-#term-tabs .vtab .close:hover { background: hsl(225 20% 60% / .18); }
-
+/* xterm renders into a host element and owns every node under it, so the tab
+   strip above is React's and this is not. Only the active host is displayed:
+   they are stacked, and a hidden one keeps its scrollback. */
 #terms { flex: 1; position: relative; }
 .term-host { position: absolute; inset: 0; padding: 8px 6px 6px 12px; display: none; }
 .term-host.active { display: block; }
-.xterm-viewport::-webkit-scrollbar-thumb { background: #2b3346; }
+/* The one thing in the panel that is not painted from a --term-* property
+   directly: a thumb the colour of the grid lines disappears against the
+   ground, so it is mixed up out of the terminal's own two colours and
+   follows the theme with them. */
+.xterm-viewport::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--term-fg) 22%, var(--term-bg)); }
 
-/* ------------------------------------------------------------- status bar */
 
-#status {
-  display: flex; align-items: center; gap: 10px;
-  flex: none; height: 24px; padding: 0 12px;
-  background: var(--rail); border-top: 1px solid var(--line);
-  font-size: 11px; color: var(--fg-dim);
-}
-/* Everything in the bar holds its line. The page title is the only piece that
-   gives way, and it ellipsizes rather than wrapping the bar open. */
-#status > *:not(.spacer) { flex: none; }
-#status .seg { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-#status .dot { width: 6px; height: 6px; border-radius: 99px; background: var(--ok); }
-#status .dot.warn { background: var(--warn); }
-#status .dot.err { background: var(--err); }
-.sep { width: 1px; height: 11px; background: var(--line); }
-.linkish { color: var(--fg-dim); font-size: 11px; padding: 0; }
-.linkish:hover { color: var(--accent); }
-
-/* The zoom control sits at the end of the status bar and fades back to the
-   quiet colour at 100%, so an app at its normal size does not carry a lit
-   control for something nobody changed. */
-.zoom { display: flex; align-items: center; gap: 1px; }
-.zbtn {
-  display: grid; place-items: center; width: 18px; height: 16px;
-  border-radius: 4px; color: var(--fg-dim);
-}
-.zbtn svg.lucide { width: 11px; height: 11px; }
-.zbtn:hover { background: var(--bg-3); color: var(--fg); }
-.zlevel { font: 10px var(--mono); color: var(--fg); padding: 0 5px; border-radius: 4px; min-width: 5ch; }
-.zlevel:hover { background: var(--bg-3); }
-.zoom.off .zlevel { color: var(--fg-faint); }
-#page-status { font-family: var(--mono); flex: 0 1 auto; min-width: 0; max-width: 50ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* ---------------------------------------------------------------- toasts */
-
-#toasts { position: fixed; right: 16px; bottom: 36px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
-.toast {
-  background: var(--bg);
-  border: 1px solid var(--line); border-left: 2px solid var(--accent);
-  border-radius: var(--r); padding: 11px 13px; max-width: 380px;
-  box-shadow: var(--shadow);
-  animation: rise .18s cubic-bezier(.2,.8,.3,1);
-}
-@keyframes rise { from { transform: translateY(8px); opacity: 0 } }
-.toast .t-title { font-size: 12.5px; color: var(--fg); margin-bottom: 5px; }
-.toast .t-url { font: 11px var(--mono); color: var(--accent); word-break: break-all; }
-.toast .t-actions { display: flex; gap: 6px; margin-top: 10px; }
-.toast .t-actions button { font-size: 11px; padding: 4px 11px; border-radius: var(--r); border: 1px solid var(--line); color: var(--fg-dim); }
-.toast .t-actions button:hover { color: var(--fg); background: var(--bg-3); }
-.toast .t-actions button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600; }

@@ -1,13 +1,6 @@
-// Single entry. The shell (terminal, preview, rail, layout) stays vanilla; the
-// chat pane is React and mounts into #agent-root.
+// Single entry. React renders the shell; everything else is loaded after that,
+// because the modules below still find their nodes with querySelector and those
+// nodes do not exist until the shell has committed.
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
-import './app.js';
-import './window.js';
-import './project.js';
-import './menu.js';
-import './rail.js';
-import './files.js';
-import './changes.js';
-import './editors.js';
 import './ui/main.jsx';

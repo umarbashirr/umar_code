@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld('tandem', {
     // No dir means "ask with the system folder picker".
     open: (opts) => ipcRenderer.invoke('project:open', opts || {}),
     forget: (dir) => ipcRenderer.invoke('project:forget', { dir }),
+    // Which of the open folders the right-hand column is showing. Cheap: no
+    // chat stops and no shell dies, because the folder being looked at and the
+    // folders doing work are different questions.
+    focus: (dir) => ipcRenderer.invoke('project:focus', { dir }),
+    close: (dir) => ipcRenderer.invoke('project:close', { dir }),
+    reorder: (dirs) => ipcRenderer.invoke('project:reorder', { dirs }),
     onChanged: on('project:changed'),
   },
 
@@ -40,23 +46,35 @@ contextBridge.exposeInMainWorld('tandem', {
   browser: {
     setBounds: (b) => ipcRenderer.send('browser:bounds', b),
     setVisible: (v) => ipcRenderer.send('browser:visible', v),
-    action: (action, arg) => ipcRenderer.invoke('browser:action', { action, arg }),
+    // A preview belongs to a tab in the right column, and a folder can have
+    // several. No tab named means the one in the box.
+    // `project` is only a hint about who the tab belongs to, for the case where
+    // main is making the page before the shell has said which strip it is in.
+    action: (action, arg, tab, project) => ipcRenderer.invoke('browser:action', { action, arg, tab, project }),
+    // Which preview belongs in the box. The shell owns the strip, so the shell
+    // is what says; null means the column is shut or is showing something that
+    // is not a preview.
+    show: (tab, project) => ipcRenderer.send('browser:show', { tab, project }),
+    closeTab: (tab) => ipcRenderer.send('browser:closeTab', { tab }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),
-    // Which agent is currently driving the pane, and taking it back off them.
-    driver: () => ipcRenderer.invoke('preview:driver'),
-    seize: () => ipcRenderer.invoke('preview:seize'),
+    // An agent asked for a preview in a folder with no tab open for one, so
+    // main made the page and minted the id. The shell draws the tab.
+    onOpenTab: on('preview:tab'),
+    // Which agent is driving that preview, and taking it back off them.
+    driver: (tab) => ipcRenderer.invoke('preview:driver', { tab }),
+    seize: (tab) => ipcRenderer.invoke('preview:seize', { tab }),
     onDriver: on('preview:driver'),
   },
 
   // The project folder as a tree. Reads only: nothing here writes to disk.
   files: {
-    list: (path) => ipcRenderer.invoke('files:list', { path }),
-    read: (path) => ipcRenderer.invoke('files:read', { path }),
-    search: (query) => ipcRenderer.invoke('files:search', { query }),
+    list: (path, project) => ipcRenderer.invoke('files:list', { path, project }),
+    read: (path, project) => ipcRenderer.invoke('files:read', { path, project }),
+    search: (query, project) => ipcRenderer.invoke('files:search', { query, project }),
     // The full set of folders the tree currently has expanded, sent whenever it
     // changes so main can reconcile its watches in one go.
-    watch: (dirs) => ipcRenderer.send('files:watch', { dirs }),
+    watch: (dirs, project) => ipcRenderer.send('files:watch', { dirs, project }),
     reveal: (path) => ipcRenderer.invoke('files:reveal', { path }),
     openExternal: (path) => ipcRenderer.invoke('files:openExternal', { path }),
     absolute: (path) => ipcRenderer.invoke('files:absolute', { path }),
@@ -73,32 +91,43 @@ contextBridge.exposeInMainWorld('tandem', {
   // one call, each file's patch is another, because a repo mid-refactor holds
   // more diff than is worth sending at once.
   changes: {
-    list: () => ipcRenderer.invoke('changes:list'),
+    list: (project) => ipcRenderer.invoke('changes:list', { project }),
     // context: 'full' for the whole file with the changes in place, 'hunks' for
     // the few lines around each one.
-    patch: (path, context) => ipcRenderer.invoke('changes:patch', { path, context }),
+    patch: (path, context, project) => ipcRenderer.invoke('changes:patch', { path, context, project }),
   },
 
   // Everything that drives one conversation takes the panel's key for it, so
   // several can run at once and each event finds its way back.
   agent: {
     onActivity: on('agent:activity'),
-    send: (chat, session, text, images) => ipcRenderer.invoke('agent:send', { chat, session, text, images }),
+    send: (chat, session, text, images, project) => ipcRenderer.invoke('agent:send', { chat, session, text, images, project }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
     // One subagent, by the id task_started gave it.
     stopTask: (chat, id) => ipcRenderer.invoke('agent:stopTask', { chat, id }),
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
-    subagent: (session, agentId) => ipcRenderer.invoke('agent:subagent', { session, agentId }),
+    subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: () => ipcRenderer.invoke('agent:models'),
     setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
+    // How hard the model thinks. The CLI takes this when a session starts and
+    // has no setter for it, so changing it parks the idle chats and the next
+    // message on each resumes at the new level.
+    setEffort: (effort) => ipcRenderer.invoke('agent:setEffort', { effort }),
+    // The million-token window is a different name for the same model rather
+    // than a setting on it, so this swaps the name.
+    setLongContext: (on) => ipcRenderer.invoke('agent:setLongContext', { on }),
     forgetModel: (model) => ipcRenderer.invoke('agent:forgetModel', { model }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
-    transcript: (id) => ipcRenderer.invoke('agent:transcript', { id }),
-    resume: (chat, id) => ipcRenderer.invoke('agent:resume', { chat, id }),
+    transcript: (id, project) => ipcRenderer.invoke('agent:transcript', { id, project }),
+    resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
+    deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
+    // Marking a chat done. Nothing is deleted: the rail folds it away and the
+    // transcript stays exactly where it was.
+    complete: (id, done) => ipcRenderer.invoke('agent:complete', { id, done }),
     info: (chat) => ipcRenderer.invoke('agent:info', { chat }),
     decide: (chat, id, decision, input) => ipcRenderer.send('agent:decide', { chat, id, decision, input }),
     onMessage: on('agent:message'),

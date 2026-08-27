@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CheckIcon, KeyRoundIcon, PlugZapIcon, PlusIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon,
+  KeyRoundIcon, PlugZapIcon, PlusIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon,
 } from 'lucide-react';
 
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import {
+  Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 // The vanilla half owns the terminal and the preview pane: signing in to a
 // server happens in a shell, and the pane has to move out of the way of this
@@ -36,34 +41,14 @@ const STATUS = {
 
 function Tab({ on, count, children, ...props }) {
   return (
-    <button
-      type="button"
-      className={cn(
-        'flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-sm transition-colors',
-        on ? 'border-border text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
-      )}
+    <Button
+      variant={on ? 'outline' : 'ghost'}
+      size="sm"
+      className={cn('h-7 gap-1.5 px-2.5 font-normal', !on && 'text-muted-foreground')}
       {...props}>
       {children}
       <span className="text-muted-foreground text-xs">{count}</span>
-    </button>
-  );
-}
-
-function Toggle({ on, disabled, ...props }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      disabled={disabled}
-      className={cn(
-        'flex size-5 shrink-0 items-center justify-center rounded border transition-colors',
-        on ? 'border-foreground/40 text-foreground/80' : 'border-border text-transparent hover:border-foreground/25',
-        disabled && 'opacity-40',
-      )}
-      {...props}>
-      <CheckIcon className="size-3.5" />
-    </button>
+    </Button>
   );
 }
 
@@ -105,10 +90,10 @@ function Skills({ catalog }) {
               <div
                 key={s.name}
                 className="flex items-baseline gap-2.5 rounded-md px-1 py-1.5 hover:bg-accent/50">
-                <Toggle
-                  on={s.enabled}
+                <Checkbox
+                  checked={s.enabled}
                   title={s.enabled ? 'Hide this from the agent' : 'Offer this to the agent again'}
-                  onClick={() => catalog.setSkill(s.name, !s.enabled)} />
+                  onCheckedChange={(enabled) => catalog.setSkill(s.name, enabled === true)} />
                 <span className={cn('shrink-0 font-mono text-[13px]', !s.enabled && 'text-muted-foreground line-through')}>
                   /{s.name}
                 </span>
@@ -150,6 +135,8 @@ function splitCommand(line) {
 function AddServer({ catalog, onDone }) {
   const [form, setForm] = useState(BLANK);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  // Select hands back the value on its own rather than an event.
+  const pick = (k) => (value) => setForm({ ...form, [k]: value });
   const stdio = form.type === 'stdio';
 
   const submit = async (e) => {
@@ -169,22 +156,26 @@ function AddServer({ catalog, onDone }) {
     <form onSubmit={submit} className="mb-3 rounded-lg border p-3">
       <div className="flex gap-2">
         <Input value={form.name} onChange={set('name')} placeholder="name" className="h-8 flex-1" autoFocus />
-        <select
-          value={form.type}
-          onChange={set('type')}
-          className="h-8 rounded-md border bg-transparent px-2 text-sm">
-          <option value="stdio">stdio</option>
-          <option value="http">http</option>
-          <option value="sse">sse</option>
-        </select>
-        <select
-          value={form.scope}
-          onChange={set('scope')}
-          className="h-8 rounded-md border bg-transparent px-2 text-sm">
-          <option value="project">.mcp.json</option>
-          <option value="user">yours</option>
-          <option value="local">this folder</option>
-        </select>
+        <Select value={form.type} onValueChange={pick('type')}>
+          <SelectTrigger size="sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="stdio">stdio</SelectItem>
+              <SelectItem value="http">http</SelectItem>
+              <SelectItem value="sse">sse</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Select value={form.scope} onValueChange={pick('scope')}>
+          <SelectTrigger size="sm"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="project">.mcp.json</SelectItem>
+              <SelectItem value="user">yours</SelectItem>
+              <SelectItem value="local">this folder</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </div>
 
       <Input
@@ -193,12 +184,12 @@ function AddServer({ catalog, onDone }) {
         placeholder={stdio ? 'npx -y @scope/server --flag' : 'https://mcp.example.com/mcp'}
         className="mt-2 h-8 font-mono text-xs" />
 
-      <textarea
+      <Textarea
         value={form.env}
         onChange={set('env')}
         rows={2}
         placeholder={stdio ? 'API_KEY=… one per line' : 'Authorization=Bearer … one per line'}
-        className="mt-2 w-full resize-none rounded-md border bg-transparent px-3 py-1.5 font-mono text-xs outline-none placeholder:text-muted-foreground" />
+        className="mt-2 min-h-0 resize-none py-1.5 font-mono text-xs" />
 
       <div className="mt-2 flex items-center gap-2">
         <Button type="submit" size="sm" variant="outline" className="h-7" disabled={!ready}>Add</Button>
@@ -237,9 +228,9 @@ function Servers({ catalog }) {
           local server offering the same thing can end up unused, so the switch
           lives where the servers are. */}
       <label className="mb-2 flex cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-2">
-        <Toggle
-          on={catalog.connectors}
-          onClick={() => catalog.setConnectors(!catalog.connectors)} />
+        <Checkbox
+          checked={catalog.connectors}
+          onCheckedChange={(on) => catalog.setConnectors(on === true)} />
         <span className="text-[13px]">Use the connectors from your Claude account</span>
         <span className="truncate text-muted-foreground text-xs">
           {catalog.connectors
@@ -261,12 +252,12 @@ function Servers({ catalog }) {
           const [dot, label] = STATUS[s.status] || STATUS.configured;
           return (
             <div key={s.name} className="group flex items-center gap-2.5 rounded-md px-1 py-2 hover:bg-accent/50">
-              <Toggle
-                on={s.enabled}
+              <Checkbox
+                checked={s.enabled}
                 disabled={!s.editable}
                 title={!s.editable ? 'The browser tools this app provides'
                   : s.enabled ? 'Stop using this server' : 'Use this server again'}
-                onClick={() => catalog.toggleMcp(s.name, !s.enabled)} />
+                onCheckedChange={(enabled) => catalog.toggleMcp(s.name, enabled === true)} />
               <span className={cn('size-2 shrink-0 rounded-full', dot)} title={s.error || label} />
 
               <div className="min-w-0 flex-1">
@@ -404,7 +395,7 @@ export function CatalogDialog({ catalog, open, onOpenChange }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[70vh] max-w-3xl flex-col gap-3 p-4 sm:max-w-3xl">
-        <DialogHeader className="space-y-0">
+        <DialogHeader className="gap-0">
           <DialogTitle className="sr-only">Skills and MCP servers</DialogTitle>
           <DialogDescription className="sr-only">
             What this folder offers the agent, and which of it is switched on.

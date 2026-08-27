@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const SOURCE_LABEL = {
@@ -75,18 +76,19 @@ export function MentionMenu({ items, active, onActive, onPick, note }) {
       className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-xl border bg-popover shadow-lg">
       <div ref={box} className="max-h-[280px] overflow-y-auto py-1">
         {items.map((item, i) => (
-          <button
+          <Button
             key={item.key}
             id={`mention-${i}`}
-            type="button"
+            variant="ghost"
+            size="sm"
             role="option"
             aria-selected={i === active}
             data-active={i === active}
             onMouseEnter={() => onActive(i)}
             onMouseDown={(e) => { e.preventDefault(); onPick(item); }}
             className={cn(
-              'flex w-full items-baseline gap-2 px-3 py-1.5 text-left',
-              i === active ? 'bg-muted text-foreground' : 'text-foreground',
+              'h-auto w-full items-baseline justify-start rounded-none px-3 py-1.5 font-normal',
+              i === active && 'bg-muted',
             )}>
             <span className={cn('size-1.5 shrink-0 self-center rounded-full', DOT[item.kind])} />
             <span className="shrink-0 font-mono text-[13px]">{item.name}</span>
@@ -95,7 +97,7 @@ export function MentionMenu({ items, active, onActive, onPick, note }) {
             {item.source && (
               <span className="ml-auto shrink-0 pl-2 text-muted-foreground/70 text-[10px]">{item.source}</span>
             )}
-          </button>
+          </Button>
         ))}
       </div>
       <div className="border-t px-3 py-1.5 text-muted-foreground text-[11px]">

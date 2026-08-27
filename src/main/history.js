@@ -13,13 +13,19 @@ const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 // Claude Code slugifies a cwd by replacing / and . with -.
 const slugFor = (cwd) => cwd.replace(/[/.]/g, '-');
 
-let cached = null;
+// One entry per project. This was a single cwd for as long as a window held a
+// single folder, and the rail now asks about every project that is open: with
+// one slot, a list of four projects missed on all four every time, and a miss
+// can fall through to scanForCwd, which reads a line out of every directory
+// under ~/.claude/projects.
+const dirs = new Map();
 
 function projectDir(cwd) {
-  if (cached && cached.cwd === cwd) return cached.dir;
+  const hit = dirs.get(cwd);
+  if (hit) return hit;
   let dir = path.join(PROJECTS, slugFor(cwd));
   if (!fs.existsSync(dir)) dir = scanForCwd(cwd) || dir;
-  cached = { cwd, dir };
+  dirs.set(cwd, dir);
   return dir;
 }
 
@@ -125,6 +131,38 @@ function listSessions(cwd, limit = 200) {
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);
+}
+
+// Deleting a chat for good. The transcript is the chat: drop the file and
+// `claude --resume` stops offering it, the rail stops listing it, and nothing
+// here has a second copy to go stale. A session that spawned agents or wrote a
+// long tool result also has a sibling folder of its own.
+//
+// The id has to be a session uuid before anything is unlinked. That folder also
+// holds memory/ and every other chat in this project, and a caller passing a
+// chat key or a stray path is a bug that would take one of those with it.
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function deleteSession(cwd, id) {
+  if (!SESSION_ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
+  const dir = projectDir(cwd);
+  const file = path.join(dir, `${id}.jsonl`);
+
+  let gone = false;
+  try {
+    fs.rmSync(file);
+    gone = true;
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  // Subagent transcripts and spilled tool results. Missing for most chats.
+  try {
+    fs.rmSync(path.join(dir, id), { recursive: true, force: true });
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  titles.delete(file);
+  return gone;
 }
 
 const MAX_MESSAGES = 400;
@@ -260,4 +298,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, projectDir };
+module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, projectDir };

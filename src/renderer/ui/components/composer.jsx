@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, CameraIcon, ChevronDownIcon, CrosshairIcon, FileIcon, FolderIcon,
-  GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
+  ArrowUpIcon, BrainIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
+  FolderIcon, GaugeIcon, GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
@@ -15,6 +15,8 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { CatalogDialog } from '@/components/catalog-dialog';
 import { MentionMenu, fileRows, skillRows } from '@/components/mention-menu';
@@ -62,7 +64,7 @@ function ModelPicker({ agent }) {
 
   if (typing) {
     return (
-      <input
+      <Input
         autoFocus
         value={draft}
         placeholder="model name, then Enter"
@@ -74,11 +76,7 @@ function ModelPicker({ agent }) {
           if (e.key === 'Enter') { e.preventDefault(); done(draft.trim()); }
           if (e.key === 'Escape') { e.preventDefault(); setTyping(false); setDraft(''); }
         }}
-        className={cn(
-          'h-7 w-56 rounded-md border border-input bg-transparent px-2 text-xs',
-          'outline-none placeholder:text-muted-foreground focus:border-ring',
-        )}
-      />
+        className="h-7 w-56 px-2 text-xs" />
     );
   }
 
@@ -99,31 +97,71 @@ function ModelPicker({ agent }) {
   );
 }
 
+/* How hard the model thinks, and how long a window it gets. Both sit next to
+   the model because both are about the same choice, and neither was reachable
+   before: effort was never passed to the CLI at all, and the long window is a
+   second name for a model rather than a setting on it, so the list only ever
+   showed whichever half the CLI defaulted to.
+
+   Empty effort means the CLI's own default. It is offered as a level you can
+   return to rather than left off the list, because "whatever Claude Code does"
+   is a real answer and pinning it to today's default would stop it following. */
+function ThinkingPicker({ agent }) {
+  if (!agent.efforts?.length) return null;
+
+  return (
+    <PromptInputSelect value={agent.effort || 'default'} onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
+      <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 text-xs">
+        <BrainIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <PromptInputSelectValue />
+      </PromptInputSelectTrigger>
+      <PromptInputSelectContent>
+        <PromptInputSelectItem value="default">Default effort</PromptInputSelectItem>
+        {agent.efforts.map((level) => (
+          <PromptInputSelectItem key={level} value={level}>{`${level} effort`}</PromptInputSelectItem>
+        ))}
+      </PromptInputSelectContent>
+    </PromptInputSelect>
+  );
+}
+
+function ContextPill({ agent }) {
+  const { on, capable } = agent.longContext || {};
+  if (!capable) return null;
+
+  return (
+    <Pill
+      title={on
+        ? 'Running the million-token window. Click for the ordinary one.'
+        : 'Running the ordinary window. Click for the million-token one.'}
+      className={on ? 'text-foreground/80' : undefined}
+      onClick={() => agent.changeLongContext(!on)}>
+      <GaugeIcon className="size-3.5 shrink-0" />
+      {on ? '1M' : '200K'}
+    </Pill>
+  );
+}
+
 function Pill({ className, children, ...props }) {
   return (
-    <button
+    <Button
       type="button"
-      className={cn(
-        'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs',
-        'transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none',
-        className,
-      )}
+      variant="ghost"
+      size="xs"
+      className={cn('h-7 min-w-0 gap-1.5 font-normal text-muted-foreground', className)}
       {...props}>
       {children}
-    </button>
+    </Button>
   );
 }
 
 function Chip({ active, shortcut, children, ...props }) {
   return (
-    <button
+    <Button
       type="button"
-      className={cn(
-        'flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors',
-        active
-          ? 'border-transparent bg-primary text-primary-foreground'
-          : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-      )}
+      variant={active ? 'default' : 'outline'}
+      size="xs"
+      className="h-7 gap-1.5 rounded-full px-3 font-normal"
       {...props}>
       {children}
       {shortcut && (
@@ -131,7 +169,7 @@ function Chip({ active, shortcut, children, ...props }) {
           {shortcut}
         </span>
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -140,17 +178,34 @@ function Chip({ active, shortcut, children, ...props }) {
 // opens the full-size preview for the same reason.
 function Attachment({ item, onOpen, onRemove }) {
   const remove = (
-    <button type="button" onClick={onRemove} className="opacity-60 hover:opacity-100" title="Remove">
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      onClick={onRemove}
+      title="Remove"
+      className="size-4 text-muted-foreground">
       <XIcon className="size-3" />
-    </button>
+    </Button>
   );
 
   // The chip body, not the chip, is the button: the remove control sits beside
-  // it rather than inside it.
+  // it rather than inside it. The padding has to be cleared for the icon case
+  // too, or a chip with a file icon in it gains inset the thumbnail cannot sit
+  // flush against.
   const open = (className, children, title) => (
-    <button type="button" onClick={onOpen} title={title} className={cn('flex min-w-0 items-center gap-1.5', className)}>
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      onClick={onOpen}
+      title={title}
+      className={cn(
+        'h-auto min-w-0 justify-start gap-1.5 p-0 font-normal has-[>svg]:p-0',
+        className,
+      )}>
       {children}
-    </button>
+    </Button>
   );
 
   if (item.kind === 'image') {
@@ -159,7 +214,7 @@ function Attachment({ item, onOpen, onRemove }) {
         {open(
           'h-8',
           <>
-            <img src={item.preview} alt="" className="h-8 w-8 rounded-l-md border-border border-r object-cover" />
+            <img src={item.preview} alt="" className="size-8 rounded-l-md border-border border-r object-cover" />
             <span className="max-w-[16ch] truncate">{item.name}</span>
           </>,
           `${item.name} · ${item.width}×${item.height} · ${sizeLabel(item.size)} · click to see it`,
@@ -216,7 +271,11 @@ function Attachment({ item, onOpen, onRemove }) {
 }
 
 export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
-  const project = useProject();
+  const window_ = useProject();
+  // The folder this chat runs in, which is the one the message about to be typed
+  // will land in. Not always the focused folder: reading a chat from another
+  // project leaves the window where it was until you click into it.
+  const project = window_.projects?.find((p) => p.dir === agent.project) || window_;
   const [showCatalog, setShowCatalog] = useState(false);
   const [previewing, setPreviewing] = useState(null);
   // A menu that has been dismissed stays dismissed until the box changes
@@ -353,20 +412,31 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="max-w-[380px]">
             <DropdownMenuLabel className="font-normal text-muted-foreground text-xs">
-              {shortPath(project.dir, project.home)}
+              {shortPath(project.dir, window_.home)}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => window.tandem.project.open({})}>Open folder…</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => window.tandem.project.open({ newWindow: true })}>
               Open folder in new window…
             </DropdownMenuItem>
-            {project.recents.length > 0 && <DropdownMenuSeparator />}
-            {project.recents.slice(0, 6).map((r) => (
+            {/* The folders already open here. Picking one moves the window to
+                it, which is a different thing from opening a folder: nothing
+                starts and nothing stops. */}
+            {window_.projects?.length > 1 && <DropdownMenuSeparator />}
+            {window_.projects?.length > 1 && window_.projects.map((p) => (
+              <DropdownMenuItem key={p.dir} onSelect={() => window.tandem.project.focus(p.dir)}>
+                <FolderIcon className="size-3.5 text-muted-foreground" />
+                <span className="truncate">{p.name}</span>
+                {p.dir === window_.focused && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
+              </DropdownMenuItem>
+            ))}
+            {window_.recents.length > 0 && <DropdownMenuSeparator />}
+            {window_.recents.slice(0, 6).map((r) => (
               <DropdownMenuItem key={r.path} onSelect={() => window.tandem.project.open({ dir: r.path })}>
                 <FolderIcon className="size-3.5 text-muted-foreground" />
                 <span className="truncate">{r.name}</span>
                 <span className="ml-auto truncate text-muted-foreground text-xs" dir="rtl">
-                  {shortPath(r.path, project.home)}
+                  {shortPath(r.path, window_.home)}
                 </span>
               </DropdownMenuItem>
             ))}
@@ -375,9 +445,9 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
         {project.branch && (
           <Pill
-            disabled
-            className="cursor-default"
-            title={`${shortPath(project.dir, project.home)} is on ${project.branch}`}>
+            tabIndex={-1}
+            className="pointer-events-none"
+            title={`${shortPath(project.dir, window_.home)} is on ${project.branch}`}>
             <GitBranchIcon className="size-3.5 shrink-0" />
             <span className="truncate">{project.branch}</span>
           </Pill>
@@ -420,7 +490,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               {agent.busy ? 'press Enter on an empty box to send now' : 'sending…'}
             </span>
           </div>
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             {agent.queued.map((m, i) => (
               <div
                 key={m.id}
@@ -429,13 +499,15 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
                 <span className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-xs">
                   <TokenText text={spoken(m.text)} />
                 </span>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon-xs"
                   title="Drop this one"
                   onClick={() => agent.unqueue(m.id)}
-                  className="text-muted-foreground opacity-60 hover:opacity-100">
+                  className="size-4 text-muted-foreground">
                   <XIcon className="size-3" />
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -501,12 +573,14 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
             <PromptInputTools className="gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="icon-sm"
                     title="Attach a file, or add something from the preview"
-                    className="flex size-8 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                    className="rounded-full text-muted-foreground">
                     <PlusIcon className="size-4" />
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   <DropdownMenuItem onSelect={pickFiles}>
@@ -534,7 +608,13 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
 
               {/* An endpoint that will not list its models still needs a way to
                   name one, so the picker stays even when the list is empty. */}
-              {(agent.models.length > 0 || agent.driver?.installed) && <ModelPicker agent={agent} />}
+              {(agent.models.length > 0 || agent.driver?.installed) && (
+                <>
+                  <ModelPicker agent={agent} />
+                  <ContextPill agent={agent} />
+                  <ThinkingPicker agent={agent} />
+                </>
+              )}
             </PromptInputTools>
 
             <PromptInputSubmit

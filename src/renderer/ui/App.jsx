@@ -13,6 +13,8 @@ import { SettingsDialog } from '@/components/settings-dialog';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
 
+import { clock, useTick } from '@/lib/clock';
+
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
@@ -78,6 +80,82 @@ const imageSrc = (b) => (b.path
   ? `file://${encodeURI(b.path)}`
   : `data:${b.source.media_type || 'image/png'};base64,${b.source.data}`);
 
+// Between a message going out and the first row coming back, and again between
+// one tool finishing and the next starting, the transcript holds still. A held
+// transcript and a hung agent look identical, so a shimmering "Thinking" fills
+// those gaps. It is only up when nothing else on screen is already moving:
+// streaming text, a tool mid-call and a subagent still running in the
+// foreground all say the same thing on their own, and a question is waiting on
+// the human, not the model. A backgrounded subagent is the exception, its
+// shimmer is about its own work and the main turn is off waiting on something
+// else, so the gap here still needs filling.
+function stalled(items) {
+  const last = items[items.length - 1];
+  if (!last) return true;
+  if (last.kind === 'assistant') return !last.streaming;
+  if (last.kind === 'tool') return last.state !== 'input-available' && last.state !== 'input-streaming';
+  if (last.kind === 'agent') return last.status !== 'running' || !!last.background;
+  if (last.kind === 'perm') return !!last.decided;
+  return true;
+}
+
+// When `on` has been true for a whole `ms`, the moment it went true. Zero the
+// rest of the time. The gap between one tool finishing and the next starting
+// is usually a couple of hundred milliseconds of wire, and a line that flashes
+// up in every one of those gaps is worse than no line: it turns a turn that is
+// going fine into a strobe.
+function useSettled(on, ms) {
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    if (!on) {
+      setAt(0);
+      return undefined;
+    }
+    const began = Date.now();
+    const t = setTimeout(() => setAt(began), ms);
+    return () => clearTimeout(t);
+  }, [on, ms]);
+  return at;
+}
+
+// The word on its own was the whole answer for a while, and it is not enough.
+// A shimmer sweeps at the same rate after ninety seconds as after two, so a
+// long tool call and a dead socket look identical, and the person sits there
+// deciding whether to reload. A number that goes up cannot be faked by a stuck
+// render. It waits a couple of seconds first, because a clock reading 0:00 on
+// a wait nobody had noticed yet only invents the worry.
+function ThinkingLine({ since }) {
+  useTick(true);
+  const held = Date.now() - since;
+
+  return (
+    <div className="tandem-in flex items-baseline gap-2 px-2">
+      <Shimmer className="text-[13px]">Thinking</Shimmer>
+      {held >= 2500 && (
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">{clock(held)}</span>
+      )}
+    </div>
+  );
+}
+
+// The turn's own clock, up in the header beside the chat's name. Deliberately
+// not a second shimmer: two things pulsing at once read as two separate states
+// and the reader goes looking for the difference. A dot and a number, and the
+// number is the point. This one runs the whole turn, including the stretches
+// where a tool row or a subagent is already saying its own piece, so there is
+// never a moment with nothing on screen moving.
+function TurnClock({ since }) {
+  useTick(true);
+
+  return (
+    <span className="tandem-in ml-3 flex items-center gap-1.5 text-muted-foreground text-xs">
+      <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+      working
+      {since > 0 && <span className="font-mono tabular-nums">{clock(Date.now() - since)}</span>}
+    </span>
+  );
+}
+
 export default function App() {
   const agent = useAgent();
   const catalog = useCatalog();
@@ -130,10 +208,17 @@ export default function App() {
       newChat: agent.reset,
       // The folder changed under us, so every chat here goes with it.
       clearChats: agent.clear,
+      // Deleting one, transcript and all. The draft goes with it: half a
+      // message typed into a chat that no longer exists is nobody's to keep.
+      remove: async (chat) => {
+        const res = await agent.removeChat(chat);
+        if (chat.key) setDrafts(({ [chat.key]: _gone, ...rest }) => rest);
+        return res;
+      },
       settings: (at) => setSettingsAt(typeof at === 'string' ? at : 'appearance'),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat]);
 
   // News, once. A version the person has already been shown and ignored is not
   // worth a second interruption, so the version each toast named is written to
@@ -191,12 +276,15 @@ export default function App() {
   }, [text, attachments, agent]);
 
   const empty = agent.items.length === 0;
+  // A gap the transcript is not already explaining, once it has lasted long
+  // enough to be a gap rather than the wire.
+  const thinkingSince = useSettled(agent.busy && stalled(agent.items), 400);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <div className="flex h-[38px] flex-none items-center px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
-        {agent.busy && <Shimmer className="ml-3 text-xs">working</Shimmer>}
+        {agent.busy && <TurnClock since={agent.startedAt} />}
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
@@ -206,6 +294,7 @@ export default function App() {
           ) : (
             <Items items={agent.items} agent={agent} />
           )}
+          {thinkingSince > 0 && <ThinkingLine since={thinkingSince} />}
         </ConversationContent>
         {!empty && <ConversationScrollButton />}
       </Conversation>
@@ -261,13 +350,20 @@ function runs(items) {
 // Two calls are not a run worth folding: it would cost a click and save a line.
 const FOLD_AT = 3;
 
+// A row landing, seen landing. Without this the transcript grows by jumping,
+// and a jump is what the window does when it redraws, not what an agent does
+// when it finishes a thought. The wrapper is keyed on the item, so a row that
+// merely changes underneath it — a tool filling in its output, a diff arriving
+// a beat after its row — sits still instead of replaying.
+const Row = ({ children }) => <div className="tandem-in">{children}</div>;
+
 function Items({ items, agent }) {
   return runs(items).map((g) => {
-    if (!g.run) return <Item key={g.id} item={g.item} agent={agent} />;
+    if (!g.run) return <Row key={g.id}><Item item={g.item} agent={agent} /></Row>;
     if (g.run.length < FOLD_AT) {
       return (
         <Fragment key={g.id}>
-          {g.run.map((it) => <Item key={it.id} item={it} agent={agent} />)}
+          {g.run.map((it) => <Row key={it.id}><Item item={it} agent={agent} /></Row>)}
         </Fragment>
       );
     }
@@ -280,7 +376,11 @@ function Items({ items, agent }) {
         <ToolStrip items={done}>
           {done.map((it) => <Item key={it.id} item={it} agent={agent} />)}
         </ToolStrip>
-        <Item item={current} agent={agent} />
+        {/* Keyed, so the row the run is currently on is a new element each
+            time the run moves on. Without the key React reconciles the next
+            tool call into the last one's markup and the reader inherits
+            whatever they had opened on the call before. */}
+        <Row key={current.id}><Item item={current} agent={agent} /></Row>
       </div>
     );
   });
@@ -331,7 +431,14 @@ function Item({ item, agent }) {
     return (
       <Message from="assistant">
         <MessageContent>
-          <MessageResponse isAnimating={item.streaming}>{item.text}</MessageResponse>
+          {/* The caret rides the last paragraph while text is still coming.
+              Prose that pauses for a second between chunks looks finished
+              without it, and the reader reaches for the composer mid-answer. */}
+          <MessageResponse
+            className={item.streaming ? 'tandem-streaming' : undefined}
+            isAnimating={item.streaming}>
+            {item.text}
+          </MessageResponse>
         </MessageContent>
       </Message>
     );
@@ -352,6 +459,7 @@ function Item({ item, agent }) {
           name={label}
           input={item.input}
           state={item.state}
+          at={item.at}
           defaultOpen
           right={(
             <span className="flex items-center gap-1.5 font-mono text-xs">
@@ -366,7 +474,7 @@ function Item({ item, agent }) {
     }
 
     return (
-      <ToolRow name={label} input={item.input} state={item.state} defaultOpen={item.state === 'output-error'}>
+      <ToolRow name={label} input={item.input} state={item.state} at={item.at} defaultOpen={item.state === 'output-error'}>
         <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
         {images.map((b, i) => (
           <img
@@ -422,14 +530,15 @@ function Item({ item, agent }) {
           {/* Which agent is stuck on this. Without it a subagent's request
               reads as though the main thread asked. */}
           {item.agent && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
               title="Show the agent that asked"
               onClick={() => document.getElementById(`row-${item.agent.toolUseId}`)
                 ?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
-              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-700 dark:text-amber-500">
+              className="h-auto rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] font-normal text-amber-700 dark:text-amber-500">
               {item.agent.label}
-            </button>
+            </Button>
           )}
           <span className="text-[13px]">
             {item.title || <>Allow <span className="font-mono font-medium">{label}</span>?</>}

@@ -7,12 +7,14 @@ const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { runTool } = require('./tools');
 const { AgentSession, SHOT_NOTE } = require('./agent');
-const { Driver, claudeBinary, preferBinary, systemBinary } = require('./driver');
+const {
+  Driver, claudeBinary, preferBinary, systemBinary, isLong, withLong, withoutLong, hasLong,
+} = require('./driver');
 const { Catalog } = require('./catalog');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
 const shellEnv = require('./shell-env');
-const { listSessions, readSession, readSubagent, listSubagents } = require('./history');
+const { listSessions, readSession, readSubagent, listSubagents, deleteSession } = require('./history');
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const diff = require('./diff');
@@ -20,7 +22,10 @@ const editors = require('./editors');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
+const completed = require('./completed');
 const { DEFAULT_MODE, isMode } = require('./modes');
+// What the CLI takes for --effort. Anything else is refused rather than passed on.
+const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
 const bridgeState = require('../../cli/state');
 
@@ -31,7 +36,16 @@ const HOME_URL = 'about:blank';
 const isDev = process.argv.includes('--dev');
 
 let win = null;
-let pane = null;
+// One preview per preview tab. The right column is a strip of tabs and a folder
+// can have several previews open at once, so the tab is what a page belongs to;
+// the folder it is filed under is only what decides whether it goes when that
+// folder closes. Made on first use, because a WebContents is not a bill to run
+// up on a tab nobody has opened.
+const panes = new Map(); // tab id -> { pane, project }
+// Which preview is in the box. The shell says, because it owns the strip and
+// knows which tab is active in the folder on screen.
+let shownTab = null;
+let paneSeq = 0;
 // One AgentSession per chat, keyed by whatever the panel calls that chat. A
 // chat that is working keeps working while you read another one, which is the
 // whole reason this is a map and not a single session.
@@ -49,18 +63,39 @@ let updates = null;
 let chosenModel = settings.get('agent').model || null;
 if (chosenModel === 'default') chosenModel = null;
 let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
+// How hard the model thinks. Empty means the CLI's own default, which is the
+// right starting point: naming a level here would pin every chat to whatever
+// today's default happens to be and never follow it.
+let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get('agent').effort : '';
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
+// Whether the preview column is open at all, remembered because a pane made
+// after the fact, or brought forward by a focus change, has to match it.
+let paneVisible = false;
 const terms = new Map();
 
 // Which chat the panel is showing. `tandem ask` from a terminal has to land in
 // the chat the human is looking at rather than opening one they cannot see.
 let activeChat = { chat: 'main', session: null };
 
-// One pane, and now more than one agent that wants to drive it. See
-// pane-lease.js for why looking is free and changing the page is not.
-const lease = new PaneLease({ onChange: (holder) => send('preview:driver', { holder }) });
+// One lease per preview, because a lease guards one page. Two agents pointed at
+// the same tab take turns; two working in different tabs never had anything to
+// argue about. See pane-lease.js for why looking is free and changing the page
+// is not.
+const leases = new Map(); // tab id -> PaneLease
+
+function leaseFor(tab) {
+  const key = tab || 'none';
+  let l = leases.get(key);
+  if (!l) {
+    l = new PaneLease({
+      onChange: (holder) => send('preview:driver', { holder, tab: key, project: panes.get(key)?.project || focused }),
+    });
+    leases.set(key, l);
+  }
+  return l;
+}
 
 // Nothing picked. Passing no --model does not mean "no opinion": the CLI runs
 // whatever the account defaults to, which on most plans is Fable, and the picker
@@ -86,27 +121,130 @@ function stopChat(chat) {
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
-  lease.releaseChat(chat);
+  releaseChatEverywhere(chat);
   return true;
+}
+
+// A chat that has been parked keeps its folder. Only closing the project drops
+// that, because the panel can hand a parked chat a message months later and it
+// has to resume in the folder it was written in.
+function forgetChat(chat) {
+  stopChat(chat);
+  chatProjects.delete(chat);
 }
 
 function stopAllChats() {
   for (const a of sessions.values()) a.stop();
   sessions.clear();
-  lease.stop();
+  chatProjects.clear();
+  for (const l of leases.values()) l.stop();
+  leases.clear();
+}
+
+// Everything rooted at one folder, stopped. The other projects in this window
+// carry on, which is the difference between closing a project and the old
+// switch that took the whole window with it.
+function stopProject(dir) {
+  for (const [chat, cwd] of chatProjects) if (cwd === dir) forgetChat(chat);
+  for (const [id, t] of terms) {
+    if (t.project !== dir) continue;
+    t.kill();
+    terms.delete(id);
+  }
+  fileWatcher?.drop(dir);
+  catalog.invalidate(dir);
+  for (const [tab, rec] of [...panes]) if (rec.project === dir) dropPane(tab);
 }
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-function showPreview(open) {
-  send('app:command', { name: 'preview', open });
-  if (open === true && win && !win.isFocused()) win.show();
-  return { ok: true, preview: open === undefined ? 'toggled' : open ? 'open' : 'closed' };
+// `project` is whose preview this is about. Opening it brings that folder
+// forward: an agent in one project putting its dev server on screen while the
+// window is looking at another would otherwise show the wrong page under the
+// right heading.
+function showPreview(show, project) {
+  if (project && open.has(project) && project !== focused) focusProject(project);
+  send('app:command', { name: 'preview', open: show });
+  if (show === true && win && !win.isFocused()) win.show();
+  return { ok: true, preview: show === undefined ? 'toggled' : show ? 'open' : 'closed' };
 }
 
-const toolContext = () => ({ getPane: () => pane, showPreview });
+// The preview one tab is showing, made on first use. Everything that can reach
+// a page goes through here, so a tool call from a chat in one folder can never
+// land on another folder's tab.
+function paneOf(tab, { create = true, project = focused } = {}) {
+  const held = panes.get(tab);
+  if (held) return held.pane;
+  if (!create || !tab || !win || win.isDestroyed()) return null;
+
+  const made = new BrowserPane(win, HOME_URL);
+  made.on('state', (st) => send('browser:state', { ...st, tab, project }));
+  made.on('console', (c) => send('browser:console', { ...c, tab, project }));
+  panes.set(tab, { pane: made, project });
+  // Born parked. It comes on screen only when the shell says it is the tab in
+  // the box, and the shell has already said where the box is.
+  if (tab === shownTab) {
+    if (lastBounds) made.setBounds(lastBounds);
+    made.setVisible(paneVisible);
+  } else {
+    made.setVisible(false);
+  }
+  return made;
+}
+
+/* The preview an agent working in a folder should drive. The one in the box if
+   it belongs to that folder, otherwise that folder's first, otherwise a new
+   one. In that last case the shell is told to draw a tab for it, because a page
+   nobody can click to is a page nobody can take back off the agent. */
+function previewOf(dir) {
+  const key = dir && open.has(dir) ? dir : focused;
+  if (shownTab && panes.get(shownTab)?.project === key) return { tab: shownTab, pane: paneOf(shownTab) };
+  for (const [tab, rec] of panes) if (rec.project === key) return { tab, pane: rec.pane };
+
+  const tab = `mn${++paneSeq}`;
+  const pane = paneOf(tab, { project: key });
+  send('preview:tab', { project: key, tab });
+  return { tab, pane };
+}
+
+// One preview in the box, the rest parked. Parked is not stopped: they go on
+// loading, go on logging, and keep their place in history.
+function applyShown() {
+  for (const [tab, rec] of panes) {
+    if (tab === shownTab) {
+      if (lastBounds) rec.pane.setBounds(lastBounds);
+      rec.pane.setVisible(paneVisible);
+    } else {
+      rec.pane.setVisible(false);
+    }
+  }
+}
+
+function owner(project, tab) {
+  if (project && open.has(project)) {
+    const rec = tab && panes.get(tab);
+    if (rec) rec.project = project;
+    return project;
+  }
+  return (tab && panes.get(tab)?.project) || focused;
+}
+
+function dropPane(tab) {
+  panes.get(tab)?.pane.dispose();
+  panes.delete(tab);
+  leases.get(tab)?.stop();
+  leases.delete(tab);
+  if (shownTab === tab) shownTab = null;
+}
+
+// A hold belongs to a chat or a task rather than to a page, and one chat can
+// have driven more than one preview, so letting go is asked of all of them.
+const releaseChatEverywhere = (chat) => { for (const l of leases.values()) l.releaseChat(chat); };
+const releaseTaskEverywhere = (id) => { for (const l of leases.values()) l.release(id); };
+
+const toolContext = (dir) => ({ getPane: () => previewOf(dir).pane, showPreview: (show) => showPreview(show, dir) });
 
 // The agent SDK and the MCP server both spawn `node`. A packaged app cannot
 // assume the user has one, so leave a shim at the end of PATH that runs this
@@ -132,19 +270,53 @@ function nodeShimDir() {
 
 const os = require('os');
 
-// The folder everything in this window is rooted at: the agent, the shells, the
-// chat history and the bridge file the CLI looks up. See projects.js for how it
-// is picked at startup.
-let project = projects.startProject({ reopen: settings.get('startup').reopenProject });
-const agentCwd = () => project.dir;
+// The folders this window has open. A project is a folder plus everything
+// rooted at it: its chats, its shells, its file tree, and the catalog of skills
+// and servers it can reach. Several are open at once and all of them keep
+// working, because the point of holding two projects is leaving a turn running
+// in one while you read the other.
+//
+// `focused` is a smaller claim than it looks. There is one preview pane and one
+// terminal panel in the window, so exactly one project can be showing its files,
+// its changes and its shells. That is all focus decides. Agents ignore it.
+const open = new Map(); // dir -> { dir, chosen }
+let focused = null;
+
+const seed = projects.startProjects({ reopen: settings.get('startup').reopenProject });
+for (const dir of seed.open) open.set(dir, { dir, chosen: true });
+// Nothing to reopen and nothing named: the window comes up on the empty state
+// rather than rooted at somebody's home directory, and that folder is still the
+// one open so the panes have something to read.
+if (!open.size) open.set(seed.focus, { dir: seed.focus, chosen: seed.chosen });
+focused = open.has(seed.focus) ? seed.focus : openDirs()[0];
+
+// The project the right-hand column is looking at. Files, changes, the terminal
+// and the catalog page all mean "the one on screen" when they ask for a folder.
+const focusedCwd = () => focused;
+
+// Which project a chat belongs to. The panel names a chat by its own key and
+// says which folder it opened it in; a chat mid-turn in a project nobody is
+// looking at still has to run against that project's files.
+const chatProjects = new Map(); // chat key -> dir
+const cwdOfChat = (chat) => (chat && chatProjects.get(chat)) || focused;
+
+const openDirs = () => [...open.keys()];
+
+const oneProject = (dir) => ({
+  dir,
+  name: path.basename(dir) || dir,
+  branch: git.branch(dir),
+  chosen: open.get(dir)?.chosen ?? true,
+});
 
 const projectInfo = () => ({
-  dir: project.dir,
-  name: path.basename(project.dir) || project.dir,
-  branch: git.branch(project.dir),
-  chosen: project.chosen,
+  projects: openDirs().map(oneProject),
+  focused,
   home: os.homedir(),
-  recents: projects.recents().filter((r) => r.path !== project.dir),
+  recents: projects.recents().filter((r) => !open.has(r.path)),
+  // The single-folder shape the panel still reads in places that only ever
+  // meant the one on screen.
+  ...oneProject(focused),
 });
 
 function refreshMenu() {
@@ -153,8 +325,8 @@ function refreshMenu() {
     actions: {
       command: (name) => send('app:command', { name }),
       openFolder: (opts) => openFolder(opts),
-      openRecent: (dir) => setProject(dir),
-      clearRecents: () => { projects.clearRecents(); refreshMenu(); send('project:changed', projectInfo()); },
+      openRecent: (dir) => addProject(dir),
+      clearRecents: () => { projects.clearRecents(); announce(); },
     },
   });
 }
@@ -172,36 +344,76 @@ async function applyClaudeBinary() {
   return d;
 }
 
-// Switching folders in place. The agent, the shells and the chat history all
-// belong to the old folder, so they go with it; the window, the preview pane and
-// the bridge port stay.
-function setProject(dir) {
+// Adding a folder to the window. Nothing that was already open is disturbed:
+// the chats in the other projects keep their turns, their shells stay up, and
+// the preview pane and the bridge port belong to the window rather than to any
+// one folder.
+function addProject(dir) {
   const target = path.resolve(dir);
   if (!projects.isDir(target)) return { error: `${target} is not a folder` };
-  if (target === project.dir && project.chosen) return projectInfo();
+  if (open.has(target)) return focusProject(target);
 
-  stopAllChats();
-  for (const t of terms.values()) t.kill();
-  terms.clear();
-  fileWatcher?.clear();
-  files.invalidate();
-
-  project = { dir: target, chosen: true };
+  open.set(target, { dir: target, chosen: true });
   projects.remember(target);
-  catalog.invalidate();
-  bridge?.setCwd(target);
+  const strip = projects.openProject(target);
+  for (const dir of openDirs()) {
+    if (strip.includes(dir)) continue;
+    stopProject(dir);
+    open.delete(dir);
+    bridge?.removeProject?.(dir);
+  }
+  bridge?.addProject?.(target);
+  announce();
+  return focusProject(target);
+}
+
+// Which project the right-hand column is showing. Cheap on purpose: no process
+// starts or stops here, because the folder you are looking at and the folders
+// that are working are two different questions now.
+function focusProject(dir) {
+  const target = path.resolve(dir);
+  if (!open.has(target)) return { error: `${target} is not open` };
+  focused = target;
+  projects.remember(target);
+  // The shell names the new tab a beat later. Until then the box is empty
+  // rather than still showing the folder you just left.
+  if (panes.get(shownTab)?.project !== target) shownTab = null;
+  applyShown();
   if (win && !win.isDestroyed()) win.setTitle(`${path.basename(target)} · Tandem`);
-  refreshMenu();
-  send('project:changed', projectInfo());
+  announce();
   send('agent:catalog', catalog.current(target));
   return projectInfo();
+}
+
+// Closing one. Its chats stop, its shells die and its watches go, and the rest
+// of the window does not notice. The last project cannot be closed: a window
+// with no folder in it has nothing to draw and nowhere to put the next message.
+function closeProject(dir) {
+  const target = path.resolve(dir);
+  if (!open.has(target)) return projectInfo();
+  if (open.size === 1) return { error: 'that is the only folder open in this window' };
+
+  stopProject(target);
+  open.delete(target);
+  projects.closeProject(target);
+  bridge?.removeProject?.(target);
+  if (focused === target) return focusProject(openDirs()[0]);
+  announce();
+  return projectInfo();
+}
+
+// One place that tells the menu, the title and the panel that the set of open
+// folders or the focused one has moved.
+function announce() {
+  refreshMenu();
+  send('project:changed', projectInfo());
 }
 
 async function pickFolder(newWindow) {
   const res = await dialog.showOpenDialog(win, {
     title: newWindow ? 'Open folder in a new window' : 'Open folder',
     buttonLabel: 'Open',
-    defaultPath: project.chosen ? path.dirname(project.dir) : os.homedir(),
+    defaultPath: open.get(focused)?.chosen ? path.dirname(focused) : os.homedir(),
     properties: ['openDirectory', 'createDirectory'],
   });
   return res.canceled ? null : res.filePaths[0];
@@ -210,7 +422,7 @@ async function pickFolder(newWindow) {
 async function openFolder({ dir, newWindow } = {}) {
   const target = dir || await pickFolder(newWindow);
   if (!target) return { canceled: true };
-  return newWindow ? openInNewWindow(target) : setProject(target);
+  return newWindow ? openInNewWindow(target) : addProject(target);
 }
 
 // Same rule the CLI uses: a folder that already has a window gets that window
@@ -295,17 +507,24 @@ function lighten(msg) {
 // under it: a chat the panel parked is resumed on the next message, under the
 // same key. Every event carries the key back so the panel knows which chat it
 // belongs to.
-async function ensureAgent({ chat = 'main', resume } = {}) {
+async function ensureAgent({ chat = 'main', resume, project } = {}) {
   const live = sessions.get(chat);
   if (live && !live.closed) return live;
+
+  // Where this chat runs, settled once and remembered. Not the focused project:
+  // a chat keeps its folder when you go and read another one, which is the
+  // whole reason two projects can be open.
+  const cwd = project && open.has(project) ? project : cwdOfChat(chat);
+  chatProjects.set(chat, cwd);
 
   const agent = new AgentSession({
     resume: resume || null,
     model: settleModel(),
     mode: chosenMode,
-    cwd: agentCwd(),
-    settings: catalog.sessionSettings(agentCwd()),
-    mcpOff: catalog.offAtRuntime(agentCwd()),
+    effort: chosenEffort || undefined,
+    cwd,
+    settings: catalog.sessionSettings(cwd),
+    mcpOff: catalog.offAtRuntime(cwd),
     invoke: async (tool, args, actor) => {
       // Two chats each have a main thread, so the chat key is part of who this
       // is. Without it the two would look like the same driver and neither
@@ -316,14 +535,15 @@ async function ensureAgent({ chat = 'main', resume } = {}) {
       // Whoever is driving keeps driving until they stop. A second agent that
       // wants to change the page waits here rather than pulling the rug out
       // from under the first one's refs.
-      const busy = await lease.acquire(tool, who);
+      const l = leaseFor(previewOf(cwd).tab);
+      const busy = await l.acquire(tool, who);
       if (busy) throw new Error(busy);
       try {
-        if (tool === 'navigate') showPreview(true);
-        send('agent:activity', { tool, args, t: Date.now(), actor: who });
-        return await runTool(tool, args, toolContext());
+        if (tool === 'navigate') showPreview(true, cwd);
+        send('agent:activity', { tool, args, t: Date.now(), actor: who, project: cwd });
+        return await runTool(tool, args, toolContext(cwd));
       } finally {
-        lease.done(tool, who);
+        l.done(tool, who);
       }
     },
   });
@@ -333,8 +553,8 @@ async function ensureAgent({ chat = 'main', resume } = {}) {
     // A subagent that finishes has stopped touching the page, whether or not
     // the turn around it has, so hand the pane on at that point rather than
     // making the next agent wait out the idle timer.
-    if (m?.type === 'system' && m.subtype === 'task_notification') lease.release(m.task_id);
-    if (m?.type === 'result') lease.releaseChat(chat);
+    if (m?.type === 'system' && m.subtype === 'task_notification') releaseTaskEverywhere(m.task_id);
+    if (m?.type === 'result') releaseChatEverywhere(chat);
     send('agent:message', { chat, msg: lighten(m) });
   });
   agent.on('ready', (r) => {
@@ -358,7 +578,7 @@ async function ensureAgent({ chat = 'main', resume } = {}) {
 // Ask the running session what it ended up with, fold it into the cached
 // listing, and push the result at the panel.
 async function learnCatalog() {
-  const dir = agentCwd();
+  const dir = focusedCwd();
   const agent = anySession();
   if (!agent) return catalog.current(dir);
   const [commands, mcp] = await Promise.all([agent.commands(), agent.mcpStatus()]);
@@ -373,7 +593,7 @@ async function createWindow() {
     width: 1600,
     height: 980,
     backgroundColor: '#0b0d12',
-    title: `${path.basename(agentCwd())} · Tandem`,
+    title: `${path.basename(focusedCwd())} · Tandem`,
     // The window draws its own title bar: the menu, the folder, the view tabs
     // and the three window buttons all live in one strip at the top.
     frame: false,
@@ -398,17 +618,14 @@ async function createWindow() {
     win.on(ev, () => send('win:state', windowState()));
   }
 
-  pane = new BrowserPane(win, HOME_URL);
-  if (lastBounds) pane.setBounds(lastBounds);
-  pane.on('state', (s) => send('browser:state', s));
-  pane.on('console', (c) => send('browser:console', c));
 
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
     terms.clear();
     fileWatcher?.clear();
+    for (const rec of panes.values()) rec.pane.dispose();
+    panes.clear();
     win = null;
-    pane = null;
   });
 }
 
@@ -434,20 +651,36 @@ function registerIpc() {
     if (['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'].includes(action)) wc[action]();
   });
 
-  // --- project folder ---
+  // --- project folders ---
   ipcMain.handle('project:info', () => projectInfo());
   ipcMain.handle('project:open', (_e, opts) => openFolder(opts || {}));
+  ipcMain.handle('project:focus', (_e, { dir } = {}) => focusProject(dir));
+  ipcMain.handle('project:close', (_e, { dir } = {}) => closeProject(dir));
+  ipcMain.handle('project:reorder', (_e, { dirs } = {}) => {
+    const kept = projects.setOpenProjects(dirs.filter((d) => open.has(d)));
+    const reordered = new Map(kept.map((d) => [d, open.get(d)]));
+    for (const [dir, rec] of open) if (!reordered.has(dir)) reordered.set(dir, rec);
+    open.clear();
+    for (const [dir, rec] of reordered) open.set(dir, rec);
+    announce();
+    return projectInfo();
+  });
   ipcMain.handle('project:forget', (_e, { dir }) => { projects.forget(dir); refreshMenu(); return projectInfo(); });
 
   // --- terminal ---
-  ipcMain.handle('term:create', (_e, { cwd, cols, rows, shell: sh } = {}) => {
+  ipcMain.handle('term:create', (_e, { cwd, cols, rows, shell: sh, project } = {}) => {
     const id = 't' + (terms.size + 1) + '-' + Date.now().toString(36);
     const extraPath = path.join(ROOT, 'bin');
+    // A shell belongs to the project it was opened in, so closing that project
+    // takes its shells with it and leaves the other projects' alone.
+    const home = project && open.has(project) ? project : focusedCwd();
     const t = new Terminal({
-      id, cwd: cwd || agentCwd(), cols, rows, shell: sh,
+      id, cwd: cwd || home, cols, rows, shell: sh,
       env: {
         ...bridge.env(),
-        TANDEM_CWD: agentCwd(),
+        // What `tandem ask` typed in here reads to find its way back to the
+        // right project's chat.
+        TANDEM_CWD: home,
         TANDEM_MCP_SERVER: path.join(ROOT, 'mcp', 'server.js'),
         // `tandem` first, then whatever the user's shell has, then the node shim.
         PATH: shellEnv.merge([extraPath], [...shellEnv.cached().split(path.delimiter), nodeShimDir()]),
@@ -456,9 +689,10 @@ function registerIpc() {
     });
     t.on('data', (data) => send('term:data', { id, data }));
     t.on('exit', (code) => { send('term:exit', { id, code }); terms.delete(id); });
-    t.on('url', (url) => send('term:url', { id, url }));
+    t.on('url', (url) => send('term:url', { id, url, project: home }));
+    t.project = home;
     terms.set(id, t);
-    return { id, shell: path.basename(t.shell) };
+    return { id, shell: path.basename(t.shell), project: home };
   });
   ipcMain.on('term:input', (_e, { id, data }) => terms.get(id)?.write(data));
   ipcMain.on('term:resize', (_e, { id, cols, rows }) => terms.get(id)?.resize(cols, rows));
@@ -468,28 +702,34 @@ function registerIpc() {
   // `session` is what the chat was last known as. A chat parked while idle has
   // no session under it any more, so the first message back resumes that
   // transcript rather than opening a second one beside it.
-  ipcMain.handle('agent:send', async (_e, { chat, session, text, images }) => {
-    const a = await ensureAgent({ chat, resume: session });
+  ipcMain.handle('agent:send', async (_e, { chat, session, text, images, project }) => {
+    const a = await ensureAgent({ chat, resume: session, project });
     a.send(text, images);
     return { ok: true, sessionId: a.sessionId };
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
     await sessions.get(chat)?.interrupt();
-    lease.releaseChat(chat);
+    releaseChatEverywhere(chat);
     return { ok: true };
   });
   // Stopping one agent, not the turn it belongs to. `id` is the task id, which
   // is what task_started and the permission callback both call the agent.
   ipcMain.handle('agent:stopTask', async (_e, { chat, id } = {}) => {
-    lease.release(id);
+    releaseTaskEverywhere(id);
     return sessions.get(chat)?.stopTask(id) ?? { error: 'that chat is not running' };
   });
   // Hand a blocking agent to the background so the turn carries on without it.
   ipcMain.handle('agent:background', async (_e, { chat, toolUseId } = {}) =>
     sessions.get(chat)?.background(toolUseId) ?? { error: 'that chat is not running' });
   // The human taking the preview back off whichever agent is driving it.
-  ipcMain.handle('preview:seize', () => { lease.seize(); return { ok: true }; });
-  ipcMain.handle('preview:driver', () => ({ holder: lease.current() }));
+  ipcMain.handle('preview:seize', (_e, { tab } = {}) => {
+    leaseFor(tab || shownTab).seize();
+    return { ok: true };
+  });
+  ipcMain.handle('preview:driver', (_e, { tab } = {}) => {
+    const key = tab || shownTab;
+    return { holder: leaseFor(key).current(), tab: key, project: panes.get(key)?.project || focused };
+  });
   ipcMain.handle('agent:mode', async (_e, { chat, mode }) => {
     // The last mode picked is what the next new chat starts on, and it outlives
     // the window: settings owns the same value the composer is showing.
@@ -509,11 +749,49 @@ function registerIpc() {
     return {
       models,
       current,
+      effort: chosenEffort,
+      efforts: EFFORT,
+      // Whether the name in the picker is the long-context half of a pair, and
+      // what the other half is called. The suffix is the whole difference.
+      long: isLong(current),
+      longCapable: hasLong(current),
       installed: d.installed,
       version: d.version,
       message: d.message,
       endpoint: d.endpoint,
     };
+  });
+
+  /* Effort has no live setter: the SDK takes it when a session starts and there
+     is no equivalent of setModel for it. So the running sessions are stopped
+     and the next message on each resumes its transcript at the new level. A
+     chat mid-turn is left alone, because pulling the session out from under a
+     running turn to change how hard it thinks is a worse trade than the turn
+     finishing at the old level. */
+  ipcMain.handle('agent:setEffort', async (_e, { effort } = {}) => {
+    const next = EFFORT.includes(effort) ? effort : '';
+    chosenEffort = next;
+    settings.patch({ agent: { effort: next } });
+    for (const [chat, a] of [...sessions]) if (!a.busy) stopChat(chat);
+    return { effort: chosenEffort, restarted: true };
+  });
+
+  /* The million-token window is not a setting on a model, it is a different
+     name for one: `opus` and `opus[1m]`. The CLI lists whichever it defaults
+     to, so switching means asking for the other name. */
+  ipcMain.handle('agent:setLongContext', async (_e, { on } = {}) => {
+    const from = settleModel() || anySession()?.model || '';
+    if (!from || !hasLong(from)) return { error: 'that model has no long-context twin' };
+    const model = on ? withLong(from) : withoutLong(from);
+    chosenModel = model;
+    settings.patch({ agent: { model } });
+    // The CLI lists one half of the pair and not the other, so the name we just
+    // switched to is usually not on its list. Remember it the way a hand-typed
+    // name is remembered, or the picker goes blank on a model that is running
+    // perfectly well.
+    const d = driver.remember(model);
+    await Promise.all(liveSessions().map((a) => a.setModel(model)));
+    return { model, long: isLong(model), models: d.models };
   });
   ipcMain.handle('agent:setModel', async (_e, { model }) => {
     chosenModel = model || null;
@@ -615,27 +893,27 @@ function registerIpc() {
 
   // --- skills and MCP servers ---
   // Read off disk, so the panel can draw the list before any session exists.
-  ipcMain.handle('catalog:info', () => catalog.current(agentCwd()));
+  ipcMain.handle('catalog:info', () => catalog.current(focusedCwd()));
   ipcMain.handle('catalog:refresh', async () => {
-    catalog.invalidate(agentCwd());
+    catalog.invalidate(focusedCwd());
     return learnCatalog();
   });
   ipcMain.handle('catalog:connectors', async (_e, { enabled }) => {
-    const next = catalog.setConnectors(agentCwd(), enabled);
+    const next = catalog.setConnectors(focusedCwd(), enabled);
     // The setting is read when a session starts, so a running one is told
     // separately; either way the next chat starts the way the switch says.
-    await Promise.all(liveSessions().map((a) => a.setConnectors(enabled, catalog.offAtRuntime(agentCwd()))));
+    await Promise.all(liveSessions().map((a) => a.setConnectors(enabled, catalog.offAtRuntime(focusedCwd()))));
     return next;
   });
   ipcMain.handle('catalog:skill', async (_e, { name, enabled }) => {
-    const next = catalog.setSkill(agentCwd(), name, enabled);
-    const overrides = catalog.sessionSettings(agentCwd()).skillOverrides || {};
+    const next = catalog.setSkill(focusedCwd(), name, enabled);
+    const overrides = catalog.sessionSettings(focusedCwd()).skillOverrides || {};
     await Promise.all(liveSessions().map((a) => a.setSkillOverrides(overrides)));
     return next;
   });
   ipcMain.handle('catalog:mcpToggle', async (_e, { name, enabled }) => {
-    const runtime = catalog.runtimeName(agentCwd(), name);
-    const next = catalog.setMcp(agentCwd(), name, enabled);
+    const runtime = catalog.runtimeName(focusedCwd(), name);
+    const next = catalog.setMcp(focusedCwd(), name, enabled);
     const done = await Promise.all(liveSessions().map((a) => a.toggleMcp(runtime, enabled)));
     return { ...next, error: done.find((r) => r?.error)?.error || null };
   });
@@ -645,7 +923,7 @@ function registerIpc() {
   // can see the browser prompt and answer it. The token it writes is the same
   // one the next chat reads.
   ipcMain.handle('catalog:mcpLogin', (_e, { name }) => {
-    const server = catalog.current(agentCwd()).mcp.find((s) => s.name === name);
+    const server = catalog.current(focusedCwd()).mcp.find((s) => s.name === name);
     if (!server) return { error: `${name} is not a server this folder knows about` };
     if (server.type === 'stdio') return { error: `${name} runs as a local process, so there is nothing to sign in to` };
     const quote = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
@@ -655,61 +933,91 @@ function registerIpc() {
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
     const agent = anySession();
     const res = agent
-      ? await agent.reconnectMcp(catalog.runtimeName(agentCwd(), name))
+      ? await agent.reconnectMcp(catalog.runtimeName(focusedCwd(), name))
       : { error: 'no chat is running yet' };
     const next = await learnCatalog();
     return { ...next, error: res.error || null };
   });
   ipcMain.handle('catalog:mcpAdd', async (_e, { name, scope, config }) => {
     try {
-      catalog.addServer(agentCwd(), { name, scope, config });
+      catalog.addServer(focusedCwd(), { name, scope, config });
     } catch (e) {
       return { error: e.message };
     }
     const done = await Promise.all(liveSessions().map((a) => a.addMcpServer(name, config)));
     const res = done.find((r) => r?.error) || {};
-    const next = catalog.current(agentCwd());
+    const next = catalog.current(focusedCwd());
     return { ...next, error: res.error || null };
   });
   ipcMain.handle('catalog:mcpRemove', async (_e, { name, scope }) => {
-    const runtime = catalog.runtimeName(agentCwd(), name);
+    const runtime = catalog.runtimeName(focusedCwd(), name);
     try {
-      catalog.removeServer(agentCwd(), name, scope);
+      catalog.removeServer(focusedCwd(), name, scope);
     } catch (e) {
       return { error: e.message };
     }
     await Promise.all(liveSessions().map((a) => a.removeMcpServer(runtime)));
-    return catalog.current(agentCwd());
+    return catalog.current(focusedCwd());
   });
 
   // --- agent history ---
+  // Every open project, because the rail is one list of folders now rather than
+  // one folder's list. Each transcript is read once and its title cached, so the
+  // cost of a refresh is a readdir and a stat per project.
   ipcMain.handle('agent:history', () => ({
-    sessions: listSessions(agentCwd()),
+    projects: openDirs().map((dir) => ({
+      dir,
+      name: path.basename(dir) || dir,
+      sessions: listSessions(dir),
+    })),
     running: liveSessions().map((a) => a.sessionId).filter(Boolean),
+    // Which of those the person has marked done, so the rail can fold them away.
+    completed: completed.all(),
   }));
-  ipcMain.handle('agent:transcript', async (_e, { id }) => {
-    const dir = agentCwd();
+  ipcMain.handle('agent:complete', (_e, { id, done } = {}) => {
+    try {
+      return { ok: completed.setCompleted(id, done !== false) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('agent:transcript', async (_e, { id, project }) => {
+    const dir = project && open.has(project) ? project : focusedCwd();
     const t = await readSession(dir, id);
     // Which agents ran, so a replayed chat draws their rows straight away. The
     // transcripts behind them are only read if someone opens one.
     return { ...t, subagents: listSubagents(dir, id) };
   });
-  ipcMain.handle('agent:subagent', (_e, { session, agentId }) =>
-    readSubagent(agentCwd(), session, agentId));
+  ipcMain.handle('agent:subagent', (_e, { session, agentId, project }) =>
+    readSubagent(project && open.has(project) ? project : focusedCwd(), session, agentId));
+  // Deleting a chat. A session still running would write its transcript
+  // straight back after the unlink, so the process behind it goes first.
+  ipcMain.handle('agent:deleteSession', (_e, { id, project } = {}) => {
+    for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
+    try {
+      const gone = deleteSession(project && open.has(project) ? project : focusedCwd(), id);
+      // The transcript is what the mark was about, so it goes with it.
+      completed.forget(id);
+      return { ok: gone };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
     activeChat = { chat: chat || 'main', session: session || null };
   });
-  ipcMain.handle('agent:resume', async (_e, { chat, id }) => {
-    const a = await ensureAgent({ chat, resume: id });
+  ipcMain.handle('agent:resume', async (_e, { chat, id, project }) => {
+    const a = await ensureAgent({ chat, resume: id, project });
     return { ok: true, sessionId: a.sessionId || id };
   });
   ipcMain.on('agent:decide', (_e, { chat, id, decision, input }) =>
     sessions.get(chat)?.decide(id, decision, input));
   ipcMain.handle('agent:info', (_e, { chat } = {}) => {
     const a = sessions.get(chat);
+    const cwd = cwdOfChat(chat);
     return {
-      cwd: agentCwd(),
-      chosen: project.chosen,
+      cwd,
+      chosen: open.get(cwd)?.chosen ?? true,
       running: !!(a && !a.closed),
       sessionId: a?.sessionId || null,
       mode: a?.mode || chosenMode,
@@ -720,45 +1028,72 @@ function registerIpc() {
   // The tree reads on demand: one folder per call, and a watch on each folder
   // that is open so the agent writing a file redraws the row rather than
   // leaving a stale one until someone hits refresh.
-  ipcMain.handle('files:list', (_e, { path: rel } = {}) => files.list(agentCwd(), rel || ''));
-  ipcMain.handle('files:read', (_e, { path: rel } = {}) => files.read(agentCwd(), rel || ''));
-  ipcMain.handle('files:search', (_e, { query } = {}) => files.search(agentCwd(), query));
-  ipcMain.on('files:watch', (_e, { dirs } = {}) => {
-    if (!fileWatcher) fileWatcher = new files.Watcher((dir) => send('files:changed', { dir }));
-    fileWatcher.sync(agentCwd(), dirs);
+  // `project` on these is the tree the pane is drawing. It is normally the
+  // focused one, and it is sent rather than assumed because a reply that raced
+  // a project switch would otherwise fill one project's tree with another's
+  // folders.
+  const treeCwd = (dir) => (dir && open.has(dir) ? dir : focusedCwd());
+  ipcMain.handle('files:list', (_e, { path: rel, project } = {}) => files.list(treeCwd(project), rel || ''));
+  ipcMain.handle('files:read', (_e, { path: rel, project } = {}) => files.read(treeCwd(project), rel || ''));
+  ipcMain.handle('files:search', (_e, { query, project } = {}) => files.search(treeCwd(project), query));
+  ipcMain.on('files:watch', (_e, { dirs, project } = {}) => {
+    // Which tree the change landed in. Every project has a src/, so the folder
+    // on its own no longer says whose it is.
+    if (!fileWatcher) fileWatcher = new files.Watcher((dir, root) => send('files:changed', { dir, root }));
+    fileWatcher.sync(treeCwd(project), dirs);
   });
   ipcMain.handle('files:reveal', (_e, { path: rel } = {}) => {
-    const abs = files.within(agentCwd(), rel);
+    const abs = files.within(focusedCwd(), rel);
     if (!abs) return { error: 'that path is outside the project folder' };
     shell.showItemInFolder(abs);
     return { ok: true };
   });
   ipcMain.handle('files:openExternal', async (_e, { path: rel } = {}) => {
-    const abs = files.within(agentCwd(), rel);
+    const abs = files.within(focusedCwd(), rel);
     if (!abs) return { error: 'that path is outside the project folder' };
     const err = await shell.openPath(abs);
     return err ? { error: err } : { ok: true };
   });
   ipcMain.handle('files:absolute', (_e, { path: rel } = {}) => {
-    const abs = files.within(agentCwd(), rel);
+    const abs = files.within(focusedCwd(), rel);
     return abs ? { path: abs } : { error: 'that path is outside the project folder' };
   });
 
   // --- uncommitted changes ---
   // The list is cheap enough to ask for on a timer while the pane is showing;
   // the patch for one file is only fetched when that file is opened.
-  ipcMain.handle('changes:list', () => diff.status(agentCwd()));
-  ipcMain.handle('changes:patch', (_e, { path: rel, context } = {}) => diff.patch(agentCwd(), rel, { context }));
+  ipcMain.handle('changes:list', (_e, { project } = {}) => diff.status(treeCwd(project)));
+  ipcMain.handle('changes:patch', (_e, { path: rel, context, project } = {}) =>
+    diff.patch(treeCwd(project), rel, { context }));
 
   // --- editors ---
   // What is installed, and handing the project folder to one of them.
   ipcMain.handle('editors:list', (_e, { fresh } = {}) => editors.detect({ fresh: !!fresh }));
-  ipcMain.handle('editors:open', (_e, { id } = {}) => editors.open(id, agentCwd()));
+  ipcMain.handle('editors:open', (_e, { id } = {}) => editors.open(id, focusedCwd()));
 
-  // --- browser pane ---
-  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; pane?.setBounds(b); });
-  ipcMain.on('browser:visible', (_e, v) => pane?.setVisible(!!v));
-  ipcMain.handle('browser:action', async (_e, { action, arg }) => {
+  // --- browser panes ---
+  // The box belongs to the window and holds one preview at a time. Which one is
+  // the shell's to say: it owns the tab strip and knows which tab is active in
+  // the folder on screen.
+  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; paneOf(shownTab, { create: false })?.setBounds(b); });
+  ipcMain.on('browser:visible', (_e, v) => {
+    paneVisible = !!v;
+    paneOf(shownTab, { create: false })?.setVisible(paneVisible);
+  });
+  ipcMain.on('browser:show', (_e, { tab, project } = {}) => {
+    shownTab = tab || null;
+    // A tab the shell knows about and main has never made a page for: opening
+    // the column on a fresh preview tab is the ordinary way here.
+    if (shownTab) paneOf(shownTab, { project: owner(project) });
+    applyShown();
+  });
+  ipcMain.on('browser:closeTab', (_e, { tab } = {}) => { if (tab) dropPane(tab); });
+  ipcMain.handle('browser:action', async (_e, { action, arg, tab, project }) => {
+    // No tab named means the one in the box, and failing that the focused
+    // folder's, which is what a bare `tandem go` from a shell means.
+    const pane = tab
+      ? paneOf(tab, { project: owner(project, tab) })
+      : (paneOf(shownTab, { create: false }) || previewOf(focused).pane);
     if (!pane) return { error: 'no pane' };
     switch (action) {
       case 'navigate': return pane.navigate(arg);
@@ -800,34 +1135,53 @@ app.whenReady().then(async () => {
   driverReady = driver.refresh()
     .then((d) => { send('agent:driver', { ...d, current: settleModel() }); return d; })
     .catch(() => null);
-  if (project.chosen) projects.remember(project.dir);
+  if (open.get(focused)?.chosen) projects.remember(focused);
+  projects.setOpenProjects(openDirs());
   bridge = new Bridge({
-    cwd: agentCwd(),
-    getPane: () => pane,
-    focusWindow: () => {
+    cwds: openDirs(),
+    // `tandem go 3000` typed in one project drives that project's preview.
+    getPane: (cwd) => previewOf(cwd).pane,
+    // A shell in project B asking to be raised means bring B forward, not just
+    // the window it happens to share with A.
+    focusWindow: (cwd) => {
+      if (cwd && open.has(path.resolve(cwd))) focusProject(cwd);
       if (!win || win.isDestroyed()) return;
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
     },
-    onActivity: (tool, args) => send('agent:activity', { tool, args, t: Date.now() }),
+    onActivity: (tool, args, cwd) => send('agent:activity', { tool, args, t: Date.now(), project: cwd || focused }),
     showPreview,
     command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },
-    // Development aid: answer the oldest pending permission prompt.
-    decide: (decision) => {
-      const agent = liveSessions().find((a) => a.pending.size);
+    // Development aid: answer the oldest pending permission prompt. Scoped to
+    // the caller's project when it named one, so answering in project B does
+    // not accidentally approve something project A is waiting on.
+    decide: (decision, cwd) => {
+      const mine = cwd && open.has(path.resolve(cwd)) ? path.resolve(cwd) : null;
+      const agent = liveSessions().find((a) =>
+        a.pending.size && (!mine || a.cwd === mine));
       const id = agent && [...agent.pending.keys()][0];
       if (!id) return { error: 'nothing pending' };
       agent.decide(id, decision);
       send('agent:decided', { id, decision });
       return { ok: true, id, decision };
     },
-    ask: async (text) => {
-      const { chat, session } = activeChat;
-      const a = await ensureAgent({ chat, resume: session });
-      send('agent:echo', { text, chat });
+    // `tandem ask` typed in a shell. The terminal exports the project it was
+    // opened in, so a question asked in project B lands in a B chat rather than
+    // in whatever happens to be on screen.
+    ask: async (text, cwd) => {
+      const target = cwd && open.has(path.resolve(cwd)) ? path.resolve(cwd) : null;
+      let { chat, session } = activeChat;
+      if (target && cwdOfChat(chat) !== target) {
+        // The most recent chat in that project, or a new one rooted there.
+        chat = [...chatProjects].reverse().find(([, dir]) => dir === target)?.[0]
+          || `ask:${path.basename(target)}`;
+        session = sessions.get(chat)?.sessionId || null;
+      }
+      const a = await ensureAgent({ chat, resume: session, project: target || undefined });
+      send('agent:echo', { text, chat, project: cwdOfChat(chat) });
       a.send(text);
-      return { ok: true, sessionId: a.sessionId };
+      return { ok: true, sessionId: a.sessionId, chat };
     },
     captureWindow: async () => {
       if (!win) return { error: 'no window' };

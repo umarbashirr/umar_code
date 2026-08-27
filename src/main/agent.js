@@ -21,7 +21,7 @@ const SHOT_NOTE = /^(\d+)x(\d+) saved to (.+)$/;
 const OWNER_WAIT = 400;
 
 class AgentSession extends EventEmitter {
-  constructor({ cwd, invoke, resume, model, mode, settings, mcpOff }) {
+  constructor({ cwd, invoke, resume, model, mode, effort, settings, mcpOff }) {
     super();
     this.cwd = cwd;
     this.invoke = invoke;              // (bridgeTool, args, actor) => Promise<result>
@@ -41,6 +41,7 @@ class AgentSession extends EventEmitter {
     // Chosen from the cached catalogue before any session existed, so the first
     // query starts on the right model instead of switching after it is up.
     this.model = model || null;
+    this.effort = effort || null;
     // Skills switched off and project servers rejected, in the shape the CLI's
     // own settings use. catalog.js works these out; see sessionSettings there.
     this.settings = settings && Object.keys(settings).length ? settings : null;
@@ -124,6 +125,9 @@ class AgentSession extends EventEmitter {
         permissionMode: this.permissionMode,
         ...(this.settings ? { settings: this.settings } : {}),
         ...(this.model ? { model: this.model } : {}),
+        // No setter for this one, so it is settled when the session starts and
+        // a change means the next session rather than this one.
+        ...(this.effort ? { effort: this.effort } : {}),
         canUseTool: (name, input, opts) => this.#permission(name, input, opts),
         // Continue an earlier session in place. forkSession stays off so the
         // transcript keeps one id and one file on disk.

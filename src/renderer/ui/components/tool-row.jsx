@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { Fold } from '@/components/fold';
+import { Button } from '@/components/ui/button';
+import { clock, useTick } from '@/lib/clock';
 import { cn } from '@/lib/utils';
 
 const ICONS = {
@@ -68,7 +71,7 @@ export function toolSummary(name, input) {
   return String(raw).replace(/\s+/g, ' ').slice(0, 120);
 }
 
-export function ToolRow({ name, input, state, right, defaultOpen = false, children }) {
+export function ToolRow({ name, input, state, at, right, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   // The input arrives after the row does, so a row can turn into a diff a beat
   // later. Follow defaultOpen until the reader takes over.
@@ -79,12 +82,22 @@ export function ToolRow({ name, input, state, right, defaultOpen = false, childr
   const failed = state === 'output-error';
   const summary = toolSummary(name, input);
 
+  // A shimmering word is a state, not a clock: it sweeps at the same rate
+  // whether the call has been out for two seconds or ninety, and a build that
+  // takes a minute reads exactly like a call that will never come back. So a
+  // running row counts. Not straight away — most calls are done inside a
+  // second and a timer that flashes up and vanishes on every one of them is
+  // its own kind of noise.
+  useTick(running);
+  const held = running && at ? Date.now() - at : 0;
+
   return (
     <div className={cn('rounded-md', failed && 'bg-destructive/5')}>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => { touched.current = true; setOpen((v) => !v); }}
-        className="group flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/60">
+        className="group h-auto w-full justify-start gap-2 px-2 py-1 font-normal">
         <ChevronRightIcon
           className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
         {failed
@@ -96,9 +109,16 @@ export function ToolRow({ name, input, state, right, defaultOpen = false, childr
         {summary && (
           <span className="truncate font-mono text-muted-foreground text-xs">{summary}</span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">{right}</span>
-      </button>
-      {open && <div className="px-2 pt-1 pb-2">{children}</div>}
+        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+          {held >= 2000 && (
+            <span className="tandem-in font-mono text-[11px] tabular-nums text-muted-foreground/70">
+              {clock(held)}
+            </span>
+          )}
+          {right}
+        </span>
+      </Button>
+      <Fold open={open} className="px-2 pt-1 pb-2">{children}</Fold>
     </div>
   );
 }
@@ -146,21 +166,25 @@ function summarise(items) {
 // Nineteen commands in a row were nineteen lines of transcript, and reading
 // them cost more than the answer they added up to. What is running stays a row
 // you can read; everything it already did collapses to one line saying how
-// much of what, one click from being rows again. Nothing here animates: a line
-// that fades every time a call lands is a line that never sits still.
+// much of what, one click from being rows again. The summary line itself never
+// animates: it is rewritten every time a call lands, and a line that fades on
+// each rewrite is a line that never sits still. Opening it is a different
+// matter, because that is the reader's own doing and they should see where the
+// rows came from.
 export function ToolStrip({ items, children }) {
   const [open, setOpen] = useState(false);
   const failed = items.filter((i) => i.state === 'output-error').length;
 
   return (
     <div className="rounded-md">
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => setOpen((v) => !v)}
         title={open ? 'Fold these back into one line' : 'Show each call'}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted/60">
+        className="h-auto w-full justify-start gap-2 px-2 py-1 font-normal">
         <ChevronRightIcon
-          className={cn('size-3 shrink-0 text-muted-foreground/50', open && 'rotate-90')} />
+          className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
         <span className="truncate text-[13px] text-muted-foreground">
           {open ? `${items.length} before this` : summarise(items)}
         </span>
@@ -169,9 +193,9 @@ export function ToolStrip({ items, children }) {
             {failed} failed
           </span>
         )}
-      </button>
+      </Button>
 
-      {open && <div className="ml-3 flex flex-col gap-px border-l pl-1.5">{children}</div>}
+      <Fold open={open} className="ml-3 flex flex-col gap-px border-l pl-1.5">{children}</Fold>
     </div>
   );
 }

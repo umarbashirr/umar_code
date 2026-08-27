@@ -67,6 +67,7 @@ function buildMenu({ recents = [], actions }) {
         command('Console and Network', 'drawer', 'CmdOrCtrl+Shift+J'),
         { type: 'separator' },
         command('Light or Dark', 'theme'),
+        command('Theme…', 'appearance'),
         { type: 'separator' },
         // The renderer owns the zoom, because the app shell and the preview
         // pane are different web contents and only one of them should scale.
