@@ -158,13 +158,14 @@ function Appearance({ settings, set }) {
       </Row>
       <Field className="gap-3 py-4">
         <FieldContent>
-          <FieldLabel>Colours</FieldLabel>
+          <FieldLabel>Style</FieldLabel>
           <FieldDescription>
             The whole window: chat, rail, panels, dialogs and the terminal. Each one has a light
-            and a dark version, and the switch above picks between them.
+            and a dark version, and the switch above picks between them. The last two change more
+            than the colours. Brutalist squares every corner, Glass makes the panels see-through.
           </FieldDescription>
         </FieldContent>
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {SCHEMES.map(([id, label, note]) => (
             <SchemeTile
               key={id}
