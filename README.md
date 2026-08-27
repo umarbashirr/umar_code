@@ -82,14 +82,16 @@ To build the packages yourself:
 
 ```sh
 npm install
-npm run dist        # writes dist/*.deb and dist/*.AppImage
-npm run dist:win    # writes dist/tandem-<version>-x64.exe
+npm run dist            # writes dist/*.deb and dist/*.AppImage
+npm run dist:win        # writes dist/tandem-<version>-x64.exe, needs Windows or wine
+npm run dist:win:docker # the same .exe, cross-built on Linux in docker
 ```
 
-`dist:win` has to run on Windows. node-pty compiles against the machine it is built on, so a Windows
-installer cross-built from Linux would carry a Linux .node inside it. A GitHub Action does that when
-a release is published, and can be run by hand against an existing tag if the .exe was not attached
-the first time.
+`dist:win` needs a Windows machine, or wine. `npm run dist:win:docker` is the second option: it
+builds the installer on Linux inside `electronuserland/builder:wine`. That works because node-pty
+ships N-API prebuilds for win32-x64 in its own npm package, so nothing has to compile on Windows.
+A GitHub Action does the same job when a release is published, and can be run by hand against an
+existing tag if the .exe was not attached the first time.
 
 To run from source:
 

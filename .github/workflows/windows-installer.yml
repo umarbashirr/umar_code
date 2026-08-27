@@ -1,11 +1,23 @@
-# The PowerShell install line downloads an .exe from the GitHub release. Linux
-# builds are attached from the machine that produced them. The Windows one
-# cannot be: node-pty compiles against the OS it is built on, so a cross-build
-# from Linux would carry a Linux .node inside the installer.
+# The PowerShell install line downloads an .exe from the GitHub release.
 #
-# This job is that Windows machine. It runs when a release is published, and
-# can be started by hand against an existing tag so a release that shipped
-# without the .exe can catch up.
+# This job is no longer the only way to get one. node-pty 1.1.0 ships N-API
+# prebuilds for win32-x64 in its npm package, so nothing has to compile on
+# Windows any more, and the installer cross-builds from Linux inside
+# electronuserland/builder:wine. See docs in the release notes, or:
+#
+#   docker run --rm -v "$PWD":/project -v /tmp/win-out:/out \
+#     -v "$HOME/.cache/electron":/root/.cache/electron \
+#     -v "$HOME/.cache/electron-builder":/root/.cache/electron-builder \
+#     electronuserland/builder:wine \
+#     bash -c "cd /project && npx electron-builder --win nsis \
+#       -c.npmRebuild=false -c.directories.output=/out"
+#
+# npmRebuild=false is the load-bearing flag: a rebuild on Linux would replace
+# the shipped win32 prebuild with a Linux one.
+#
+# The job stays as a fallback for anyone without docker, and to catch up a
+# release that shipped without the .exe. It runs when a release is published,
+# and can be started by hand against an existing tag.
 
 name: Windows installer
 
