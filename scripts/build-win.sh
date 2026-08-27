@@ -11,12 +11,14 @@
 # compile on Windows. --npmRebuild=false is what keeps it that way; a rebuild
 # here would overwrite the win32 prebuild with one built for this machine.
 #
-# The other half is in package.json, under build.win.files: node-pty's build/
-# and bin/ hold linux binaries on a linux host, and its loader checks
-# build/Release before prebuilds. Windows survives them by failing the require
-# and falling through, which is a fallback rather than a plan, so the win
-# target leaves both out. electron-builder rejects unknown keys in its config,
-# so that exclusion cannot carry its own comment.
+# The installer does carry node-pty's linux build/ and bin/, which are dead
+# weight on Windows. That is deliberate. Excluding them needs a files list on
+# the win target, and a platform files list replaces the top-level allowlist
+# rather than adding to it, so a negation-only one turns the build into
+# "everything except", packs dist/ into the asar and produces a 1.7GB
+# installer. node-pty's loader tries build/Release first, fails the require on
+# a linux binary, and falls through to prebuilds/win32-x64 by design, so the
+# megabyte is cheaper than the footgun.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

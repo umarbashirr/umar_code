@@ -132,10 +132,6 @@
       "icon": "build/icon.png"
     },
     "win": {
-      "files": [
-        "!node_modules/node-pty/build/**",
-        "!node_modules/node-pty/bin/**"
-      ],
       "target": [
         {
           "target": "nsis",
