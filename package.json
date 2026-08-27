@@ -132,7 +132,6 @@
       "icon": "build/icon.png"
     },
     "win": {
-      "//": "node-pty checks build/Release before prebuilds, and on a linux host both build/ and bin/ hold linux binaries. Windows survives them by failing the require and falling through, which is a fallback rather than a plan. The win32 prebuilds are the only thing this target needs, so the rest is left out.",
       "files": [
         "!node_modules/node-pty/build/**",
         "!node_modules/node-pty/bin/**"
