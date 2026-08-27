@@ -33,7 +33,8 @@ export function useSettings() {
 
 const NO_UPDATES = {
   app: { current: '', latest: null, behind: false },
-  claude: { running: null, bundled: null, system: null, latest: null, behind: false, canSwitch: false },
+  claude: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
+  codex: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
   kind: 'dev',
   checkedAt: null,
   error: null,

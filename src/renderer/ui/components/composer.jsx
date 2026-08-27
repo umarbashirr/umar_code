@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, BrainIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
   FolderIcon, GaugeIcon, GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
@@ -13,6 +13,7 @@ import {
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator,
+  DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,14 +48,55 @@ const MODE_LABEL = Object.fromEntries(MODES.map(([v, label]) => [v, label]));
 const cleanModelName = (m) =>
   (m.displayName || m.value).replace(/\s*\((recommended|default)\)\s*$/i, '');
 
-// Selecting this opens a text box instead of switching model. A proxy routes
-// whatever names its owner configured, and no probe here can be sure it has
-// seen all of them.
-const CUSTOM = '__custom__';
+// Both CLIs are in one menu, so the top level is who makes the model rather
+// than the models themselves. Thirteen names in a flat list is a wall; two
+// names that open on hover is a choice you can read in one glance.
+/* Anthropic's branding guidance allows "Claude" as a menu label and does not
+   allow "Claude Code" as a name inside someone else's product. These head two
+   groups of models, so the vendor name is the accurate word anyway, and it
+   reads level with ChatGPT rather than naming one CLI and one company. */
+const PROVIDER_LABEL = { claude: 'Claude', codex: 'ChatGPT' };
+
+// Where to get each one, for the row that says it is missing.
+const INSTALL = {
+  claude: 'npm install -g @anthropic-ai/claude-code',
+  codex: 'npm install -g @openai/codex',
+};
+
+/* One row per CLI, installed or not. Models keep the order main sent them in,
+   which puts the running CLI first; a CLI with nothing behind it still gets a
+   row, locked, so a missing install reads as something to fix rather than as a
+   provider Tandem never supported. */
+function byProvider(models, providers) {
+  const out = [];
+  for (const m of models) {
+    const id = m.provider || 'claude';
+    const last = out[out.length - 1];
+    if (last?.id === id) last.rows.push(m);
+    else out.push({ id, rows: [m] });
+  }
+  for (const p of providers || []) {
+    if (!out.some((g) => g.id === p.id)) out.push({ id: p.id, rows: [], missing: p, locked: true });
+  }
+  return out;
+}
+
+function ModelItems({ rows, current, onPick }) {
+  return rows.map((m) => (
+    <DropdownMenuItem key={m.value} onSelect={() => onPick(m.value)}>
+      {cleanModelName(m)}
+      {m.value === current && <CheckIcon className="ml-auto size-3.5" />}
+    </DropdownMenuItem>
+  ));
+}
 
 function ModelPicker({ agent }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
+  const groups = useMemo(() => byProvider(agent.models, agent.providers), [agent.models, agent.providers]);
+  // With one CLI here and one missing there are still two rows, so the nesting
+  // stays: flattening would put the models and the locked row side by side.
+  const nested = groups.length > 1;
 
   const done = (value) => {
     setTyping(false);
@@ -80,22 +122,56 @@ function ModelPicker({ agent }) {
     );
   }
 
+  // A model the list has not heard of still has to name itself on the trigger:
+  // a proxy routes names no probe here can see, and a chat resumed on one would
+  // otherwise leave the button blank.
+  const row = agent.models.find((m) => m.value === agent.model);
+  const label = row ? cleanModelName(row) : agent.model || 'Pick a model';
+
   return (
-    <PromptInputSelect
-      value={agent.model}
-      onValueChange={(v) => (v === CUSTOM ? setTyping(true) : agent.changeModel(v))}>
-      <PromptInputSelectTrigger className="h-7 min-w-0 gap-1.5 rounded-md px-2 text-xs">
-        <span className="min-w-0 truncate">
-          <PromptInputSelectValue placeholder="Pick a model" />
-        </span>
-      </PromptInputSelectTrigger>
-      <PromptInputSelectContent>
-        {agent.models.map((m) => (
-          <PromptInputSelectItem key={m.value} value={m.value}>{cleanModelName(m)}</PromptInputSelectItem>
-        ))}
-        <PromptInputSelectItem value={CUSTOM}>Type a model name…</PromptInputSelectItem>
-      </PromptInputSelectContent>
-    </PromptInputSelect>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Pill className="rounded-md px-2 font-medium text-xs hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
+          <span className="min-w-0 truncate">{label}</span>
+          <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
+        </Pill>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-44">
+        {/* One CLI installed means one submenu, and a submenu you have to open
+            to reach the only thing inside it is a click charged for nothing. */}
+        {groups.map((g) => {
+          if (g.locked) {
+            return (
+              <DropdownMenuItem
+                key={g.id}
+                disabled
+                // A disabled row cannot open anything, so the reason has to be
+                // readable without hovering as well as in the tooltip.
+                title={`${g.missing?.message || 'Not found on your PATH.'} Install it with: ${INSTALL[g.id] || ''}`}
+                className="justify-between gap-6">
+                {PROVIDER_LABEL[g.id] || g.id}
+                <span className="text-muted-foreground text-xs">not installed</span>
+              </DropdownMenuItem>
+            );
+          }
+          if (!nested) {
+            return <ModelItems key={g.id} rows={g.rows} current={agent.model} onPick={agent.changeModel} />;
+          }
+          return (
+            <DropdownMenuSub key={g.id}>
+              <DropdownMenuSubTrigger>{PROVIDER_LABEL[g.id] || g.id}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-44">
+                <ModelItems rows={g.rows} current={agent.model} onPick={agent.changeModel} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          );
+        })}
+        <DropdownMenuSeparator />
+        {/* A proxy routes whatever names its owner configured, and no probe
+            here can be sure it has seen all of them. */}
+        <DropdownMenuItem onSelect={() => setTyping(true)}>Type a model name…</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -625,20 +701,26 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               </DropdownMenu>
 
               {agent.models.length === 0 && agent.driver?.message && (
-                <span className="px-1 text-muted-foreground text-xs" title={agent.driver.message}>
-                  {agent.driver.installed ? 'no models listed' : 'Claude CLI not installed'}
-                </span>
+                // Not installed is the one worth clicking: the Agent tab names
+                // what to run, and there is no chat at all until it is there.
+                <button
+                  type="button"
+                  className="px-1 text-muted-foreground text-xs underline-offset-2 hover:underline"
+                  title={agent.driver.message}
+                  onClick={() => window.tandemChat?.settings('agent')}>
+                  {agent.driver.installed
+                    ? 'no models listed'
+                    : `no ${(agent.providers || []).filter((p) => !p.installed).map((p) => p.id).join(' or ')
+                      || agent.provider} on your PATH`}
+                </button>
               )}
 
-              {/* An endpoint that will not list its models still needs a way to
-                  name one, so the picker stays even when the list is empty. */}
-              {(agent.models.length > 0 || agent.driver?.installed) && (
-                <>
-                  <ModelPicker agent={agent} />
-                  <ContextPill agent={agent} />
-                  <ThinkingPicker agent={agent} />
-                </>
-              )}
+              {/* The picker is always here. An endpoint that will not list its
+                  models still needs a way to name one, and with no CLI at all
+                  the menu is the thing that says which ones to install. */}
+              <ModelPicker agent={agent} />
+              <ContextPill agent={agent} />
+              <ThinkingPicker agent={agent} />
             </PromptInputTools>
 
             <PromptInputSubmit

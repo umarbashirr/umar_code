@@ -98,8 +98,12 @@ class AgentSession extends EventEmitter {
 
     const preview = sdk.createSdkMcpServer({ name: 'preview', version: '0.1.0', tools });
     this.preview = preview;
+    // Tandem ships no claude of its own, so this is the whole session. Say it
+    // here rather than let the SDK fail on a spawn: its own error names a
+    // missing optional dependency, which is nothing the person can act on.
     const bin = claudeBinary();
-    if (bin) this.emit('stderr', `using claude binary at ${bin}\n`);
+    if (!bin) throw new Error('No claude on your PATH. Install the Claude CLI, then open a new chat.');
+    this.emit('stderr', `using claude binary at ${bin}\n`);
     // Worth saying out loud. When this is wrong the CLI asks for a login, and
     // there is nothing else on screen to explain why.
     const base = shellEnv.baseUrl();
@@ -133,7 +137,7 @@ class AgentSession extends EventEmitter {
         // transcript keeps one id and one file on disk.
         ...(this.resume ? { resume: this.resume, forkSession: false } : {}),
         stderr: (d) => this.emit('stderr', d),
-        ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
+        pathToClaudeCodeExecutable: bin,
       },
     });
 

@@ -16,63 +16,47 @@ const shellEnv = require('./shell-env');
 const PROBE_TIMEOUT_MS = 4000;
 const TTL_MS = 6 * 60 * 60 * 1000;
 
-// The SDK ships its binary in a per-platform package. Inside a packaged app that
-// path lands in app.asar, which child_process cannot execute, so look for the
-// unpacked copy first. require.resolve is no help: the package's exports map
-// hides its internals.
-function bundledBinary() {
-  let appPath = __dirname;
-  try { appPath = require('electron').app.getAppPath(); } catch {}
+/* The claude the agent runs is the one the person installed. Tandem ships no
+   copy of its own: the SDK's platform binary is ~320MB per architecture, it is
+   frozen at whatever version the release was cut against, and a second claude
+   on the machine means the app and the terminal disagree about what `claude`
+   means. So the app looks on PATH, and if nothing is there the model picker
+   says so and stays empty rather than pretending it can start a session.
 
-  const rel = path.join(
-    'node_modules', '@anthropic-ai',
-    `claude-agent-sdk-${process.platform}-${process.arch}`,
-    process.platform === 'win32' ? 'claude.exe' : 'claude',
-  );
+   npm install still pulls those binaries down, as optional dependencies of the
+   SDK, and there is no way to refuse just those: --omit=optional would also
+   drop the ones rollup and esbuild need to build. They are excluded from the
+   packaged app instead. See the build.files entry in package.json. */
+const EXE = process.platform === 'win32'
+  // The native installer writes claude.exe. npm writes claude.cmd next to an
+  // extensionless shell script that Windows cannot run, so .exe leads.
+  ? ['claude.exe', 'claude.cmd', 'claude.bat']
+  : ['claude'];
 
-  const roots = [
-    appPath.replace(/app\.asar(?![.\w])/, 'app.asar.unpacked'),
-    appPath,
-    process.resourcesPath ? path.join(process.resourcesPath, 'app.asar.unpacked') : null,
-    path.join(__dirname, '..', '..'),
-  ].filter(Boolean);
-
-  for (const root of roots) {
-    const candidate = path.join(root, rel);
-    try { if (fs.existsSync(candidate)) return candidate; } catch {}
-  }
-  return null;
-}
-
-// A claude the person installed themselves. The bundled copy only moves when the
-// app does, so someone who runs `claude` in a terminal every day usually has a
-// newer one than the release they are on. Settings can point the agent at it.
+// The PATH here is the login shell's, not the desktop launcher's. See
+// shell-env.js: launched from a .desktop file the app inherits almost nothing,
+// and ~/.local/bin is exactly the sort of directory that goes missing.
 function systemBinary() {
-  const name = process.platform === 'win32' ? 'claude.exe' : 'claude';
-  const bundled = bundledBinary();
-  const dirs = (shellEnv.cached() || '').split(path.delimiter);
-
-  for (const dir of dirs) {
+  for (const dir of (shellEnv.cached() || '').split(path.delimiter)) {
     if (!dir) continue;
-    const candidate = path.join(dir, name);
-    try {
-      if (!fs.existsSync(candidate)) continue;
-      // Resolve first: a shim in ~/.local/bin that points back into the app is
-      // the bundled binary wearing a different name, not a second install.
-      const real = fs.realpathSync(candidate);
-      if (bundled && real === fs.realpathSync(bundled)) continue;
-      return real;
-    } catch {}
+    for (const name of EXE) {
+      const candidate = path.join(dir, name);
+      try {
+        // Resolve it: a shim points at the real install, and the version probe
+        // and the settings page should name the same file the SDK will spawn.
+        if (fs.existsSync(candidate)) return fs.realpathSync(candidate);
+      } catch {}
+    }
   }
   return null;
 }
 
-// Which binary the agent actually starts. Settings sets this once at boot and
-// again whenever the choice changes; null means the bundled one.
+// An install somewhere PATH does not reach. Settings holds the path; empty
+// means "whatever is on PATH", which is what nearly everyone wants.
 let preferred = null;
 
 function preferBinary(p) {
-  preferred = p && fs.existsSync(p) ? p : null;
+  preferred = p && typeof p === 'string' && fs.existsSync(p) ? p : null;
   return preferred;
 }
 
@@ -80,7 +64,7 @@ function claudeBinary() {
   if (preferred) {
     try { if (fs.existsSync(preferred)) return preferred; } catch {}
   }
-  return bundledBinary();
+  return systemBinary();
 }
 
 // Models the picker offers, and the CLI version each one needs. A binary older
@@ -168,7 +152,13 @@ function probeVersion(bin) {
 
     let child;
     try {
-      child = spawn(bin, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env() });
+      // Node refuses to spawn a .cmd or .bat without a shell, and npm's global
+      // install on Windows is exactly that. The SDK spawns it directly, so a
+      // version read here is the only warning before a session tries.
+      const viaShell = /\.(cmd|bat)$/i.test(bin);
+      child = spawn(viaShell ? `"${bin}"` : bin, ['--version'], {
+        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: viaShell,
+      });
     } catch {
       return finish(null);
     }
@@ -316,7 +306,7 @@ class Driver {
       return this.#write({
         installed: false, version: null, status: 'missing',
         models: [], checkedAt, endpoint: ep,
-        message: 'The Claude CLI is not installed. Models appear once it is on this machine.',
+        message: 'No claude on your PATH. Install the Claude CLI and the models appear.',
         binaryPath: null,
       });
     }
@@ -408,7 +398,7 @@ class Driver {
 }
 
 module.exports = {
-  Driver, claudeBinary, bundledBinary, systemBinary, preferBinary,
+  Driver, claudeBinary, systemBinary, preferBinary,
   modelsFor, compareVersions, parseVersion, probeVersion, probeModels,
   isLong, withLong, withoutLong, hasLong, withVariants,
   endpoint, CATALOG,

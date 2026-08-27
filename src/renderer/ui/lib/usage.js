@@ -23,7 +23,16 @@ const PRICES = [
 const READ_RATE = 0.1;
 const WRITE_RATE = 1.25;
 
-const priceOf = (model = '') => PRICES.find(([re]) => re.test(model))?.slice(1) || [5, 25];
+/* No rate rather than a guessed one. The table above is Anthropic's list
+   prices; a codex chat matches none of it, and the old fallback quietly billed
+   `gpt-5.4-mini` at Opus rates, which is out by more than an order of
+   magnitude. A number that wrong is worse than no number, so an unpriced model
+   reports its tokens and leaves the money blank.
+
+   Adding a `[/gpt/, in, out]` row here is all it takes if you want the figure
+   back, and codex also answers `account/usage/read` with its own estimate in
+   USD micros, which would beat any table we keep by hand. */
+const priceOf = (model = '') => PRICES.find(([re]) => re.test(model))?.slice(1) || null;
 
 const windowOf = (model = '') => (/haiku/.test(model) ? 200_000 : 1_000_000);
 
@@ -114,6 +123,8 @@ export function totals(usage) {
   let cacheWrite = 0;
   let cost = 0;
   let estimated = false;
+  // A model with no row in PRICES. Its tokens still count; its money does not.
+  let unpriced = false;
 
   for (const [model, m] of Object.entries(all)) {
     input += m.inputTokens || 0;
@@ -122,12 +133,17 @@ export function totals(usage) {
     cacheWrite += m.cacheCreationInputTokens || 0;
     let own = m.costUSD || 0;
     if (!own) {
-      const [inRate, outRate] = priceOf(model);
-      own = ((m.inputTokens || 0) * inRate
-        + (m.cacheReadInputTokens || 0) * inRate * READ_RATE
-        + (m.cacheCreationInputTokens || 0) * inRate * WRITE_RATE
-        + (m.outputTokens || 0) * outRate) / 1e6;
-      if (own) estimated = true;
+      const rate = priceOf(model);
+      if (rate) {
+        const [inRate, outRate] = rate;
+        own = ((m.inputTokens || 0) * inRate
+          + (m.cacheReadInputTokens || 0) * inRate * READ_RATE
+          + (m.cacheCreationInputTokens || 0) * inRate * WRITE_RATE
+          + (m.outputTokens || 0) * outRate) / 1e6;
+        if (own) estimated = true;
+      } else {
+        unpriced = true;
+      }
     }
     cost += own;
     rows.push({ model, cost: own, tokens: (m.inputTokens || 0) + (m.outputTokens || 0) + (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0) });
@@ -136,7 +152,7 @@ export function totals(usage) {
   rows.sort((a, b) => b.cost - a.cost);
   const window = usage.window || windowOf(usage.model || '');
   return {
-    input, output, cacheRead, cacheWrite, cost, rows, estimated,
+    input, output, cacheRead, cacheWrite, cost, rows, estimated, unpriced,
     window,
     context: usage.context,
     percent: window ? Math.min(999, Math.round((usage.context / window) * 100)) : 0,

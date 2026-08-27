@@ -15,6 +15,30 @@ const SDK_MODE = {
   bypass: 'bypassPermissions',
 };
 
+/* The same seven modes, said in codex's vocabulary. It splits the question in
+   two where the SDK asks it once: `sandbox` is what a command may touch, and
+   `approvalPolicy` is whether anyone gets asked first.
+
+   Every mode but bypass asks on-request, even the permissive ones, because the
+   answering happens here. decide() below is what waves a call through, exactly
+   as it does for claude, and it cannot judge a command codex never mentioned.
+   Handing codex a looser policy would spend the modes' whole meaning to save a
+   round trip on the local socket. */
+const CODEX_MODE = {
+  plan: { sandbox: 'read-only', approvalPolicy: 'on-request' },
+  ask: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
+  debug: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
+  auto: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
+  acceptEdits: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
+  // `untrusted` rather than `on-request`, which is the difference between codex
+  // asking about everything and codex asking only about what its sandbox has
+  // already stopped. Under on-request the first attempt ran unasked and only
+  // the retry reached decideCodex, so the one mode whose whole promise is
+  // "asks before every tool" was the one quietly not keeping it.
+  always: { sandbox: 'workspace-write', approvalPolicy: 'untrusted' },
+  bypass: { sandbox: 'danger-full-access', approvalPolicy: 'never' },
+};
+
 const isMode = (m) => Object.hasOwn(SDK_MODE, m);
 const DEFAULT_MODE = 'ask';
 
@@ -78,6 +102,20 @@ function decide(mode, tool, input) {
   return ask();
 }
 
+/* The same decision for a codex turn. The SDK settles part of this before
+   decide() is ever called: in acceptEdits it never asks about a write, in plan
+   it refuses one itself. codex has no such layer, so every approval it sends
+   arrives here raw, and without these two lines acceptEdits would stop on every
+   file change and plan mode would lean on the sandbox alone to say no. */
+function decideCodex(mode, tool, input) {
+  if (mode === 'always') return decide(mode, tool, input);
+  if (tool === 'Edit') {
+    if (mode === 'plan') return ask('plan mode does not write files');
+    if (mode === 'acceptEdits' || mode === 'auto') return ALLOW;
+  }
+  return decide(mode, tool, input);
+}
+
 // Debug mode has no permissions of its own. What it changes is what the agent
 // does with the turn, so it goes in ahead of the next thing the human types and
 // then gets out of the way.
@@ -89,4 +127,6 @@ const DEBUG_PREFACE = [
   '</debug-mode>',
 ].join('\n');
 
-module.exports = { SDK_MODE, DEFAULT_MODE, isMode, decide, riskOf, READ_ONLY, DEBUG_PREFACE };
+module.exports = {
+  SDK_MODE, CODEX_MODE, DEFAULT_MODE, isMode, decide, decideCodex, riskOf, READ_ONLY, DEBUG_PREFACE,
+};

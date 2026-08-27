@@ -136,8 +136,12 @@ export function UsageMeter({ usage, chat }) {
           className={cn('h-7 gap-1.5 rounded-full px-3 font-normal', toneOf(pct))}>
           <Ring pct={pct} />
           <span className="font-mono tabular-nums">{pct}%</span>
-          <span className="opacity-40">·</span>
-          <span className="font-mono tabular-nums">{money(usage.cost)}</span>
+          {!usage.unpriced && (
+            <>
+              <span className="opacity-40">·</span>
+              <span className="font-mono tabular-nums">{money(usage.cost)}</span>
+            </>
+          )}
         </Button>
       </PopoverTrigger>
 
@@ -184,7 +188,9 @@ export function UsageMeter({ usage, chat }) {
           <Row label="Output" value={compact(usage.output)} />
           <div className="flex items-baseline gap-2 border-t pt-1.5">
             <span className="font-medium">At API rates</span>
-            <span className="ml-auto font-mono tabular-nums">{money(usage.cost)}</span>
+            <span className="ml-auto font-mono tabular-nums">
+              {usage.unpriced ? '—' : money(usage.cost)}
+            </span>
             <span className="w-14 shrink-0 text-right text-muted-foreground">
               {usage.turns} {usage.turns === 1 ? 'turn' : 'turns'}
             </span>
@@ -192,7 +198,12 @@ export function UsageMeter({ usage, chat }) {
           {usage.rows.length > 1 && (
             <div className="flex flex-col gap-1 pt-1.5">
               {usage.rows.map((r) => (
-                <Row key={r.model} label={shortModel(r.model)} value={money(r.cost)} note={compact(r.tokens)} dim />
+                <Row
+                  key={r.model}
+                  label={shortModel(r.model)}
+                  value={r.cost ? money(r.cost) : '—'}
+                  note={compact(r.tokens)}
+                  dim />
               ))}
             </div>
           )}
@@ -210,9 +221,11 @@ export function UsageMeter({ usage, chat }) {
         )}
 
         <p className="border-t pt-3 text-muted-foreground leading-relaxed">
-          {plan?.rate_limits_available === false || !limits
-            ? 'A subscription is not billed per token. The figure is what these tokens would cost at API list prices.'
-            : 'The dollar figure is API list prices, for scale. Your plan bills against the windows above instead.'}
+          {usage.unpriced
+            ? 'No list price is known for this model, so the tokens are counted and the money is left blank rather than guessed at.'
+            : plan?.rate_limits_available === false || !limits
+              ? 'A subscription is not billed per token. The figure is what these tokens would cost at API list prices.'
+              : 'The dollar figure is API list prices, for scale. Your plan bills against the windows above instead.'}
           {usage.estimated && ' Priced here, not by the CLI.'}
         </p>
       </PopoverContent>

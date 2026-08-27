@@ -79,7 +79,8 @@
       "scripts/launch.js",
       "install.sh",
       "package.json",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
     ],
     "asarUnpack": [
       "install.sh",
@@ -87,8 +88,7 @@
       "bin/**",
       "mcp/**",
       "node_modules/node-pty/**",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**",
-      "node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+      "node_modules/@anthropic-ai/claude-agent-sdk/**"
     ],
     "npmRebuild": true,
     "linux": {

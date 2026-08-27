@@ -36,6 +36,13 @@ const DEFAULTS = {
     // which is not the same as any level we could name here: naming one would
     // pin every chat to today's default and never move.
     effort: '',
+    // Which CLI the panel drives. Both are the person's own install; neither
+    // ships with Tandem. See driver.js and codex-driver.js.
+    provider: 'claude',     // claude | codex
+    // The model each one is set to. Kept apart because a name from one is
+    // meaningless to the other, and switching provider should not lose the
+    // choice you made on the one you switched away from.
+    codexModel: '',
   },
   startup: {
     reopenProject: true,
@@ -46,10 +53,16 @@ const DEFAULTS = {
   editor: {
     id: '',
   },
+  codex: {
+    // Same as claude.binary below: empty means PATH, or the copy inside the
+    // ChatGPT desktop app. A path is for an install neither of those finds.
+    binary: '',
+  },
   claude: {
-    // Which claude the agent runs: the one bundled in the app, or a newer one
-    // found on PATH. See driver.js.
-    binary: 'bundled',      // bundled | path
+    // Where the claude the agent runs lives. Empty means whatever is on PATH,
+    // which is the answer for anyone who installed it the usual way. A path
+    // here is for an install PATH cannot see. See driver.js.
+    binary: '',
   },
   // The last version each toast named. A person who ignored the news about
   // 0.6.0 should not be told about 0.6.0 again every time they open a window;
@@ -78,6 +91,10 @@ function normalize(raw) {
       }
     }
   }
+  // claude.binary named one of two builds back when Tandem shipped its own.
+  // It holds a path now, and either old word left in place would be shown as
+  // one in the settings box and then written back on the next edit.
+  if (out.claude.binary === 'bundled' || out.claude.binary === 'path') out.claude.binary = '';
   return out;
 }
 
