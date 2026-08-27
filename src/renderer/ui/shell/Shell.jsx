@@ -33,6 +33,7 @@ import TitleBar from './TitleBar';
 import BrowserView from './BrowserView';
 import ChangesView from './ChangesView';
 import FilesView from './FilesView';
+import Palette from './Palette';
 import Rail from './Rail';
 import StatusBar from './StatusBar';
 import Welcome from './Welcome';
@@ -259,14 +260,20 @@ export default function Shell() {
           <ResizablePanelGroup orientation="vertical" onLayoutChange={relayoutNow}>
             <ResizablePanel id="panes" minSize="160px">
               <ResizablePanelGroup orientation="horizontal" onLayoutChange={relayoutNow}>
-                <ResizablePanel id="agent" panelRef={agent} collapsible minSize="380px">
+                {/* 300, not 380. Both panes are collapsible, and when their
+                    minimums stopped fitting the library picked one to drop to
+                    nothing: it picked the chat, and a window one notch too
+                    narrow became a preview pane with no conversation beside it.
+                    Two smaller floors both fit inside the window's own, so
+                    neither has to disappear for the other. */}
+                <ResizablePanel id="agent" panelRef={agent} collapsible minSize="300px">
                   <section id="agent">
                     <div id="agent-root"><App /></div>
                     <Welcome />
                   </section>
                 </ResizablePanel>
                 {!full && rightOpen && <ResizableHandle />}
-                <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="420px">
+                <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
                   <section id="right" data-full={full || undefined}>
                     <TabStrip />
                     <BrowserView />
@@ -286,6 +293,11 @@ export default function Shell() {
       </ResizablePanelGroup>
 
       <StatusBar />
+
+      {/* Nothing until it is asked for, and asked for from anywhere: it listens
+          for its own chord rather than hanging off a button, so where it sits
+          in the tree only decides that it is mounted once. */}
+      <Palette />
 
       {/* Where the hand-rolled #toasts container used to sit, just clear of the
           status bar. */}

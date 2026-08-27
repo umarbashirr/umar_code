@@ -58,6 +58,11 @@ function buildMenu({ recents = [], actions }) {
     {
       label: '&View',
       submenu: [
+        // Display only, like its neighbours: the renderer owns Ctrl+K so that a
+        // shell with the cursor in it keeps kill-to-end-of-line, which a real
+        // accelerator here would take from every terminal in the window.
+        command('Command Palette', 'palette', 'CmdOrCtrl+K'),
+        { type: 'separator' },
         command('Sessions', 'rail', 'CmdOrCtrl+Shift+S'),
         command('Terminal', 'terminal', 'CmdOrCtrl+`'),
         command('Preview Browser', 'preview', 'CmdOrCtrl+Shift+B'),

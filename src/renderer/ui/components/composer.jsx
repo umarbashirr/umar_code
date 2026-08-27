@@ -84,8 +84,10 @@ function ModelPicker({ agent }) {
     <PromptInputSelect
       value={agent.model}
       onValueChange={(v) => (v === CUSTOM ? setTyping(true) : agent.changeModel(v))}>
-      <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 text-xs">
-        <PromptInputSelectValue placeholder="Pick a model" />
+      <PromptInputSelectTrigger className="h-7 min-w-0 gap-1.5 rounded-md px-2 text-xs">
+        <span className="min-w-0 truncate">
+          <PromptInputSelectValue placeholder="Pick a model" />
+        </span>
       </PromptInputSelectTrigger>
       <PromptInputSelectContent>
         {agent.models.map((m) => (
@@ -111,9 +113,13 @@ function ThinkingPicker({ agent }) {
 
   return (
     <PromptInputSelect value={agent.effort || 'default'} onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
-      <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 text-xs">
+      <PromptInputSelectTrigger className="h-7 min-w-0 gap-1.5 rounded-md px-2 text-xs">
         <BrainIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <PromptInputSelectValue />
+        {/* The brain says what the control is. "Default effort" is the longest
+            label down here and the first thing worth losing. */}
+        <span className="min-w-0 truncate @max-[300px]/tools:hidden">
+          <PromptInputSelectValue />
+        </span>
       </PromptInputSelectTrigger>
       <PromptInputSelectContent>
         <PromptInputSelectItem value="default">Default effort</PromptInputSelectItem>
@@ -400,11 +406,17 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
       {/* What the agent is pointed at: the folder, the branch, and how freely it
-          is allowed to act there. */}
-      <div className="mb-1.5 flex items-center gap-0.5 px-1">
+          is allowed to act there.
+
+          It wraps. Every pill in here is a Button, and shadcn's Button carries
+          shrink-0, so in a narrow pane the row could only grow past the edge:
+          the branch ended up half cut off and the chat pane grew a horizontal
+          scrollbar under everything. A second line costs 28px and is the whole
+          row rather than most of it. */}
+      <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-0.5 gap-y-1 px-1">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Pill className="font-medium text-foreground/80">
+            <Pill className="max-w-full font-medium text-foreground/80">
               <FolderIcon className="size-3.5 shrink-0" />
               <span className="truncate">{project.name || 'no folder'}</span>
               <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
@@ -419,15 +431,20 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
             <DropdownMenuItem onSelect={() => window.tandem.project.open({ newWindow: true })}>
               Open folder in new window…
             </DropdownMenuItem>
-            {/* The folders already open here. Picking one moves the window to
-                it, which is a different thing from opening a folder: nothing
-                starts and nothing stops. */}
+            {/* The folders already open here. The label on this menu names the
+                folder the chat runs in, so picking one has to move the chat and
+                not only the window: it used to move the window alone, which left
+                the label naming the folder you had just picked your way out of
+                and the next message running in it. Nothing starts and nothing
+                stops, which is what separates this from opening a folder. */}
             {window_.projects?.length > 1 && <DropdownMenuSeparator />}
             {window_.projects?.length > 1 && window_.projects.map((p) => (
-              <DropdownMenuItem key={p.dir} onSelect={() => window.tandem.project.focus(p.dir)}>
+              <DropdownMenuItem
+                key={p.dir}
+                onSelect={() => { window.tandem.project.focus(p.dir); agent.setProject?.(p.dir); }}>
                 <FolderIcon className="size-3.5 text-muted-foreground" />
                 <span className="truncate">{p.name}</span>
-                {p.dir === window_.focused && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
+                {p.dir === project.dir && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
               </DropdownMenuItem>
             ))}
             {window_.recents.length > 0 && <DropdownMenuSeparator />}
@@ -570,7 +587,14 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
           </PromptInputBody>
 
           <PromptInputFooter className="px-3 pb-3">
-            <PromptInputTools className="gap-1.5">
+            {/* The row shrinks now. It used to size to its contents and slide
+                under the send button in a narrow window, which is where the
+                effort control was going when the pane got tight: still there,
+                still clickable, half of it under a circle. Everything inside
+                gives up its label before the row gives up its edge, and the
+                measure is the row rather than the window, so it holds at any
+                split of the panes. */}
+            <PromptInputTools className="@container/tools min-w-0 flex-1 gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -618,7 +642,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
             </PromptInputTools>
 
             <PromptInputSubmit
-              className="size-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
+              className="size-9 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
               disabled={!agent.busy && !text.trim() && !attachments.length}
               status={agent.busy ? 'streaming' : undefined}
               onClick={agent.busy ? (e) => { e.preventDefault(); stop(); } : undefined}>

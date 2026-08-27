@@ -592,6 +592,13 @@ async function createWindow() {
   win = new BrowserWindow({
     width: 1600,
     height: 980,
+    /* A floor. There was none, so the window could be dragged down to a size
+       where the rail, the chat and the right column are all at their minimums
+       at once and none of them has room to be what it is. This is the width
+       where the chat still reads and the column can still collapse out of the
+       way, and below it there is nothing left to show. */
+    minWidth: 800,
+    minHeight: 520,
     backgroundColor: '#0b0d12',
     title: `${path.basename(focusedCwd())} · Tandem`,
     // The window draws its own title bar: the menu, the folder, the view tabs

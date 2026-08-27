@@ -26,16 +26,21 @@ import {
   CameraIcon,
   ChevronDownIcon,
   CodeXmlIcon,
-  CrosshairIcon,
   EllipsisVerticalIcon,
+  FolderTreeIcon,
+  GitCompareIcon,
+  GlobeIcon,
   LaptopIcon,
   Maximize2Icon,
   Minimize2Icon,
   MonitorIcon,
+  MousePointer2Icon,
   RotateCwIcon,
   ScanIcon,
   SmartphoneIcon,
+  SparklesIcon,
   TabletIcon,
+  TerminalIcon,
   TriangleAlertIcon,
   XIcon,
 } from 'lucide-react';
@@ -75,8 +80,8 @@ import {
   subscribeBrowser,
   VIEWPORTS,
 } from './browser-store';
-import { coverPane, uncoverPane } from './pane-cover';
-import { useLayout } from './Shell';
+import { warmPane } from './pane-cover';
+import { useLayout, usePaneCover } from './Shell';
 
 const VIEWPORT_ICON = {
   scan: ScanIcon,
@@ -137,22 +142,48 @@ function AddressBar({ tab, showing }) {
 
 // ---------------------------------------------------------------- pane menu
 
-/* Everything the pane can do beyond navigating, in one menu. The bar kept nine
-   icons in a row and none of them said what they were. */
-function PaneMenu({ tab }) {
-  const s = useBrowser(tab);
-  const { previewFull } = useLayout();
-  const [open, setOpen] = useState(false);
+/* Lucide has a pointer, and it has sparkles, and nothing that is both. The
+   sparkle rides the pointer's top corner, small enough to read as a mark on the
+   tool rather than as a second icon standing beside it. */
+function PointerSparkIcon() {
+  return (
+    <span className="relative inline-flex size-4 items-center justify-center">
+      <MousePointer2Icon className="size-4" />
+      <SparklesIcon className="-top-[3px] -right-[3px] absolute size-2.5" />
+    </span>
+  );
+}
 
-  // The menu opens over a native view, so freeze the page under it.
-  useEffect(() => {
-    if (!open) { uncoverPane(); return undefined; }
-    const id = requestAnimationFrame(() => {
-      const content = document.querySelector('[data-slot="dropdown-menu-content"]');
-      coverPane(content?.getBoundingClientRect());
-    });
-    return () => cancelAnimationFrame(id);
-  }, [open]);
+/* Pointing at something in the page and handing it to the agent. It was a line
+   in the menu, two clicks from the pointer being on the thing you meant, which
+   is the wrong price for the one tool here that is used mid-thought. Armed, it
+   wears the state the menu button used to. */
+function PickButton({ tab }) {
+  const s = useBrowser(tab);
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      data-armed={s.picking ? '' : undefined}
+      className={`${ICON_BUTTON} data-[armed]:bg-muted-foreground data-[armed]:text-background`}
+      title="Point at an element (Ctrl+Shift+E)"
+      onClick={() => pickElement(tab)}>
+      <PointerSparkIcon />
+    </Button>
+  );
+}
+
+/* The widths, on their own. Which one the page is in is a thing you change and
+   change back while you work, so it gets a button that says which one you are
+   in rather than a group buried under a menu that says nothing. */
+function ViewportMenu({ tab }) {
+  const s = useBrowser(tab);
+  const [open, setOpen] = useState(false);
+  usePaneCover(open);
+
+  const held = VIEWPORTS.find((v) => v.size === s.viewport) || VIEWPORTS[0];
+  const Current = VIEWPORT_ICON[held.icon];
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -160,10 +191,11 @@ function PaneMenu({ tab }) {
         <Button
           variant="ghost"
           size="icon"
-          data-armed={s.picking ? '' : undefined}
-          className={`${ICON_BUTTON} data-[armed]:bg-muted-foreground data-[armed]:text-background`}
-          title="Preview tools">
-          <EllipsisVerticalIcon />
+          data-armed={s.viewport ? '' : undefined}
+          className={`${ICON_BUTTON} data-[armed]:text-foreground`}
+          title={`Viewport: ${held.label}`}
+          onPointerDown={warmPane}>
+          <Current />
         </Button>
       </DropdownMenuTrigger>
 
@@ -184,14 +216,35 @@ function PaneMenu({ tab }) {
             );
           })}
         </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
-        <DropdownMenuSeparator />
+/* What is left once the pointer and the widths have their own buttons: the
+   things you reach for once and are done with. */
+function PaneMenu({ tab }) {
+  const { previewFull } = useLayout();
+  const [open, setOpen] = useState(false);
+
+  // The menu opens over a native view, so freeze the page under it.
+  usePaneCover(open);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={ICON_BUTTON}
+          title="Preview tools"
+          onPointerDown={warmPane}>
+          <EllipsisVerticalIcon />
+        </Button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end">
         <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => pickElement(tab)}>
-            <CrosshairIcon />
-            Point at an element
-            <DropdownMenuShortcut>^⇧E</DropdownMenuShortcut>
-          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => screenshot(tab)}>
             <CameraIcon />
             Screenshot to disk
@@ -246,23 +299,58 @@ function PageError({ tab, error }) {
   );
 }
 
+/* A tab with nothing in it yet.
+
+   It used to be a sentence explaining that nothing was there, which is the one
+   thing the empty pane had already said. A new tab is a decision, so this is
+   the decision: the four things this column can hold, each one click away, and
+   the address bar first because it is the one this tab is already set up for.
+
+   Files and Changes are the column's other kinds rather than this tab's, so
+   picking one opens that tab beside this one. The preview stays where it is
+   with its address bar ready. */
+function Tile({ icon: Icon, label, hint, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-24 w-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border bg-card text-card-foreground transition-colors hover:border-ring hover:bg-accent">
+      <Icon className="size-5 text-muted-foreground" />
+      <span className="font-medium text-xs">{label}</span>
+      {hint && <span className="text-[10px] text-muted-foreground">{hint}</span>}
+    </button>
+  );
+}
+
 function Placeholder() {
+  const address = () => {
+    const box = document.getElementById('url');
+    box?.focus();
+    box?.select();
+  };
+
   return (
     <Empty className="absolute inset-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <AppWindowIcon />
         </EmptyMedia>
-        <EmptyTitle>No page loaded</EmptyTitle>
+        <EmptyTitle>New tab</EmptyTitle>
         <EmptyDescription>
-          Start a dev server in the terminal. When it prints a local address, this pane offers to open it.
+          Start a dev server in the terminal and this pane offers to open it, or pick something below.
         </EmptyDescription>
       </EmptyHeader>
+
       <EmptyContent>
-        <div className="flex flex-col items-center gap-1 text-xs text-muted-foreground">
-          <span><kbd>^⇧L</kbd> address bar</span>
-          <span><code>tandem go 3000</code> from the shell or the agent</span>
+        <div className="grid grid-cols-2 gap-2">
+          <Tile icon={GlobeIcon} label="Open an address" hint="^⇧L" onClick={address} />
+          <Tile icon={TerminalIcon} label="Terminal" hint="^`" onClick={() => runCommand('terminal')} />
+          <Tile icon={FolderTreeIcon} label="Project files" hint="^⇧D" onClick={() => runCommand('files')} />
+          <Tile icon={GitCompareIcon} label="Changes" hint="^⇧G" onClick={() => runCommand('changes')} />
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          <code>tandem go 3000</code> from the shell or the agent
+        </p>
       </EmptyContent>
     </Empty>
   );
@@ -378,9 +466,33 @@ function Drawer({ tab, showing }) {
 
 // ------------------------------------------------------------------ toolbar
 
+/* One bar across the top of the pane while a page is on its way.
+
+   The status line has said "loading…" in words since the beginning, at the very
+   bottom of the window, in the place nobody looks while they are waiting to
+   find out whether the thing is stuck. This is at the top of the pane, where
+   the page is about to appear. */
+function LoadingBar({ tab }) {
+  const s = useBrowser(tab);
+  if (!s.loading) return null;
+
+  return (
+    <div className="h-0.5 shrink-0 overflow-hidden bg-transparent">
+      <div className="pane-load h-full w-1/4 rounded-full bg-primary" />
+    </div>
+  );
+}
+
 function Toolbar({ tab, showing }) {
   const s = useBrowser(tab);
   const errors = consoleErrors(tab);
+  // Held a beat past the click so the turn is seen even when the load is not.
+  const [spun, setSpun] = useState(false);
+  useEffect(() => {
+    if (!spun) return undefined;
+    const t = setTimeout(() => setSpun(false), 600);
+    return () => clearTimeout(t);
+  }, [spun]);
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2.5" hidden={!showing || undefined}>
@@ -390,8 +502,16 @@ function Toolbar({ tab, showing }) {
       <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Forward" disabled={!s.canGoForward} onClick={() => go('forward', tab)}>
         <ArrowRightIcon />
       </Button>
-      <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Reload" onClick={() => go('reload', tab)}>
-        <RotateCwIcon />
+      {/* A reload of a page already in cache is over before the next frame, and
+          a button that does nothing visible reads as a button that did nothing.
+          The spin outlives the fastest load on purpose. */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={ICON_BUTTON}
+        title="Reload"
+        onClick={() => { setSpun(true); go('reload', tab); }}>
+        <RotateCwIcon className={spun || s.loading ? 'animate-spin' : undefined} />
       </Button>
 
       <div className="min-w-0 flex-1"><AddressBar tab={tab} showing={showing} /></div>
@@ -411,6 +531,8 @@ function Toolbar({ tab, showing }) {
         </Button>
       )}
 
+      <PickButton tab={tab} />
+      <ViewportMenu tab={tab} />
       <PaneMenu tab={tab} />
     </div>
   );
@@ -429,6 +551,7 @@ export default function BrowserView() {
   return (
     <div className="flex h-full min-h-0 flex-col" hidden={!shown || undefined}>
       {open.map(({ tab }) => <Toolbar key={tab} tab={tab} showing={tab === shown} />)}
+      {shown && <LoadingBar tab={shown} />}
 
       <div className="relative min-h-0 flex-1">
         <div id="paneslot" className="absolute inset-0" />

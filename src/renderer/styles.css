@@ -530,6 +530,10 @@ kbd {
   height: 34px; padding: 0 0 0 10px;
   background: var(--rail);
   -webkit-app-region: drag;
+  /* The search sits in the middle of the window rather than in the middle of
+     what the menus and the window buttons leave over, and those two ends are
+     not the same width. */
+  position: relative;
 }
 #titlebar button, #titlebar input { -webkit-app-region: no-drag; }
 
@@ -542,6 +546,15 @@ kbd {
 }
 #toolbar button, #toolbar input { -webkit-app-region: no-drag; }
 
+
+/* The preview's loading bar. A page load has no percentage worth reporting, so
+   this says "something is happening" and nothing else: a short bar crossing the
+   top of the pane until the load stops. */
+@keyframes pane-load {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(420%); }
+}
+.pane-load { animation: pane-load 1.05s ease-in-out infinite; }
 
 /* ------------------------------------------------------------------ shell */
 

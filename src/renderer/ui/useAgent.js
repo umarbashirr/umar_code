@@ -691,6 +691,19 @@ export function useAgent() {
     switchTo(next.key);
   }, [switchTo]);
 
+  /* Pointing the chat on screen at another folder, which is what the chip under
+     the box is for. A chat nobody has typed in yet moves: the chip names the
+     folder the next message runs in, and picking one from it is how you say
+     where you meant that message to go. A chat that has already said something
+     stays where it ran, transcript and session and all, so picking a folder for
+     one of those starts a new chat there instead of dragging the old one over. */
+  const setProject = useCallback((dir) => {
+    if (!dir) return;
+    const cur = chatsRef.current.find((c) => c.key === activeRef.current);
+    if (cur && !cur.session && !cur.items.length) edit(cur.key, (c) => ({ ...c, project: dir }));
+    else reset(dir);
+  }, [edit, reset]);
+
   // The folder moved. Main has already stopped every session, and the chats
   // here belong to the folder that was open when they ran.
   const clear = useCallback(() => {
@@ -872,7 +885,7 @@ export function useAgent() {
     models, model, driver, effort, efforts, longContext,
     chats, activeKey,
     send, enqueue, unqueue, flushQueue,
-    decide, interrupt, reset, clear, open, removeChat, switchTo, changeModel, forgetModel, changeMode,
+    decide, interrupt, reset, setProject, clear, open, removeChat, switchTo, changeModel, forgetModel, changeMode,
     changeEffort, changeLongContext,
     stopAgent, backgroundAgent, openAgent,
   };

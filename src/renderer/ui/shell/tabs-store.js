@@ -81,7 +81,14 @@ export function openTab(dir, kind, id = null, { reveal = true } = {}) {
   if (!KINDS.includes(kind)) return null;
   const group = groupOf(dir);
 
-  const held = SINGLE.has(kind) ? group.tabs.find((t) => t.kind === kind) : null;
+  /* Two callers can name the same tab. Main mints the id for a preview it has
+     already made, and more than one path in here answers that. An id already in
+     the strip is the tab it names, not a second one to push beside it: closing
+     goes by id and takes the first row it finds, so a pair sharing an id close
+     each other. */
+  const held = SINGLE.has(kind)
+    ? group.tabs.find((t) => t.kind === kind)
+    : (id ? group.tabs.find((t) => t.id === id) : null);
   const tab = held || { id: id || mintId(kind), kind, title: '' };
   if (!held) group.tabs.push(tab);
 
