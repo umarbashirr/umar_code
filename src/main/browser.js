@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { normalizeUrl, isAllowedUrl } = require('./url');
+const { screenshotFilePath } = require('./screenshot-path');
 
 function partitionFor(project) {
   const key = crypto.createHash('sha256').update(String(project || '')).digest('hex').slice(0, 16);
@@ -389,7 +390,7 @@ class BrowserPane extends EventEmitter {
     } else {
       image = await this.wc.capturePage();
     }
-    const file = path.join(this.shotDir, `${name || 'shot-' + Date.now()}.png`);
+    const file = screenshotFilePath(this.shotDir, name);
     fs.writeFileSync(file, image.toPNG());
     this.#pruneShots();
     const size = image.getSize();
