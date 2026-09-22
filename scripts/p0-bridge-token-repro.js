@@ -117,7 +117,7 @@ async function checkPackagedGateStillHolds() {
   let decideHit = false;
   const bridge = new Bridge({
     run: async () => ({}),
-    // packaged shape: debug off, handlers absent
+    debug: false,
     decide: (d) => { decideHit = true; return { ok: true, decision: d }; },
   });
   await bridge.start();
@@ -144,7 +144,6 @@ async function checkConstantTimeCompare() {
   if (short.status === 401) pass('short-token-rejected');
   else fail('short-token-rejected', JSON.stringify(short));
 
-  // Prove the helper rejects unequal buffers without throwing when lengths match.
   const a = Buffer.from(bridge.token);
   const b = Buffer.from('0'.repeat(bridge.token.length));
   const equal = crypto.timingSafeEqual(a, b);

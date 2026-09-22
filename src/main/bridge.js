@@ -1,9 +1,8 @@
 'use strict';
 // Local control plane. The agent running inside the terminal reaches the
 // preview pane through this: cli/tandem.js and mcp/server.js are both clients.
-// One window means one port and one token, but the window can hold several
-// projects at once, so every request carries the project it was typed in and
-// the bridge hands that along to the window.
+// The window can hold several projects at once, so every request carries the
+// project it was typed in and the bridge hands that along to the window.
 const http = require('http');
 const crypto = require('crypto');
 const path = require('path');
