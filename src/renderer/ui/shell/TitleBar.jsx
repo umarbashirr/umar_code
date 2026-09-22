@@ -4,7 +4,7 @@
    draw. The native menu carries the same items for the keyboard and the Alt
    key; this is the one people can see. */
 import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
-import { CheckIcon, CopyIcon, HexagonIcon, MinusIcon, SearchIcon, SquareIcon, XIcon } from 'lucide-react';
+import { CheckIcon, CopyIcon, HexagonIcon, MinusIcon, SquareIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Menubar,
@@ -260,28 +260,9 @@ export default function TitleBar() {
         {MENUS.map((menu) => <SimpleMenu key={menu.value} menu={menu} />)}
       </Menubar>
 
-      {/* The palette's face. A button dressed as a field, not a field: the
-          typing happens in the palette's own input a frame later. It takes the
-          room between the menus and the app's controls and shrinks before it
-          overlaps them; the chord still works when it is hidden.
-
-          The wrapper is not decoration. styles.css strips the border and the
-          background off any button that is not inside a shadcn slot, which is
-          how the window buttons and the menu triggers stay flat. Sitting under a
-          data-slot puts this one back in the exempt half. */}
-      <div data-slot="titlebar-search" className="flex min-w-0 flex-1 justify-center px-3">
-        <button
-          type="button"
-          title="Search chats, folders, files and commands (Ctrl+K)"
-          onClick={() => window.tandemPalette?.open()}
-          className="relative hidden h-[26px] w-full min-w-0 max-w-[420px] items-center gap-2 rounded-md border border-input bg-input/30 pr-12 pl-2 text-muted-foreground text-xs transition-colors hover:border-ring hover:bg-input/50 hover:text-foreground lg:flex">
-          <SearchIcon className="size-3.5 shrink-0" />
-          <span className="truncate">Search chats, files and commands</span>
-          <span className="-translate-y-1/2 absolute top-1/2 right-2.5 hidden text-[10px] text-muted-foreground/70 xl:block">
-            Ctrl K
-          </span>
-        </button>
-      </div>
+      {/* The room between the menus and the app's controls, which is also
+          where the window is dragged from. Search lives in the rail now. */}
+      <div className="min-w-0 flex-1" />
 
       <ToolbarActions />
 

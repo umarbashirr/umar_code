@@ -8,12 +8,10 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
-  FolderPlusIcon, MessageSquareDotIcon, MessageSquareIcon, PlusIcon, RotateCcwIcon,
-  SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ButtonGroup } from '@/components/ui/button-group';
 import { railBadge } from './chat-attention.js';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -27,14 +25,15 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -71,29 +70,31 @@ function useRail() {
   useEffect(() => { refreshRail(); }, []);
 }
 
+// Chats hang off their folder by the indent alone.
+const SUB = 'mx-0 ml-4 border-l-0 px-0 pr-0';
+
 function Row({ chat, current, onDelete }) {
   const done = isDone(chat);
   const saved = isSaved(chat);
-  const Icon = done ? CircleCheckIcon : current ? MessageSquareDotIcon : MessageSquareIcon;
   const badge = railBadge(chat);
   const marked = !!(chat.busy || chat.waiting);
 
   return (
-    /* The chat you are in thickens the guide line beside it. The row already
-       takes the accent tint, but that tint stops at the row's own edge, and the
-       thing worth seeing from across the rail is which folder you are working
-       in. The marker sits on the border SidebarMenuSub draws, 11px left of the
-       row: 1px of border, then the list's 10px of padding. */
-    <SidebarMenuItem
-      className={current
-        ? 'before:absolute before:-left-[11px] before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-sidebar-foreground/50'
-        : undefined}>
+    <SidebarMenuItem>
       <SidebarMenuButton
         isActive={current}
         title={chat.title}
         className="group-has-data-[sidebar=menu-action]/menu-item:pr-2"
         onClick={() => { if (!current) window.tandemChat?.open(chat); }}>
-        <Icon />
+        {/* A dot rather than an icon per row: forty speech bubbles down the
+            rail are forty of the same picture. A finished chat keeps its tick. */}
+        {done ? (
+          <CircleCheckIcon className="size-3.5! text-muted-foreground" />
+        ) : (
+          <span
+            aria-hidden
+            className={cn('mx-1 size-1.5 shrink-0 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
+        )}
         <span className="truncate">{chat.title}</span>
         {badge && (
           <Badge
@@ -173,7 +174,7 @@ function Completed({ folder, active, onDelete }) {
       open={doneOpen(folder.dir)}
       onOpenChange={(open) => setDoneOpen(folder.dir, open)}>
       <CollapsibleTrigger
-        className="mx-3.5 flex w-[calc(100%-1.75rem)] cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-muted-foreground text-xs transition-colors hover:text-sidebar-foreground">
+        className="ml-4 flex w-[calc(100%-1rem)] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:text-sidebar-foreground">
         <ChevronRightIcon
           className="size-3.5 shrink-0 transition-transform group-data-[state=open]/done:rotate-90" />
         <span>Completed</span>
@@ -181,7 +182,7 @@ function Completed({ folder, active, onDelete }) {
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <SidebarMenuSub className="mr-0 pr-0">
+        <SidebarMenuSub className={SUB}>
           {folder.done.map((chat) => (
             <Row
               key={chat.key || chat.id}
@@ -196,20 +197,17 @@ function Completed({ folder, active, onDelete }) {
 }
 
 /* One project and its chats. The Collapsible wraps the whole group, so the
-   header folds the rows under it and nothing else, and the trigger is the
-   header itself rather than a chevron you have to aim at.
+   folder's row folds the chats under it and nothing else, and the trigger is
+   the row itself rather than a chevron you have to aim at.
 
-   The header and the rows have to read as two levels, not as one list of
-   lookalikes. The header takes the heading language the app already uses for
-   section labels, small uppercase and tracked, and it gives up the accent fill
-   on hover: that fill is what marks the chat you are in, and a heading should
-   never wear it. The chats sit on a SidebarMenuSub, which indents them and runs
-   a border down their left edge, so a row visibly hangs off the folder above.
+   The folder reads as a row with a folder in front of it, and its chats hang
+   off it indented, each behind a dot. No rules between folders and no heading
+   type: the indent and the folder icon are what say where one ends.
 
-   The rows stay SidebarMenuItem rather than SidebarMenuSubItem. The delete
-   action reads its hover and active state off the menu-item group and the
+   The rows stay SidebarMenuItem rather than SidebarMenuSubItem. The row
+   actions read their hover and active state off the menu-item group and the
    menu-button peer, and the sub variants carry neither. */
-function Folder({ folder, active, current, first, onDelete, onRemove }) {
+function Folder({ folder, active, current, onDelete, onRemove }) {
   const open = projectOpen(folder.dir);
   const count = folder.rows.length + folder.done.length;
   const finishable = folder.rows.filter(canMarkDone);
@@ -225,108 +223,80 @@ function Folder({ folder, active, current, first, onDelete, onRemove }) {
       className="group/folder"
       open={open}
       onOpenChange={(next) => setProjectOpen(folder.dir, next)}>
-      {/* One folder, one band. The rule along the top is what separates them:
-          three headings and their chats used to run together down the rail as
-          one column of text, and the only thing saying where one folder ended
-          was the gap before the next. The first needs no rule, since the search
-          box above it already draws one. */}
-      <SidebarGroup className={`gap-0 px-0 py-1 ${first ? '' : 'border-t border-sidebar-border'}`}>
-        {/* The heading stays put while its chats scroll under it. A folder with
-            ninety chats otherwise scrolls its own name away, and then the rail
-            is a list of titles with nothing saying whose they are. It needs the
-            sidebar's own background to stay opaque over the rows going past. */}
-        {/* The rail's own colour is 55% alpha over the window, so a heading
-            wearing it lets the rows scroll through it and read as double
-            exposure. The ::before is the opaque layer that colour is meant to
-            sit on, put back under this one row: background first, sidebar tint
-            over it, text on top. */}
+      <SidebarGroup className="gap-0 p-0">
+        {/* A row like the chats under it, only with a folder in front. The
+            heading stays put while its chats scroll under it, so a folder with
+            ninety chats does not scroll its own name away. The rail's colour is
+            a tint over the window, so the row is the window's colour and the
+            ::before lays the tint back over it: opaque, and the same colour as
+            the rail around it. */}
         <div
-          className={`sticky top-0 z-10 flex items-center gap-1 bg-sidebar px-2 py-0.5
-            before:absolute before:inset-0 before:-z-10 before:bg-background ${current
-            ? 'text-sidebar-foreground after:absolute after:top-1.5 after:bottom-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-sidebar-foreground/60'
-            : ''}`}>
-          {/* The heading styling rides on the label rather than on the trigger.
-              The label merges a className through twMerge, so text-[11px] beats
-              its text-xs; anything set on the trigger only gets concatenated and
-              would leave the stylesheet to break the tie. */}
-          <SidebarGroupLabel
-            asChild
-            className={`h-7 min-w-0 flex-1 px-1.5 text-[11px] font-semibold uppercase tracking-wide [&>svg]:size-3.5 ${current ? 'text-sidebar-foreground' : ''}`}>
-            <CollapsibleTrigger
-              title={folder.dir}
-              className="cursor-pointer gap-1.5 transition-colors hover:text-sidebar-foreground">
-              {/* The chevron leads, sitting a pixel off the guide line that starts
-                  below it, so the fold and the chats it holds share one edge. */}
-              {/* The size goes on the icon. The label carries an [&>svg] rule
-                  for it, but the chevron is the trigger's child rather than the
-                  label's, so nothing was catching it and it drew at lucide's
-                  own 24px, twice the height of the word beside it. */}
-              <ChevronRightIcon
-                className="size-3.5 shrink-0 transition-transform group-data-[state=open]/folder:rotate-90" />
-              <span className="truncate">{folder.name}</span>
+          className="group/head sticky top-0 z-10 flex h-8 items-center gap-1 rounded-md bg-background pr-1 pl-2
+            before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-sidebar before:transition-colors hover:before:bg-sidebar-accent">
+          <CollapsibleTrigger
+            title={folder.dir}
+            className={cn(
+              'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0',
+              current ? 'text-sidebar-foreground' : 'text-sidebar-foreground/80',
+            )}>
+            {open ? <FolderOpenIcon /> : <FolderIcon />}
+            <span className="truncate">{folder.name}</span>
+          </CollapsibleTrigger>
 
-              {/* What a shut folder is holding. Open, the chats say it
-                  themselves and a number beside them is noise. Left out of the
-                  tree rather than faded out: a hidden span still takes its
-                  width, and it was taking it off the folder's name. */}
-              {!open && !!count && (
-                <span className="ml-auto pl-1 font-normal tabular-nums opacity-50">{count}</span>
-              )}
-            </CollapsibleTrigger>
-          </SidebarGroupLabel>
+          {/* The newest chat's age, where the actions go on hover. Both share
+              the same corner, so neither costs the name any width. */}
+          {!!folder.at && (
+            <span className="pointer-events-none absolute right-2 text-[11px] text-muted-foreground tabular-nums transition-opacity group-hover/head:opacity-0 group-has-[[aria-haspopup=menu][aria-expanded=true]]/head:opacity-0">
+              {relative(folder.at)}
+            </span>
+          )}
 
-          {/* A chat in this folder, started from the folder. It sits beside the
-              heading rather than inside it: the heading is the fold's trigger,
-              and a button inside a button is neither valid nor clickable. The
-              window stays where it is, because asking for a chat in another
-              folder is not asking to be moved to it, and the chip under the box
-              says which folder you are about to type into. */}
-          <button
-            type="button"
-            title={`New chat in ${folder.name}`}
-            aria-label={`New chat in ${folder.name}`}
-            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            onClick={() => startChatIn(folder.dir)}>
-            <PlusIcon className="size-3.5" />
-          </button>
+          <div className="flex items-center opacity-0 transition-opacity group-hover/head:opacity-100 focus-within:opacity-100 has-[[aria-haspopup=menu][aria-expanded=true]]:opacity-100">
+            {/* A chat in this folder, started from the folder. It sits beside
+                the name rather than inside it: the name is the fold's trigger,
+                and a button inside a button is neither valid nor clickable. The
+                window stays where it is, because asking for a chat in another
+                folder is not asking to be moved to it. */}
+            <button
+              type="button"
+              title={`New chat in ${folder.name}`}
+              aria-label={`New chat in ${folder.name}`}
+              className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar hover:text-sidebar-foreground"
+              onClick={() => startChatIn(folder.dir)}>
+              <PlusIcon className="size-3.5" />
+            </button>
 
-          {/* The rest of what can be done to a folder. It was on hover at
-              first, which left the plus sitting a button's width in from the
-              edge with a hole beside it: a control that is invisible still
-              takes its place in the row. Both are here all the time now, quiet
-              until you are on them. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                title={`More for ${folder.name}`}
-                aria-label={`More for ${folder.name}`}
-                className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-foreground">
-                <EllipsisIcon className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => startChatIn(folder.dir)}>
-                <PlusIcon />
-                New chat here
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!finishable.length} onSelect={markAll}>
-                <CheckCheckIcon />
-                Mark all completed
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => onRemove(folder)}>
-                <FolderMinusIcon />
-                Remove from this window
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title={`More for ${folder.name}`}
+                  aria-label={`More for ${folder.name}`}
+                  className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar hover:text-sidebar-foreground">
+                  <EllipsisIcon className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => startChatIn(folder.dir)}>
+                  <PlusIcon />
+                  New chat here
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!finishable.length} onSelect={markAll}>
+                  <CheckCheckIcon />
+                  Mark all completed
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onRemove(folder)}>
+                  <FolderMinusIcon />
+                  Remove from this window
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <CollapsibleContent>
-          {/* The group gave up its padding to let the rule above run the full
-              width of the rail, so the rows carry their own inset now. */}
-          <SidebarGroupContent className="px-2 pb-1">
+          <SidebarGroupContent className="pb-1">
             {/* A folder you have just opened has no chats yet, and the guide
                 line down the left of an empty list is a stub hanging off
                 nothing. Say what is there instead. */}
@@ -335,12 +305,9 @@ function Folder({ folder, active, current, first, onDelete, onRemove }) {
             {!folder.rows.length && !folder.done.length ? (
               /* Sitting where the rows would, so the note reads as the folder's
                  contents rather than as something loose under the heading. */
-              <p className="mx-3.5 px-2.5 py-1 text-muted-foreground text-xs">No chats here yet</p>
+              <p className="ml-4 px-2 py-1 text-muted-foreground text-xs">No chats yet</p>
             ) : (
-              /* The list keeps its left margin, which is where the border lives,
-                 and drops the right one. The rail is narrow and the rows carry a
-                 badge, a timestamp and a delete button on that edge. */
-              <SidebarMenuSub className="mr-0 pr-0">
+              <SidebarMenuSub className={SUB}>
                 {folder.rows.map((chat) => (
                   <Row
                     key={chat.key || chat.id}
@@ -522,11 +489,10 @@ function ConfirmDelete({ chat, onCancel, onConfirm }) {
 
 export default function Rail() {
   useRail();
-  const [filter, setFilter] = useState('');
   const [doomed, setDoomed] = useState(null);
   const [leaving, setLeaving] = useState(null);
   const [starting, setStarting] = useState(false);
-  const folders = grouped(filter);
+  const folders = grouped();
   const active = activeKey();
   /* The folder holding the chat you are in. Its heading brightens, which is the
      one thing the rail was not saying: with three folders open and a chat from
@@ -550,78 +516,55 @@ export default function Rail() {
 
   return (
     <Sidebar collapsible="none" className="h-full w-full border-r">
-      <SidebarHeader className="gap-2">
-        {/* Two starts, side by side. Stacked they took two full rows off the
-            top of the rail to say two short things, and the second one is the
-            rarer of the two by a distance. Joined, they read as one control
-            with two ways in.
-
-            The second adds a folder to this window, which is a different thing
-            from opening one in a new window. The rail is the list of folders,
-            so the way to add one belongs at the top of it rather than only in a
-            menu. The picker is main's, so a folder already open here is brought
-            forward instead of opened twice. */}
-        <ButtonGroup className="@container/starts w-full">
-          <Button
-            variant="outline"
-            className="flex-1 justify-center"
-            title="Start a chat"
-            onClick={() => setStarting(true)}>
-            <SquarePenIcon />
-            {/* Narrow the rail and the words go, not the row. Two labels that
-                no longer fit wrap to a second line each and turn a one-row
-                control into four, and a rail dragged that thin was dragged thin
-                to give the room to the chat. The icons carry it from there, and
-                the title says the rest. The measure is this group's own width
-                rather than the window's, so it holds wherever the rail is
-                parked. */}
-            <span className="@max-[220px]/starts:hidden">New chat</span>
-          </Button>
-          <Button
-            variant="outline"
-            className="flex-1 justify-center"
-            title="Open another folder in this window"
-            onClick={() => openFolder()}>
-            <FolderPlusIcon />
-            <span className="@max-[220px]/starts:hidden">New project</span>
-          </Button>
-        </ButtonGroup>
-
-        <InputGroup>
-          <InputGroupAddon>
-            <SearchIcon />
-          </InputGroupAddon>
-          <InputGroupInput
-            spellCheck={false}
-            placeholder="Search chats"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)} />
-        </InputGroup>
+      <SidebarHeader className="gap-0 pb-0">
+        {/* The two things you start from, as rows rather than buttons. */}
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton title="Start a chat" onClick={() => setStarting(true)}>
+              <SquarePenIcon />
+              <span>New chat</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            {/* The palette, which finds chats, folders, files and commands in
+                one list. It used to sit in the title bar as a search field. */}
+            <SidebarMenuButton title="Search chats, folders, files and commands (Ctrl+K)" onClick={() => window.tandemPalette?.open()}>
+              <SearchIcon />
+              <span>Search</span>
+              <span className="ml-auto text-[10px] text-muted-foreground/70">Ctrl K</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
       <SidebarContent>
-        {folders.length === 0 ? (
-          <Empty className="px-4">
-            <EmptyHeader>
-              <EmptyDescription>
-                {filter
-                  ? 'Nothing matches that.'
-                  : 'No chats in this folder yet. Ask for something and it lands here.'}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          folders.map((folder, i) => (
-            <Folder
-              key={folder.dir}
-              folder={folder}
-              active={active}
-              current={folder.dir === currentDir}
-              first={i === 0}
-              onDelete={setDoomed}
-              onRemove={setLeaving} />
-          ))
-        )}
+        <SidebarGroup className="gap-0.5">
+          {/* The rail is the list of folders, so the way to add one belongs at
+              the top of it. The picker is main's, so a folder already open here
+              is brought forward instead of opened twice. */}
+          <SidebarGroupLabel>Projects</SidebarGroupLabel>
+          <SidebarGroupAction title="Open another folder in this window" onClick={() => openFolder()}>
+            <PlusIcon />
+          </SidebarGroupAction>
+
+          {folders.length === 0 ? (
+            <Empty className="px-4">
+              <EmptyHeader>
+                <EmptyDescription>No chats in this folder yet. Ask for something and it lands here.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            folders.map((folder) => (
+              <Folder
+                key={folder.dir}
+                folder={folder}
+                active={active}
+                current={folder.dir === currentDir}
+                onDelete={setDoomed}
+                onRemove={setLeaving} />
+            ))
+          )}
+        </SidebarGroup>
       </SidebarContent>
 
       <NewChatDialog open={starting} onOpenChange={setStarting} />
