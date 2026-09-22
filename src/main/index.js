@@ -980,9 +980,9 @@ function registerIpc() {
     // switched to is usually not on its list. Remember it the way a hand-typed
     // name is remembered, or the picker goes blank on a model that is running
     // perfectly well.
-    const d = rowOf('claude').driver.remember(model);
+    rowOf('claude').driver.remember(model);
     await sessions.get(key)?.setModel(model);
-    return { model, long: isLong(model), models: d.models };
+    return { model, long: isLong(model), models: allModels() };
   });
   ipcMain.handle('agent:setModel', async (_e, { chat, model }) => {
     const key = chat || activeChat.chat;
@@ -1014,7 +1014,7 @@ function registerIpc() {
       chosenModels.claude = d.models[0]?.value || null;
       rememberModel('claude', chosenModels.claude);
     }
-    return { model: chosenModels.claude, models: d.models };
+    return { model: chosenModels.claude, models: allModels() };
   });
   // The two reports the meter opens onto. Both come off the live session, and
   // both are asked for only when someone opens the panel: the running totals it

@@ -9,6 +9,7 @@
 // here. The answer is written to userData/drivers/claude.json so the next launch
 // shows a picker before the probe has even run.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const shellEnv = require('./shell-env');
@@ -75,10 +76,14 @@ function claudeBinary() {
 // and every paid plan can run Sonnet. Fable and Opus are gated on the account,
 // not on the CLI, and nothing on this machine can see which plan someone is on.
 const CATALOG = [
-  { value: 'claude-sonnet-5', displayName: 'Claude Sonnet 5' },
-  { value: 'claude-opus-5', displayName: 'Claude Opus 5', since: '2.1.219' },
-  { value: 'claude-fable-5', displayName: 'Claude Fable 5', since: '2.1.169' },
-  { value: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5' },
+  { value: 'claude-sonnet-5', displayName: 'Sonnet 5' },
+  { value: 'claude-opus-5', displayName: 'Opus 5', since: '2.1.219' },
+  { value: 'claude-fable-5', displayName: 'Fable 5', since: '2.1.169', legacy: true },
+  { value: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5' },
+  { value: 'claude-opus-4-8', displayName: 'Opus 4.8', legacy: true },
+  { value: 'claude-opus-4-7', displayName: 'Opus 4.7', legacy: true },
+  { value: 'claude-opus-4-6', displayName: 'Opus 4.6', legacy: true },
+  { value: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', legacy: true },
 ];
 
 function compareVersions(a, b) {
@@ -93,7 +98,7 @@ function compareVersions(a, b) {
 
 const modelsFor = (version) => CATALOG.filter(
   (m) => !m.since || (version && compareVersions(version, m.since) >= 0),
-).map(({ value, displayName }) => ({ value, displayName }));
+).map(({ value, displayName, legacy }) => ({ value, displayName, ...(legacy ? { legacy } : {}) }));
 
 /* Claude Code names the long-context variant of a model by suffixing its id:
    `opus` is the ordinary window, `opus[1m]` is the million-token one. The CLI
@@ -172,6 +177,39 @@ function probeVersion(bin) {
   });
 }
 
+const LIST_TIMEOUT_MS = 30000;
+
+async function probeCliModels(bin) {
+  let q = null;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), LIST_TIMEOUT_MS);
+  try {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    q = sdk.query({
+      prompt: (async function* idle() { await new Promise((r) => abort.signal.addEventListener('abort', r)); })(),
+      options: {
+        cwd: os.homedir(),
+        abortController: abort,
+        env: shellEnv.env(),
+        settingSources: [],
+        pathToClaudeCodeExecutable: bin,
+      },
+    });
+    const listed = await Promise.race([
+      q.supportedModels(),
+      new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(new Error('timeout')))),
+    ]);
+    const rows = clean(listed);
+    return rows.length ? rows : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+    abort.abort();
+    try { q?.close?.(); } catch {}
+  }
+}
+
 // Which endpoint the models belong to. A proxy hands out access per key, so two
 // keys pointed at the same LiteLLM install can serve different lists and the
 // same cache file must not answer for both.
@@ -215,6 +253,36 @@ async function probeModels(base, token) {
 // cannot serve it.
 const ALIAS = 'default';
 const pickable = (models) => (models || []).filter((m) => m && m.value && m.value !== ALIAS);
+
+// The CLI's names leave the version out ("Opus"), which says nothing once two Opus
+// releases are about. The description leads with it ("Opus 5.5 with 1M
+// context · Best for…"), so the name comes from there when it can.
+const versioned = (m) => /^(.+?)(?: with 1M context)?\s+·/.exec(m.description || '')?.[1] || null;
+
+const clean = (models) => pickable(models).map((m) => ({
+  value: m.value,
+  displayName: versioned(m) || m.displayName || m.value,
+  ...(m.resolvedModel ? { resolved: withoutLong(m.resolvedModel) } : {}),
+  ...(m.supportsEffort === undefined ? {} : { supportsEffort: !!m.supportsEffort }),
+  ...(Array.isArray(m.supportedEffortLevels) ? { effortLevels: m.supportedEffortLevels } : {}),
+}));
+
+const family = (m) => /(opus|fable|sonnet|haiku)/i.exec(`${m.value} ${m.resolved || ''}`)?.[1].toLowerCase();
+
+function insertAfterFamily(list, model) {
+  const at = list.findLastIndex((r) => !r.legacy && family(r) === family(model));
+  list.splice(at < 0 ? list.length : at + 1, 0, model);
+}
+
+function withCatalog(listed, version) {
+  const covered = new Set(listed.flatMap((m) => [withoutLong(m.value), m.resolved].filter(Boolean)));
+  const out = [...listed];
+  for (const m of modelsFor(version).filter((c) => !covered.has(c.value))) {
+    if (m.legacy) out.push(m);
+    else insertAfterFamily(out, m);
+  }
+  return out;
+}
 
 // The list the picker shows: what the endpoint or the CLI reported, plus any
 // name the user typed in by hand for this endpoint, minus the duplicates.
@@ -341,9 +409,10 @@ class Driver {
       });
     }
 
+    const listed = await probeCliModels(bin);
     return this.#write({
       installed: true, version, status: 'ready',
-      models: learned || modelsFor(version), learned: !!learned,
+      models: listed ? withCatalog(listed, version) : learned || modelsFor(version), learned: !!(listed || learned),
       served: false, checkedAt, endpoint: ep, message: null, binaryPath: bin,
     });
   }
@@ -357,18 +426,10 @@ class Driver {
     // A proxy already told us what it serves, and it knows better than the CLI,
     // which lists what Anthropic offers rather than what this key can reach.
     if (ep !== 'anthropic' && this.snapshot.served && this.snapshot.endpoint === ep) return;
-    const clean = pickable(models).map((m) => ({
-      value: m.value,
-      displayName: m.displayName || m.value,
-      // The CLI knows which effort levels each model takes and whether it has a
-      // long-context twin. Dropping that was why the picker could only ever
-      // offer a name.
-      ...(m.supportsEffort === undefined ? {} : { supportsEffort: !!m.supportsEffort }),
-      ...(Array.isArray(m.supportedEffortLevels) ? { effortLevels: m.supportedEffortLevels } : {}),
-    }));
-    if (!clean.length) return;
+    const rows = clean(models);
+    if (!rows.length) return;
     this.#write({
-      ...this.snapshot, models: clean, learned: true, served: false,
+      ...this.snapshot, models: rows, learned: true, served: false,
       status: 'ready', endpoint: ep, checkedAt: Date.now(),
     });
   }

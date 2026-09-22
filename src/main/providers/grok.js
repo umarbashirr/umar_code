@@ -8,15 +8,16 @@ const { createStubCatalog } = require('./stub-catalog');
 const locate = makeLocator(['grok']);
 
 const CATALOG = [
-  { value: 'grok-code', displayName: 'Grok Code' },
-  { value: 'grok-4', displayName: 'Grok 4' },
-  { value: 'grok-3', displayName: 'Grok 3' },
+  { value: 'grok-4.7', displayName: 'Grok 4.7' },
+  { value: 'grok-4.7-build-fast', displayName: 'Grok 4.7 Fast' },
+  { value: 'grok-4.6', displayName: 'Grok 4.6' },
+  { value: 'grok-4.5', displayName: 'Grok 4.5' },
 ];
 
 const spec = {
   id: 'grok',
   cli: 'grok',
-  argv: ['acp'],
+  argv: ['agent', 'stdio'],
   login: 'grok login',
   missing: 'No Grok CLI on your PATH. Install it from x.ai/cli, run grok login, then restart Tandem.',
   catalog: CATALOG,
