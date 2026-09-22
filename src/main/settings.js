@@ -38,11 +38,13 @@ const DEFAULTS = {
     effort: '',
     // Which CLI the panel drives. Both are the person's own install; neither
     // ships with Tandem. See driver.js and codex-driver.js.
-    provider: 'claude',     // claude | codex
+    provider: 'claude',     // claude | cursor | grok | codex
     // The model each one is set to. Kept apart because a name from one is
     // meaningless to the other, and switching provider should not lose the
     // choice you made on the one you switched away from.
     codexModel: '',
+    cursorModel: '',
+    grokModel: '',
   },
   startup: {
     reopenProject: true,
@@ -62,6 +64,12 @@ const DEFAULTS = {
     // Where the claude the agent runs lives. Empty means whatever is on PATH,
     // which is the answer for anyone who installed it the usual way. A path
     // here is for an install PATH cannot see. See driver.js.
+    binary: '',
+  },
+  cursor: {
+    binary: '',
+  },
+  grok: {
     binary: '',
   },
   // The last version each toast named. A person who ignored the news about

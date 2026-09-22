@@ -41,11 +41,21 @@ function createChatPrefs() {
     return effort;
   }
 
+  function providerOf(chat, fallback) {
+    return byChat.get(chat)?.provider ?? fallback;
+  }
+
+  function setProvider(chat, provider) {
+    entry(chat).provider = provider;
+    return provider;
+  }
+
   function resolve(chat, defaults = {}) {
     return {
       mode: modeOf(chat, defaults.mode),
       model: modelOf(chat, defaults.model),
       effort: effortOf(chat, defaults.effort),
+      provider: providerOf(chat, defaults.provider),
     };
   }
 
@@ -58,7 +68,8 @@ function createChatPrefs() {
   }
 
   return {
-    modeOf, modelOf, effortOf, setMode, setModel, setEffort, resolve, forget, clear,
+    modeOf, modelOf, effortOf, providerOf, setMode, setModel, setEffort, setProvider,
+    resolve, forget, clear,
   };
 }
 
