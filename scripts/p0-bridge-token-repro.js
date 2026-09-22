@@ -156,11 +156,17 @@ async function checkConstantTimeCompare() {
 
 async function checkIndexDoesNotShipDebugToPty() {
   const indexSrc = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
-  if (/bridge\.env\(\)/.test(indexSrc) && !/debugToken|TANDEM_DEBUG_TOKEN/.test(indexSrc)) {
-    pass('index-pty-uses-bridge-env-only');
-  } else {
-    fail('index-pty-uses-bridge-env-only', 'index may leak debug token into PTY/Codex env');
+  if (!/bridge\.env\(\)/.test(indexSrc)) {
+    fail('index-pty-uses-bridge-env-only', 'term/Codex path no longer calls bridge.env()');
+    return;
   }
+  const leaked =
+    /TANDEM_DEBUG_TOKEN/.test(indexSrc)
+    || /bridge:info[\s\S]{0,200}debugToken/.test(indexSrc)
+    || /bridgeEnv:\s*[^\n]*debugToken/.test(indexSrc)
+    || /env:\s*\{[^}]*debugToken/.test(indexSrc);
+  if (!leaked) pass('index-pty-uses-bridge-env-only');
+  else fail('index-pty-uses-bridge-env-only', 'index may leak debug token into PTY/Codex/renderer');
 }
 
 (async () => {

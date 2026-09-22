@@ -1461,6 +1461,9 @@ app.whenReady().then(async () => {
   registerIpc();
   await createWindow();
   console.log(`[tandem] bridge listening on ${bridge.url}`);
+  if (bridge.debugToken) {
+    console.log(`[tandem] debug token for /debug/*: ${bridge.debugToken}`);
+  }
 
   // One GitHub call and one npm call, after the window is up, and only if the
   // person left the launch check on. The answer is cached for six hours, so

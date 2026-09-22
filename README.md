@@ -210,8 +210,8 @@ Two things it does beyond being a terminal:
 **Dev servers open themselves.** The output is watched for a local URL. When Vite or Django or
 `next dev` prints one, a toast offers to load it in the preview. Say "always" once and it stops asking.
 
-**`tandem` is on PATH.** The app injects a loopback bridge URL and a token into every terminal it spawns,
-so anything running there can drive the same browser the agent is using:
+**`tandem` is on PATH.** The app injects a loopback bridge URL and a tool token into every terminal it
+spawns, so anything running there can drive the same browser the agent is using:
 
 ```sh
 tandem go 3000            # bare ports, hostnames and URLs all work
@@ -276,18 +276,20 @@ rest go to your shell, so tmux keeps working.
   agent panel ──┐
   tandem CLI ───┼──▶ tool dispatch ──▶ WebContentsView (the preview)
   MCP server ───┘         │
-                          └── bridge on 127.0.0.1, token in the terminal env
+                          └── bridge on 127.0.0.1, tool token in the terminal env
 ```
 
 One tool definition, three ways in. The agent panel calls it in-process; the CLI and the MCP server go
-through a loopback HTTP bridge whose token is injected into the terminals the app spawns. Nothing
-outside those terminals can reach it without the token.
+through a loopback HTTP bridge whose tool token is injected into the terminals the app spawns. Nothing
+outside those terminals can reach the tool routes without that token.
 
 ## Limits worth knowing
 
 - One window, one preview pane, one agent session. Tools act on the focused window.
-- Anything running in the app's terminal holds the bridge token. That is the point, but do not run it
-  next to code you do not trust.
+- Anything running in the app's terminal holds the tool token (`TANDEM_TOKEN`), enough to drive the
+  preview. `/debug/*` needs a separate debug token that never lands in the terminal env or
+  `~/.tandem`; unpackaged builds log it on the main-process console once.
+- Do not run untrusted code in a terminal that holds the tool token.
 - A skill switched off is hidden from the agent's listing, not locked away. The files are still on
   disk and still readable with Read or Bash if you point the agent at them.
 - Started from a desktop launcher, an app inherits a PATH with none of your own directories on it, so

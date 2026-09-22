@@ -37,6 +37,7 @@ class Bridge {
     this.ask = ask || null;
     this.decideFn = decide || null;
     this.token = crypto.randomBytes(24).toString('hex');
+    this.debugToken = this.debug ? crypto.randomBytes(24).toString('hex') : null;
     this.server = null;
     this.port = null;
     this.started = null;
@@ -101,6 +102,12 @@ class Bridge {
       && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(this.token));
   }
 
+  #debugOk(sent) {
+    if (!this.debugToken) return false;
+    return typeof sent === 'string' && sent.length === this.debugToken.length
+      && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(this.debugToken));
+  }
+
   async #handle(req, res) {
     const send = (code, body) => {
       const payload = JSON.stringify(body);
@@ -126,7 +133,12 @@ class Bridge {
       return send(200, { ok: true, cwd: from || this.cwd });
     }
 
-    if (url.pathname.startsWith('/debug/') && !this.debug) return send(404, { error: 'not found' });
+    if (url.pathname.startsWith('/debug/')) {
+      if (!this.debug) return send(404, { error: 'not found' });
+      if (!this.#debugOk(req.headers['x-tandem-debug-token'])) {
+        return send(401, { error: 'bad or missing x-tandem-debug-token' });
+      }
+    }
 
     // Development aid: capture the app's own chrome, terminal side included.
     if (url.pathname === '/debug/window' && this.captureWindow) {
