@@ -272,6 +272,20 @@ function spawnShell(dir, tabId) {
   const shell = { tabId, dir, id: null, term, fit, host };
   shells.set(tabId, shell);
 
+  /* The pty starts at the size the shell will be drawn at. xterm opens at its
+     default 80 columns, and a shell started at 80 and then narrowed has
+     already written zsh's end-of-line mark, a % and a row of spaces, which the
+     narrower grid rewraps into a stray % above the prompt. A frame is enough
+     for the tab to be on screen and measurable. */
+  requestAnimationFrame(() => {
+    if (shells.get(tabId) !== shell) return;
+    if (shell === shownShell()) try { fit.fit(); } catch {}
+    start(shell);
+  });
+}
+
+function start(shell) {
+  const { tabId, dir, term } = shell;
   window.tandem.term.create({ cols: term.cols, rows: term.rows, project: dir }).then(({ id, shell: name }) => {
     // The tab can be closed, or its folder, while main is still spawning. The
     // pty is real by then, so it has to be killed rather than forgotten.
