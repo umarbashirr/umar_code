@@ -15,6 +15,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
+import { isHidden } from '@/lib/cursor-models';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,7 +47,15 @@ export const MODES = [
 const MODE_LABEL = Object.fromEntries(MODES.map(([v, label]) => [v, label]));
 
 const cleanModelName = (m) =>
-  (m.displayName || m.value).replace(/\s*\((recommended|default)\)\s*$/i, '');
+  (m.displayName || m.value).replace(/\s*\((recommended|default|1M context)\)\s*$/i, '');
+
+const LONG = '[1m]';
+const shortOf = (value) => (value?.endsWith(LONG) ? value.slice(0, -LONG.length) : value);
+
+function oncePerModel(rows) {
+  const values = new Set(rows.map((m) => m.value));
+  return rows.filter((m) => !(m.value.endsWith(LONG) && values.has(shortOf(m.value))));
+}
 
 // Both CLIs are in one menu, so the top level is who makes the model rather
 // than the models themselves. Thirteen names in a flat list is a wall; two
@@ -69,13 +78,16 @@ const INSTALL = {
    which puts the running CLI first; a CLI with nothing behind it still gets a
    row, locked, so a missing install reads as something to fix rather than as a
    provider Tandem never supported. */
-function byProvider(models, providers) {
+const hiddenFromMenu = (m, hidden, current) => m.value !== current && isHidden(m, hidden);
+
+function byProvider(models, providers, hidden, current) {
   const out = [];
   for (const m of models) {
     const id = m.provider || 'claude';
-    const last = out[out.length - 1];
-    if (last?.id === id) last.rows.push(m);
-    else out.push({ id, rows: [m] });
+    let last = out[out.length - 1];
+    if (last?.id !== id) out.push(last = { id, rows: [], hiddenCount: 0 });
+    if (hiddenFromMenu(m, hidden, current)) last.hiddenCount += 1;
+    else last.rows.push(m);
   }
   for (const p of providers || []) {
     if (out.some((g) => g.id === p.id)) continue;
@@ -85,18 +97,42 @@ function byProvider(models, providers) {
 }
 
 function ModelItems({ rows, current, onPick }) {
-  return rows.map((m) => (
-    <DropdownMenuItem key={m.value} onSelect={() => onPick(m.value)}>
+  const all = new Set(rows.map((m) => m.value));
+  const long = current?.endsWith(LONG);
+  const pick = (value) => onPick(long && all.has(value + LONG) ? value + LONG : value);
+  const shown = oncePerModel(rows);
+  const item = (m) => (
+    <DropdownMenuItem key={m.value} onSelect={() => pick(m.value)}>
       {cleanModelName(m)}
-      {m.value === current && <CheckIcon className="ml-auto size-3.5" />}
+      {m.value === shortOf(current) && <CheckIcon className="ml-auto size-3.5" />}
     </DropdownMenuItem>
-  ));
+  );
+  const legacy = shown.filter((m) => m.legacy);
+  return (
+    <>
+      {shown.filter((m) => !m.legacy).map(item)}
+      {legacy.length > 0 && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>More models</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="min-w-40">{legacy.map(item)}</DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </>
+      )}
+    </>
+  );
 }
 
-function ModelPicker({ agent }) {
+const chooseModels = () => window.tandemChat?.settings('cursor-models');
+
+function ModelPicker({ agent, hidden }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
-  const groups = useMemo(() => byProvider(agent.models, agent.providers), [agent.models, agent.providers]);
+  const groups = useMemo(
+    () => byProvider(agent.models, agent.providers, hidden, agent.model),
+    [agent.models, agent.providers, hidden, agent.model],
+  );
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
   const nested = groups.length > 1;
@@ -157,6 +193,14 @@ function ModelPicker({ agent }) {
               </DropdownMenuItem>
             );
           }
+          if (!g.rows.length && g.hiddenCount) {
+            return (
+              <DropdownMenuItem key={g.id} onSelect={chooseModels} className="justify-between gap-6">
+                {PROVIDER_LABEL[g.id] || g.id}
+                <span className="text-muted-foreground text-xs">all hidden</span>
+              </DropdownMenuItem>
+            );
+          }
           if (!g.rows.length) {
             return (
               <DropdownMenuItem
@@ -177,6 +221,15 @@ function ModelPicker({ agent }) {
               <DropdownMenuSubTrigger>{PROVIDER_LABEL[g.id] || g.id}</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <ModelItems rows={g.rows} current={agent.model} onPick={agent.changeModel} />
+                {g.id === 'cursor' && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={chooseModels} className="justify-between gap-6">
+                      Choose models…
+                      {g.hiddenCount > 0 && <span className="text-muted-foreground text-xs">{g.hiddenCount} hidden</span>}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           );
@@ -367,7 +420,7 @@ function Attachment({ item, onOpen, onRemove }) {
   );
 }
 
-export function Composer({ agent, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
+export function Composer({ agent, hiddenModels, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
   // will land in. Not always the focused folder: reading a chat from another
@@ -733,7 +786,7 @@ export function Composer({ agent, catalog, text, setText, attachments, setAttach
               {/* The picker is always here. An endpoint that will not list its
                   models still needs a way to name one, and with no CLI at all
                   the menu is the thing that says which ones to install. */}
-              <ModelPicker agent={agent} />
+              <ModelPicker agent={agent} hidden={hiddenModels} />
               <ContextPill agent={agent} />
               <ThinkingPicker agent={agent} />
             </PromptInputTools>

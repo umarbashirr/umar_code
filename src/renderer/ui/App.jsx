@@ -303,6 +303,7 @@ export default function App() {
 
       <Composer
         agent={agent}
+        hiddenModels={settings?.cursor.hidden}
         catalog={catalog}
         text={text}
         setText={setText}

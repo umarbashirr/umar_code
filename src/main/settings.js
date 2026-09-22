@@ -68,6 +68,7 @@ const DEFAULTS = {
   },
   cursor: {
     binary: '',
+    hidden: [],
   },
   grok: {
     binary: '',
@@ -103,6 +104,8 @@ function normalize(raw) {
   // It holds a path now, and either old word left in place would be shown as
   // one in the settings box and then written back on the next edit.
   if (out.claude.binary === 'bundled' || out.claude.binary === 'path') out.claude.binary = '';
+  const hidden = out.cursor.hidden;
+  out.cursor.hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
   return out;
 }
 
