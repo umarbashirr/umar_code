@@ -17,6 +17,7 @@ import {
   ChevronUpIcon,
   CopyIcon,
   FileCodeIcon,
+  FolderGit2Icon,
   GitCompareIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -88,8 +89,10 @@ const MARK_TONE = {
   conflict: 'text-[hsl(var(--warning))]',
 };
 
-function FileRow({ file, on }) {
-  const cut = file.path.lastIndexOf('/') + 1;
+function FileRow({ file, on, within = '' }) {
+  // Under a repository's heading the path is read from that repository down.
+  const shown = within ? file.path.slice(within.length + 1) : file.path;
+  const cut = shown.lastIndexOf('/') + 1;
 
   return (
     <Button
@@ -103,8 +106,8 @@ function FileRow({ file, on }) {
       </Badge>
 
       <span className="min-w-0 flex-1 truncate text-left text-[13px]">
-        <span className="text-muted-foreground">{file.path.slice(0, cut)}</span>
-        {file.path.slice(cut)}
+        <span className="text-muted-foreground">{shown.slice(0, cut)}</span>
+        {shown.slice(cut)}
       </span>
 
       {file.staged && <Badge variant="outline" className="px-1.5 py-0 font-mono text-[10px]">staged</Badge>}
@@ -129,14 +132,41 @@ function FileRow({ file, on }) {
   );
 }
 
+/* A folder holding several repositories lists its changes under a heading
+   per repository, since which repository a file is in is which one it gets
+   committed to. One repository, the usual case, needs no heading. */
+function RepoHeading({ name, count }) {
+  return (
+    <div className="flex h-7 items-center gap-1.5 px-2.5 pt-1 text-muted-foreground text-xs">
+      <FolderGit2Icon className="size-3.5 shrink-0" />
+      <span className="truncate font-medium text-foreground/80">{name}</span>
+      <span className="ml-auto font-mono text-[10.5px] tabular-nums">{count}</span>
+    </div>
+  );
+}
+
 function FileList() {
   const s = useChanges();
+  const byRepo = new Map();
+  for (const f of s.files) {
+    const key = f.repo || '';
+    if (!byRepo.has(key)) byRepo.set(key, []);
+    byRepo.get(key).push(f);
+  }
+  const grouped = byRepo.size > 1 || (byRepo.size === 1 && !byRepo.has(''));
 
   return (
     <div className="flex max-h-[40%] shrink-0 flex-col">
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col py-1.5">
-          {s.files.map((f) => <FileRow key={f.path} file={f} on={f.path === s.selected} />)}
+          {grouped
+            ? [...byRepo].map(([dir, files]) => (
+              <div key={dir} className="flex flex-col">
+                <RepoHeading name={dir || s.dir?.split(/[\\/]/).pop() || 'this folder'} count={files.length} />
+                {files.map((f) => <FileRow key={f.path} file={f} within={dir} on={f.path === s.selected} />)}
+              </div>
+            ))
+            : s.files.map((f) => <FileRow key={f.path} file={f} on={f.path === s.selected} />)}
           {s.capped > 0 && (
             <div className="px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
               {`${s.capped} more changed files not listed`}
@@ -321,11 +351,11 @@ function Nothing() {
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon"><GitCompareIcon /></EmptyMedia>
-          <EmptyTitle>{nogit ? 'git is not installed' : 'Not a git repository'}</EmptyTitle>
+          <EmptyTitle>{nogit ? 'git is not installed' : 'No git repository here'}</EmptyTitle>
           <EmptyDescription>
             {nogit
               ? 'This view reads the working tree with git. Install it and reopen this tab.'
-              : 'Run `git init` in the terminal and this fills in with everything you change.'}
+              : 'Neither this folder nor the folders a few levels under it are git repositories. Run `git init` in the terminal and this fills in with everything you change.'}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

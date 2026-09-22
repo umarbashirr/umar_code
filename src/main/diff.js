@@ -13,7 +13,8 @@
 // The patch for one file is fetched when that file is clicked, because a repo
 // mid-refactor can hold more diff than anyone wants sent over IPC at once.
 const { execFile } = require('child_process');
-const fsp = require('fs').promises;
+const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 
 const { gitDir } = require('./git');
@@ -81,25 +82,79 @@ async function countLines(abs) {
   }
 }
 
-// The list behind the pane: one row per changed file, with the numbers the
-// summary line needs. `repo: false` is not an error, it is a folder that is not
-// under git, and the pane says so rather than showing an empty list.
-async function status(root) {
-  if (!root) return { repo: false, reason: 'nofolder', files: [] };
-  if (!gitDir(root)) return { repo: false, reason: 'norepo', files: [] };
+/* The repositories a project folder holds. The folder's own, when it sits in
+   one, and any others below it: a folder of several checked-out repos, with no
+   git at its own root, is a common way to keep a project's pieces together,
+   and a Changes view that only asked the root had nothing to say about it.
 
-  const top = await git(['rev-parse', '--show-toplevel'], root);
-  if (top.missing) return { repo: false, reason: 'nogit', files: [] };
-  if (top.code !== 0) return { repo: false, reason: 'norepo', files: [] };
+   The walk stops at a repository, since what is inside one is that
+   repository's business, skips dependency and dot folders, and goes a few
+   levels down at most. The answer is kept for a short while, because the pane
+   asks every few seconds and the tree of repos changes about never. */
+const SCAN_DEPTH = 3;
+const SCAN_MAX_DIRS = 2000;
+const SCAN_TTL_MS = 30000;
+const SKIP_DIRS = new Set(['node_modules', 'vendor', 'target', 'dist', 'build', 'out', '__pycache__']);
+const scanned = new Map(); // root -> { at, repos }
+
+// A .git folder, or the .git file a worktree or submodule has instead.
+const hasDotGit = (dir) => fs.existsSync(path.join(dir, '.git'));
+
+async function reposIn(root) {
+  const hit = scanned.get(root);
+  if (hit && Date.now() - hit.at < SCAN_TTL_MS) return hit.repos;
+
+  // `cwd` is where git is asked from, `dir` is the repository relative to the
+  // project folder: '' for the folder's own. The folder's own is asked from the
+  // folder rather than its top, so a project that is one corner of a larger
+  // repository only lists its own corner.
+  const repos = gitDir(root) ? [{ cwd: root, dir: '' }] : [];
+  let queue = [{ abs: root, depth: 0 }];
+  let seen = 0;
+  while (queue.length && seen < SCAN_MAX_DIRS) {
+    const next = [];
+    for (const { abs, depth } of queue) {
+      let entries = [];
+      try { entries = await fsp.readdir(abs, { withFileTypes: true }); } catch { continue; }
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue;
+        if (++seen > SCAN_MAX_DIRS) break;
+        const child = path.join(abs, e.name);
+        if (hasDotGit(child)) repos.push({ cwd: child, dir: path.relative(root, child) });
+        else if (depth + 1 < SCAN_DEPTH) next.push({ abs: child, depth: depth + 1 });
+      }
+    }
+    queue = next;
+  }
+
+  scanned.set(root, { at: Date.now(), repos });
+  return repos;
+}
+
+// The repository a project-relative path belongs to: the deepest one whose
+// folder holds it.
+function repoOf(repos, rel) {
+  let best = null;
+  for (const r of repos) {
+    const inside = !r.dir || rel === r.dir || rel.startsWith(r.dir + path.sep);
+    if (inside && (!best || r.dir.length > best.dir.length)) best = r;
+  }
+  return best;
+}
+
+// One repository's rows, with paths relative to the project folder.
+async function statusOf(root, repo, nested) {
+  const cwd = repo.cwd;
+  const top = await git(['rev-parse', '--show-toplevel'], cwd);
+  if (top.missing) return { missing: true };
+  if (top.code !== 0) return { rows: [] };
   const topDir = top.stdout.trim();
 
   const [head, st] = await Promise.all([
-    git(['rev-parse', '--verify', '--quiet', 'HEAD'], root),
-    git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--', '.'], root),
+    git(['rev-parse', '--verify', '--quiet', 'HEAD'], cwd),
+    git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames', '--', '.'], cwd),
   ]);
-  if (st.code !== 0) {
-    return { repo: true, error: st.stderr.trim().split('\n')[0] || 'git status failed', files: [] };
-  }
+  if (st.code !== 0) return { error: st.stderr.trim().split('\n')[0] || 'git status failed', rows: [] };
   const born = head.code === 0;   // a repo with no commit yet has nothing to diff against
 
   const rows = [];
@@ -109,19 +164,16 @@ async function status(root) {
     const y = entry[1];
     const rel = relToProject(root, topDir, entry.slice(3));
     if (!rel) continue;
-    rows.push({ path: rel, x, y, kind: label(x, y), staged: x !== ' ' && x !== '?', added: null, removed: null });
+    // A repository inside this one shows up here as an untracked folder or a
+    // changed submodule. Its own rows say what changed in it.
+    if (nested.has(rel.replace(/[\\/]$/, ''))) continue;
+    rows.push({ path: rel, repo: repo.dir, x, y, kind: label(x, y), staged: x !== ' ' && x !== '?', added: null, removed: null });
   }
-  rows.sort((a, b) => a.path.localeCompare(b.path));
 
-  const capped = rows.length > MAX_FILES ? rows.length - MAX_FILES : 0;
-  const files = rows.slice(0, MAX_FILES);
-  const byPath = new Map(files.map((f) => [f.path, f]));
-
-  // One numstat covers everything git already tracks, staged or not. Untracked
-  // files are not in it, so those are counted off the disk, up to a point: a
-  // folder someone has just dropped in can hold thousands.
-  if (born) {
-    const nums = await git(['diff', '--numstat', '-z', 'HEAD', '--', '.'], root);
+  // One numstat covers everything git already tracks, staged or not.
+  if (born && rows.length) {
+    const byPath = new Map(rows.map((f) => [f.path, f]));
+    const nums = await git(['diff', '--numstat', '-z', 'HEAD', '--', '.'], cwd);
     if (nums.code === 0) {
       const parts = nums.stdout.split('\0');
       for (let i = 0; i < parts.length; i++) {
@@ -140,7 +192,34 @@ async function status(root) {
       }
     }
   }
+  return { rows };
+}
 
+// The list behind the pane: one row per changed file across every repository
+// in the folder, with the numbers the summary line needs. `repo: false` is not
+// an error, it is a folder with no git in it, and the pane says so rather than
+// showing an empty list.
+async function status(root) {
+  if (!root) return { repo: false, reason: 'nofolder', files: [] };
+  const repos = await reposIn(root);
+  if (!repos.length) return { repo: false, reason: 'norepo', files: [] };
+
+  const nested = new Set(repos.map((r) => r.dir).filter(Boolean));
+  const answers = await Promise.all(repos.map((r) => statusOf(root, r, nested)));
+  if (answers.some((a) => a.missing)) return { repo: false, reason: 'nogit', files: [] };
+  // One repository failing is its own trouble. The pane only gives up when
+  // every one of them did.
+  const failed = answers.filter((a) => a.error);
+  if (failed.length === answers.length) return { repo: true, error: failed[0].error, files: [] };
+
+  const rows = answers.flatMap((a) => a.rows);
+  rows.sort((a, b) => a.path.localeCompare(b.path));
+
+  const capped = rows.length > MAX_FILES ? rows.length - MAX_FILES : 0;
+  const files = rows.slice(0, MAX_FILES);
+
+  // Untracked files are not in numstat, so those are counted off the disk, up
+  // to a point: a folder someone has just dropped in can hold thousands.
   let counted = 0;
   for (const f of files) {
     if (f.added !== null || f.removed !== null) continue;
@@ -152,7 +231,7 @@ async function status(root) {
     f.removed = 0;
   }
 
-  return { repo: true, born, files, capped, top: topDir };
+  return { repo: true, files, capped, repos: repos.map((r) => r.dir) };
 }
 
 // One file's patch, in the form git writes it. `context: 'full'` asks git for
@@ -162,9 +241,11 @@ async function status(root) {
 // every line is new.
 async function patch(root, rel, { context = 'full' } = {}) {
   if (!root || !rel) return { error: 'nothing to show' };
-  if (!gitDir(root)) return { error: 'that folder is not a git repository' };
+  const repo = repoOf(await reposIn(root), rel);
+  if (!repo) return { error: 'that file is not in a git repository' };
+  const cwd = repo.cwd;
 
-  const top = await git(['rev-parse', '--show-toplevel'], root);
+  const top = await git(['rev-parse', '--show-toplevel'], cwd);
   if (top.missing) return { error: 'git is not on PATH' };
   if (top.code !== 0) return { error: 'that folder is not a git repository' };
   const topDir = top.stdout.trim();
@@ -173,8 +254,11 @@ async function patch(root, rel, { context = 'full' } = {}) {
   if (path.relative(root, abs).startsWith('..')) return { error: 'that path is outside the project folder' };
   const gitPath = toGit(root, topDir, rel);
 
-  const tracked = await git(['ls-files', '--error-unmatch', '--', gitPath], root);
-  if (tracked.code !== 0) {
+  const tracked = await git(['ls-files', '--error-unmatch', '--', gitPath], cwd);
+  // Out of the index and still on disk is untracked. Out of the index and gone
+  // from disk is a `git rm`, which git diffs like any other change.
+  const onDisk = await fsp.stat(abs).then(() => true, () => false);
+  if (tracked.code !== 0 && onDisk) {
     // Untracked: the whole file is the diff.
     let buf;
     try {
@@ -192,14 +276,14 @@ async function patch(root, rel, { context = 'full' } = {}) {
     return { path: rel, kind: 'new', context: 'full', patch: `@@ -0,0 +1,${rows.length} @@\n${body}` };
   }
 
-  const head = await git(['rev-parse', '--verify', '--quiet', 'HEAD'], root);
+  const head = await git(['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
   // A context of a hundred thousand lines is git's own idiom for "the whole
   // file". There is no flag that says it.
   const args = ['diff', '--no-color', '--no-ext-diff', context === 'full' ? '-U100000' : '-U3'];
   if (head.code === 0) args.push('HEAD');
   args.push('--', gitPath);
 
-  const res = await git(args, root);
+  const res = await git(args, cwd);
   if (res.code !== 0) return { path: rel, error: res.stderr.trim().split('\n')[0] || 'git diff failed' };
 
   let text = res.stdout;
