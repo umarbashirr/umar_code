@@ -111,18 +111,18 @@ contextBridge.exposeInMainWorld('tandem', {
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
     subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
-    models: () => ipcRenderer.invoke('agent:models'),
-    setModel: (model) => ipcRenderer.invoke('agent:setModel', { model }),
-    // Which CLI the panel drives. Idle chats are dropped so the next message
-    // starts on the new one; a chat mid-turn finishes on the old one.
-    setProvider: (provider) => ipcRenderer.invoke('agent:setProvider', { provider }),
+    models: (chat) => ipcRenderer.invoke('agent:models', { chat }),
+    setModel: (chat, model) => ipcRenderer.invoke('agent:setModel', { chat, model }),
+    // Which CLI the panel drives. A chat keeps the one it was made on; this only
+    // decides what a brand-new chat starts on.
+    setProvider: (chat, provider) => ipcRenderer.invoke('agent:setProvider', { chat, provider }),
     // How hard the model thinks. The CLI takes this when a session starts and
-    // has no setter for it, so changing it parks the idle chats and the next
-    // message on each resumes at the new level.
-    setEffort: (effort) => ipcRenderer.invoke('agent:setEffort', { effort }),
+    // has no setter for it, so changing it parks this chat when idle and the
+    // next message resumes at the new level. Other chats are left alone.
+    setEffort: (chat, effort) => ipcRenderer.invoke('agent:setEffort', { chat, effort }),
     // The million-token window is a different name for the same model rather
-    // than a setting on it, so this swaps the name.
-    setLongContext: (on) => ipcRenderer.invoke('agent:setLongContext', { on }),
+    // than a setting on it, so this swaps the name for this chat.
+    setLongContext: (chat, on) => ipcRenderer.invoke('agent:setLongContext', { chat, on }),
     forgetModel: (model) => ipcRenderer.invoke('agent:forgetModel', { model }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),

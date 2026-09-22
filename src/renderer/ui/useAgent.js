@@ -150,6 +150,9 @@ const blankChat = (project = null, provider = 'claude') => ({
   startedAt: 0,
   queued: [],
   mode: 'ask',
+  // How hard this chat's model thinks. Kept per chat so switching chats does
+  // not hand another chat's effort to the one on screen.
+  effort: '',
   // task id -> Agent tool_use id. The live-task feed talks in task ids and
   // everything else talks in tool_use ids.
   tasks: {},
@@ -576,7 +579,7 @@ export function useAgent() {
       // model" instead of naming one the main process never received.
       setModel((cur) => cur || d.current || '');
     };
-    tandem().agent.models().then(apply).catch(() => {});
+    tandem().agent.models(activeRef.current).then(apply).catch(() => {});
     // The probe finishes after the first paint on a cold cache, and on that
     // first run it carries the choice main settled on once it had a list.
     return tandem().agent.onDriver?.(apply) ?? undefined;
@@ -773,6 +776,7 @@ export function useAgent() {
     const next = chatsRef.current.find((c) => c.key === key);
     if (next?.provider) setProvider(next.provider);
     if (next?.usage?.model) setModel(next.usage.model);
+    if (typeof next?.effort === 'string') setEffort(next.effort);
     if (prev && prev.key !== key && !prev.busy && prev.session) {
       tandem().agent.reset(prev.key).catch(() => {});
     }
@@ -919,22 +923,28 @@ export function useAgent() {
   }, [edit, push, switchTo]);
 
   /* Changing how hard the model thinks. The CLI takes this when a session
-     starts and has no setter for it, so main parks the idle chats and the next
-     message on each resumes its transcript at the new level. A chat mid-turn
+     starts and has no setter for it, so main parks this chat when idle and the
+     next message resumes its transcript at the new level. A chat mid-turn
      keeps the level it started on rather than having the session pulled out
-     from under it. */
+     from under it. Other chats keep theirs. */
   const changeEffort = useCallback(async (value) => {
+    const key = activeRef.current;
     const next = value === effort ? '' : value;
     setEffort(next);
-    const res = await tandem().agent.setEffort(next).catch(() => null);
-    if (res && typeof res.effort === 'string') setEffort(res.effort);
-  }, [effort]);
+    edit(key, (c) => ({ ...c, effort: next }));
+    const res = await tandem().agent.setEffort(key, next).catch(() => null);
+    if (res && typeof res.effort === 'string') {
+      setEffort(res.effort);
+      edit(key, (c) => ({ ...c, effort: res.effort }));
+    }
+  }, [effort, edit]);
 
   // The long window is a different name for the same model, so this swaps the
   // name and the picker follows.
   const changeLongContext = useCallback(async (on) => {
+    const key = activeRef.current;
     setLongContext((cur) => ({ ...cur, on }));
-    const res = await tandem().agent.setLongContext(on).catch(() => null);
+    const res = await tandem().agent.setLongContext(key, on).catch(() => null);
     if (res?.error) return setLongContext((cur) => ({ ...cur, on: !on }));
     if (res?.model) {
       // The list comes back with the switched-to name on it. Without that the
@@ -943,8 +953,9 @@ export function useAgent() {
       if (res.models?.length) setModels(res.models);
       setModel(res.model);
       setLongContext({ on: !!res.long, capable: true });
+      edit(key, (c) => ({ ...c, usage: { ...c.usage, model: res.model, window: 0 } }));
     }
-  }, []);
+  }, [edit]);
 
   /* Picking a model, and sometimes forking because of it.
      The list holds both CLIs. Crossing from one to the other is fine on a chat
@@ -963,22 +974,24 @@ export function useAgent() {
       switchTo(next.key);
       setModel(value);
       setProvider(want);
-      const res = await tandem().agent.setModel(value);
+      const res = await tandem().agent.setModel(next.key, value);
       if (res?.models?.length) setModels(res.models);
       if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
       sendTo(next.key, carriedHistory(chat.items));
       return;
     }
 
+    const key = activeRef.current;
     setModel(value);
     if (want) setProvider(want);
-    // Every chat follows the picker, and the window and prices follow with it.
-    setChats((cur) => cur.map((c) => (c.key === activeRef.current || !c.items.length
+    // Only this chat and empty ones follow the picker. A chat that already has
+    // messages keeps the model it was running.
+    setChats((cur) => cur.map((c) => (c.key === key || !c.items.length
       ? { ...c, ...(want ? { provider: want } : {}), usage: { ...c.usage, model: value, window: 0 } }
       : c)));
     // A name typed by hand comes back as part of the list, so the picker has it
     // the next time it opens rather than only while it is selected.
-    const res = await tandem().agent.setModel(value);
+    const res = await tandem().agent.setModel(key, value);
     if (res?.models?.length) setModels(res.models);
     if (res?.provider) setProvider(res.provider);
     if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
@@ -992,7 +1005,9 @@ export function useAgent() {
     if (res.models?.length) setModels(res.models);
     if (res.model) {
       setModel(res.model);
-      setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: res.model, window: 0 } })));
+      setChats((cur) => cur.map((c) => (c.key === activeRef.current
+        ? { ...c, usage: { ...c.usage, model: res.model, window: 0 } }
+        : c)));
     }
   }, []);
 
@@ -1000,12 +1015,15 @@ export function useAgent() {
      the last one's name over the new one's list, and the first message would go
      out asking codex for a claude model. Main answers with both. */
   const changeProvider = useCallback(async (value) => {
-    const res = await tandem().agent.setProvider?.(value);
+    const key = activeRef.current;
+    const res = await tandem().agent.setProvider?.(key, value);
     if (!res) return;
     setProvider(res.provider);
     setModels(res.models || []);
     setModel(res.current || '');
-    setChats((cur) => cur.map((c) => ({ ...c, usage: { ...c.usage, model: res.current || '', window: 0 } })));
+    setChats((cur) => cur.map((c) => (c.key === key
+      ? { ...c, provider: res.provider, usage: { ...c.usage, model: res.current || '', window: 0 } }
+      : c)));
   }, []);
 
   const changeMode = useCallback(async (value) => {
