@@ -10,7 +10,7 @@ import { FleetStrip } from '@/components/fleet-strip';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
-import { SettingsDialog } from '@/components/settings-dialog';
+import { CustomizePage } from '@/components/customize-page';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
 
@@ -19,7 +19,7 @@ import { clock, useTick } from '@/lib/clock';
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
-import { toast } from '../app.js';
+import { runCommand, toast } from '../app.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -162,9 +162,16 @@ export default function App() {
   const catalog = useCatalog();
   const { settings, set, reset } = useSettings();
   const updates = useUpdates();
-  // null when closed; otherwise the section to land on, so Help → Check for
-  // updates opens the page already showing updates.
-  const [settingsAt, setSettingsAt] = useState(null);
+  // The Customize page, in the chat's place. null when the chat is showing;
+  // otherwise the section on screen, so Help → Check for updates lands on
+  // updates and the skills chip lands on skills.
+  const [customizeAt, setCustomizeAt] = useState(null);
+  const customize = useCallback((at) => {
+    // The page is drawn where the chat is, and a right pane at full width has
+    // folded the chat away.
+    runCommand('previewFull', false);
+    setCustomizeAt(at);
+  }, []);
   // A half-typed message belongs to the chat it was typed in, so drafts are
   // kept per chat rather than following you around the rail.
   const [drafts, setDrafts] = useState({});
@@ -216,10 +223,11 @@ export default function App() {
         if (chat.key) setDrafts(({ [chat.key]: _gone, ...rest }) => rest);
         return res;
       },
-      settings: (at) => setSettingsAt(typeof at === 'string' ? at : 'appearance'),
+      settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
+      customize: (at) => customize(typeof at === 'string' ? at : 'skills'),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize]);
 
   // News, once. A version the person has already been shown and ignored is not
   // worth a second interruption, so the version each toast named is written to
@@ -231,7 +239,7 @@ export default function App() {
     if (updates.app.behind && told.app !== updates.app.latest) {
       set({ notices: { app: updates.app.latest } });
       toast(`Tandem ${updates.app.latest} is out`, `You are on ${updates.app.current}`, [
-        { label: 'Update', primary: true, run: () => setSettingsAt('updates') },
+        { label: 'Update', primary: true, run: () => customize('updates') },
         { label: 'Later' },
       ]);
     }
@@ -243,7 +251,7 @@ export default function App() {
     if (c?.behind && told.claude !== c.latest) {
       set({ notices: { claude: c.latest } });
       toast(`Claude ${c.latest} is out`, `You are running ${c.running?.version}`, [
-        { label: 'How', primary: true, run: () => setSettingsAt('updates') },
+        { label: 'How', primary: true, run: () => customize('updates') },
         { label: 'Later' },
       ]);
     }
@@ -277,6 +285,21 @@ export default function App() {
   // A gap the transcript is not already explaining, once it has lasted long
   // enough to be a gap rather than the wire.
   const thinkingSince = useSettled(agent.busy && stalled(agent.items), 400);
+
+  if (customizeAt !== null) {
+    return (
+      <CustomizePage
+        section={customizeAt}
+        onSection={setCustomizeAt}
+        onClose={() => setCustomizeAt(null)}
+        catalog={catalog}
+        settings={settings}
+        set={set}
+        reset={reset}
+        agent={agent}
+        updates={updates} />
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
@@ -312,16 +335,6 @@ export default function App() {
         setAttachments={setAttachments}
         onNote={setNote}
         onSubmit={submit} />
-
-      <SettingsDialog
-        open={settingsAt !== null}
-        section={settingsAt || 'appearance'}
-        onOpenChange={(o) => { if (!o) setSettingsAt(null); }}
-        settings={settings}
-        set={set}
-        reset={reset}
-        agent={agent}
-        updates={updates} />
 
       {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
       {empty && <div className="mb-auto flex-none" />}

@@ -7,7 +7,7 @@
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
+  BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
   FolderOpenIcon, FolderPlusIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -517,7 +517,7 @@ export default function Rail() {
   return (
     <Sidebar collapsible="none" className="h-full w-full border-r">
       <SidebarHeader className="gap-0 pb-0">
-        {/* The two things you start from, as rows rather than buttons. */}
+        {/* Where you start from, as rows rather than buttons. */}
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton title="Start a chat" onClick={() => setStarting(true)}>
@@ -532,6 +532,14 @@ export default function Rail() {
               <SearchIcon />
               <span>Search</span>
               <span className="ml-auto text-[10px] text-muted-foreground/70">Ctrl K</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            {/* Skills, agents and MCP servers for this folder, and the app's
+                settings, on a page in the chat's place. */}
+            <SidebarMenuButton title="Skills, MCP servers and settings" onClick={() => window.tandemChat?.customize()}>
+              <BlocksIcon />
+              <span>Customize</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

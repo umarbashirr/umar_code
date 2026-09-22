@@ -1,13 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
   InfoIcon, ListFilterIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
   RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,11 +23,9 @@ import { DEFAULT_SCHEME, SCHEMES } from '@/lib/themes';
 import { cursorModelId } from '@/lib/cursor-models';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
-// The vanilla half owns the preview pane, which has to move out of the way of
-// any dialog that opens over it.
-import { CHAT_SIZES, parkPreview, toast, ZOOM_STEPS } from '../../app.js';
+import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
 
-const SECTIONS = [
+export const SETTINGS_SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
   ['cursor-models', 'Cursor models', ListFilterIcon],
@@ -794,67 +789,23 @@ function About({ updates, reset }) {
   );
 }
 
-export function SettingsDialog({ open, onOpenChange, section = 'appearance', settings, set, reset, agent, updates }) {
-  const [tab, setTab] = useState(section);
-  const panel = useRef(null);
+// An update nobody has looked at yet is the reason the Updates section exists,
+// so the nav marks it.
+export const updatesBehind = (updates) => !!(updates.app.behind || updates.claude?.behind
+  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind);
 
-  useEffect(() => { if (open) setTab(section); }, [open, section]);
-
-  useEffect(() => {
-    parkPreview(open);
-    return () => parkPreview(false);
-  }, [open]);
-
-  useEffect(() => { if (open) updates.check(); }, [open]);
-
-  if (!settings) return null;
-
-  const props = { settings, set, reset, agent, updates };
-
+export function SettingsPanel({ section, ...props }) {
+  if (!props.settings) return null;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex h-[80vh] max-w-5xl gap-0 overflow-hidden p-0 sm:max-w-5xl"
-        // Left alone, the focus ring lands on the first nav item, which is
-        // rarely the section that just opened. Park focus on the panel instead:
-        // still inside the dialog, so Escape and the focus trap keep working.
-        onOpenAutoFocus={(e) => { e.preventDefault(); panel.current?.focus(); }}>
-        <DialogHeader className="sr-only">
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Appearance, the agent, the terminal, and updates.</DialogDescription>
-        </DialogHeader>
-
-        <nav className="flex w-56 shrink-0 flex-col gap-0.5 border-r bg-muted/30 p-3">
-          <div className="px-3 pt-1 pb-3 font-medium text-base">Settings</div>
-          {SECTIONS.map(([id, label, Icon]) => (
-            <Button
-              key={id}
-              variant={tab === id ? 'secondary' : 'ghost'}
-              onClick={() => setTab(id)}
-              className="w-full justify-start gap-2.5">
-              <Icon />
-              {label}
-              {/* The one place a badge earns its keep: an update nobody has
-                  looked at yet is the reason this page exists. */}
-              {id === 'updates' && (updates.app.behind || updates.claude?.behind || updates.codex?.behind
-                || updates.cursor?.behind || updates.grok?.behind) && (
-                <span className="ml-auto size-2 rounded-full bg-primary" />
-              )}
-            </Button>
-          ))}
-        </nav>
-
-        <div ref={panel} tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto px-8 py-7 outline-none">
-          {tab === 'appearance' && <Appearance {...props} />}
-          {tab === 'agent' && <Agent {...props} />}
-          {tab === 'cursor-models' && <CursorModels {...props} />}
-          {tab === 'chat' && <ChatPrefs {...props} />}
-          {tab === 'terminal' && <TerminalPrefs {...props} />}
-          {tab === 'updates' && <Updates {...props} />}
-          {tab === 'startup' && <Startup {...props} />}
-          {tab === 'about' && <About {...props} />}
-        </div>
-      </DialogContent>
-    </Dialog>
+    <>
+      {section === 'appearance' && <Appearance {...props} />}
+      {section === 'agent' && <Agent {...props} />}
+      {section === 'cursor-models' && <CursorModels {...props} />}
+      {section === 'chat' && <ChatPrefs {...props} />}
+      {section === 'terminal' && <TerminalPrefs {...props} />}
+      {section === 'updates' && <Updates {...props} />}
+      {section === 'startup' && <Startup {...props} />}
+      {section === 'about' && <About {...props} />}
+    </>
   );
 }

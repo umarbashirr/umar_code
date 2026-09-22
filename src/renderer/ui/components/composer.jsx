@@ -18,7 +18,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AttachmentPreview } from '@/components/attachment-preview';
-import { CatalogDialog } from '@/components/catalog-dialog';
 import { MentionMenu, fileRows, skillRows } from '@/components/mention-menu';
 import { TokenInput } from '@/components/token-input';
 import { TokenText } from '@/components/token-text';
@@ -436,7 +435,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
   // will land in. Not always the focused folder: reading a chat from another
   // project leaves the window where it was until you click into it.
   const project = window_.projects?.find((p) => p.dir === agent.project) || window_;
-  const [showCatalog, setShowCatalog] = useState(false);
   const [previewing, setPreviewing] = useState(null);
   // A menu that has been dismissed stays dismissed until the box changes
   // again, so Escape means Escape.
@@ -559,7 +557,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
-      <CatalogDialog catalog={catalog} open={showCatalog} onOpenChange={setShowCatalog} />
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
           leaving a frozen copy of something that is gone. */}
@@ -779,7 +776,7 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
 
         <Pill
           className="h-6 px-1.5 text-[11px]"
-          onClick={() => setShowCatalog(true)}
+          onClick={() => window.tandemChat?.customize('skills')}
           title="Skills and MCP servers this folder offers the agent">
           <PlugZapIcon className="size-3 shrink-0" />
           <span>{catalog.skills.length} skills</span>

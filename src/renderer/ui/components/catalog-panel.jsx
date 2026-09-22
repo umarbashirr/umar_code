@@ -1,11 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  KeyRoundIcon, PlugZapIcon, PlusIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon,
+  BotIcon, KeyRoundIcon, PlugZapIcon, PlusIcon, RefreshCwIcon, RotateCwIcon, Trash2Icon, ZapIcon,
 } from 'lucide-react';
 
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -14,10 +11,9 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-// The vanilla half owns the terminal and the preview pane: signing in to a
-// server happens in a shell, and the pane has to move out of the way of this
-// dialog while it is up.
-import { parkPreview, runCommand } from '../../app.js';
+// Signing in to a server happens in a shell, and the shells are the vanilla
+// half's.
+import { runCommand } from '../../app.js';
 
 const SOURCES = [
   ['project', 'This project'],
@@ -38,19 +34,6 @@ const STATUS = {
   configured: ['bg-muted-foreground/40', 'configured'],
   absent: ['bg-muted-foreground/40', 'not in this chat'],
 };
-
-function Tab({ on, count, children, ...props }) {
-  return (
-    <Button
-      variant={on ? 'outline' : 'ghost'}
-      size="sm"
-      className={cn('h-7 gap-1.5 px-2.5 font-normal', !on && 'text-muted-foreground')}
-      {...props}>
-      {children}
-      <span className="text-muted-foreground text-xs">{count}</span>
-    </Button>
-  );
-}
 
 function Skills({ catalog }) {
   const [query, setQuery] = useState('');
@@ -388,46 +371,26 @@ function Agents({ catalog }) {
   );
 }
 
-export function CatalogDialog({ catalog, open, onOpenChange }) {
-  const [tab, setTab] = useState('skills');
+// What this folder offers the agent, one section each. The count is what the
+// nav shows beside the name.
+export const CATALOG_SECTIONS = [
+  ['skills', 'Skills', ZapIcon, (c) => c.skills.length],
+  ['agents', 'Agents', BotIcon, (c) => (c.agents || []).length],
+  ['mcp', 'MCP servers', PlugZapIcon, (c) => c.mcp.length],
+];
 
-  useEffect(() => {
-    parkPreview(open);
-    return () => parkPreview(false);
-  }, [open]);
-
+export function CatalogPanel({ catalog, section }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[70vh] max-w-3xl flex-col gap-3 p-4 sm:max-w-3xl">
-        <DialogHeader className="gap-0">
-          <DialogTitle className="sr-only">Skills and MCP servers</DialogTitle>
-          <DialogDescription className="sr-only">
-            What this folder offers the agent, and which of it is switched on.
-          </DialogDescription>
-          <div className="flex items-center gap-1">
-            <PlugZapIcon className="mr-1 size-4 text-muted-foreground" />
-            <Tab on={tab === 'skills'} count={catalog.skills.length} onClick={() => setTab('skills')}>
-              Skills
-            </Tab>
-            <Tab on={tab === 'agents'} count={(catalog.agents || []).length} onClick={() => setTab('agents')}>
-              Agents
-            </Tab>
-            <Tab on={tab === 'mcp'} count={catalog.mcp.length} onClick={() => setTab('mcp')}>
-              MCP servers
-            </Tab>
-          </div>
-        </DialogHeader>
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {catalog.error && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-destructive text-xs">
+          {catalog.error}
+        </p>
+      )}
 
-        {catalog.error && (
-          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-destructive text-xs">
-            {catalog.error}
-          </p>
-        )}
-
-        {tab === 'skills' ? <Skills catalog={catalog} />
-          : tab === 'agents' ? <Agents catalog={catalog} />
-            : <Servers catalog={catalog} />}
-      </DialogContent>
-    </Dialog>
+      {section === 'skills' ? <Skills catalog={catalog} />
+        : section === 'agents' ? <Agents catalog={catalog} />
+          : <Servers catalog={catalog} />}
+    </div>
   );
 }
