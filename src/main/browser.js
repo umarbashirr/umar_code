@@ -224,14 +224,22 @@ class BrowserPane extends EventEmitter {
     }
     const done = new Promise((res) => {
       const finish = () => { clearTimeout(t); cleanup(); res(); };
-      const fail = (_e, code, desc) => { clearTimeout(t); cleanup(); res({ error: `${desc} (${code})` }); };
+      // Match #wireEvents: subframe failures and aborted loads (-3) are not
+      // navigation errors for the page the agent asked to open. once() would
+      // also drop the listener on the first subframe fail and hang the wait.
+      const fail = (_e, code, desc, _url, isMainFrame) => {
+        if (!isMainFrame || code === -3) return;
+        clearTimeout(t);
+        cleanup();
+        res({ error: `${desc} (${code})` });
+      };
       const cleanup = () => {
         this.wc.off('did-finish-load', finish);
         this.wc.off('did-fail-load', fail);
       };
       const t = setTimeout(() => { cleanup(); res({ warning: 'load timed out, returning current state' }); }, timeout);
       this.wc.once('did-finish-load', finish);
-      this.wc.once('did-fail-load', fail);
+      this.wc.on('did-fail-load', fail);
     });
     this.console.length = 0;
     this.network.length = 0;
@@ -299,8 +307,12 @@ class BrowserPane extends EventEmitter {
 
   async type(text, { target, delay = 12 } = {}) {
     if (target) await this.#js(`window.__tandem.focus(${JSON.stringify(target)})`);
+    // Same keyDown/char/keyUp sequence as press(). Char-only never reaches
+    // keydown listeners, which is what the tool help tells agents to use type for.
     for (const ch of String(text)) {
+      this.wc.sendInputEvent({ type: 'keyDown', keyCode: ch });
       this.wc.sendInputEvent({ type: 'char', keyCode: ch });
+      this.wc.sendInputEvent({ type: 'keyUp', keyCode: ch });
       if (delay) await sleep(delay);
     }
     return { ok: true, typed: text.length };

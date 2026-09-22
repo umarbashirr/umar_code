@@ -55,7 +55,7 @@ server.registerTool('browser_navigate',
   wrap(async ({ url }) => text(await call('navigate', { url }))));
 
 server.registerTool('browser_snapshot',
-  { title: 'Snapshot the page', description: 'Accessibility-style outline of what is on screen, with [ref=eN] handles for interaction. Start here.', inputSchema: {} },
+  { title: 'Snapshot the page', description: 'Accessibility-style outline of what is on screen, with [ref=eN] handles for interaction, including same-origin iframes. Start here.', inputSchema: {} },
   wrap(async () => text(await call('snapshot'))));
 
 server.registerTool('browser_text',

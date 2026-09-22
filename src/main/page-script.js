@@ -105,14 +105,28 @@
 
   const resolve = (target) => {
     if (!target) throw new Error('missing target');
-    const el = target.startsWith('e') && /^e\d+$/.test(target)
-      ? document.querySelector(`[data-tandem-ref="${target}"]`)
-      : document.querySelector(target);
+    const byRef = /^e\d+$/.test(target);
+    const find = (doc) => {
+      const el = byRef
+        ? doc.querySelector(`[data-tandem-ref="${target}"]`)
+        : doc.querySelector(target);
+      if (el) return el;
+      // Snapshot walks same-origin iframes and stamps refs there. Search the
+      // same tree, or agents get a stale-ref error for a live in-frame handle.
+      for (const frame of doc.querySelectorAll('iframe')) {
+        let child = null;
+        try { child = frame.contentDocument; } catch { /* cross-origin */ }
+        if (!child) continue;
+        const hit = find(child);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    const el = find(document);
     if (!el) {
-      const stale = /^e\d+$/.test(target);
       throw new Error(
         `no element for ${JSON.stringify(target)}` +
-        (stale ? ' - refs are dropped on navigation, take a fresh snapshot' : ''),
+        (byRef ? ' - refs are dropped on navigation, take a fresh snapshot' : ''),
       );
     }
     return el;
@@ -121,7 +135,20 @@
   const center = (el) => {
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2, rect: { x: r.left, y: r.top, w: r.width, h: r.height } };
+    let x = r.left + r.width / 2;
+    let y = r.top + r.height / 2;
+    // Elements inside iframes report coords in the frame viewport. sendInputEvent
+    // and the on-page cursor are in the top WebContents, so walk out.
+    let win = el.ownerDocument.defaultView;
+    while (win && win !== window) {
+      const frame = win.frameElement;
+      if (!frame) break;
+      const fr = frame.getBoundingClientRect();
+      x += fr.left;
+      y += fr.top;
+      win = win.parent;
+    }
+    return { x, y, rect: { x: r.left, y: r.top, w: r.width, h: r.height } };
   };
 
   // Where the agent just acted. The pane is a real browser with a human
@@ -234,11 +261,21 @@
       const c = center(el);
       mark(c.x, c.y, 'click');
       el.focus();
-      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-      if (setter) setter.call(el, value);
-      else if (el.isContentEditable) el.textContent = value;
-      else el.value = value;
+      // Contenteditable first: borrowing HTMLInputElement's value setter and
+      // calling it on a div throws Illegal invocation and never reaches the
+      // textContent branch the help text promises.
+      if (el.isContentEditable) {
+        el.textContent = value;
+      } else {
+        const proto = el instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : el instanceof HTMLInputElement
+            ? HTMLInputElement.prototype
+            : null;
+        const setter = proto && Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (setter) setter.call(el, value);
+        else el.value = value;
+      }
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true, value: el.value ?? el.textContent };

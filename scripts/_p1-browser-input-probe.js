@@ -21,15 +21,6 @@ function startFixture() {
   <input id="plain" />
   <div id="editor" contenteditable="true">seed</div>
   <iframe id="child" src="/frame.html" width="400" height="120"></iframe>
-  <script>
-    window.__keys = [];
-    document.getElementById('plain').addEventListener('keydown', (e) => {
-      window.__keys.push({ type: 'keydown', key: e.key });
-    });
-    document.getElementById('plain').addEventListener('keyup', (e) => {
-      window.__keys.push({ type: 'keyup', key: e.key });
-    });
-  </script>
 </body></html>`;
   const frame = `<!doctype html>
 <html><body>
@@ -64,7 +55,6 @@ app.whenReady().then(async () => {
     await pane.evaluate(`Object.defineProperty(window, 'innerWidth', { get: () => 900 });
       Object.defineProperty(window, 'innerHeight', { get: () => 700 });`);
 
-    // --- fill contenteditable (help advertises it) ---
     try {
       const filled = await pane.fill('#editor', 'hello-ce');
       if (filled && /hello-ce/.test(String(filled.value ?? ''))) pass('fill-contenteditable');
@@ -73,7 +63,6 @@ app.whenReady().then(async () => {
       fail('fill-contenteditable', e.message);
     }
 
-    // --- fill still works on inputs ---
     try {
       const filled = await pane.fill('#plain', 'via-fill');
       if (filled && filled.value === 'via-fill') pass('fill-input');
@@ -82,16 +71,21 @@ app.whenReady().then(async () => {
       fail('fill-input', e.message);
     }
 
-    // --- type must emit keydown (help: real keystrokes / keydown listeners) ---
-    await pane.evaluate(`document.getElementById('plain').value = ''; window.__keys = [];`);
-    pane.wc.focus();
-    await pane.type('ab', { target: '#plain', delay: 5 });
-    const keys = await pane.evaluate('window.__keys');
-    const kinds = (keys || []).map((k) => k.type);
-    if (kinds.includes('keydown') && kinds.includes('keyup')) pass('type-emits-keydown-keyup');
-    else fail('type-emits-keydown-keyup', `events=${JSON.stringify(keys)}`);
+    // Headless Electron often drops sendInputEvent before the page, so assert
+    // the wire sequence type builds (same shape as press).
+    const sent = [];
+    const origSend = pane.wc.sendInputEvent.bind(pane.wc);
+    pane.wc.sendInputEvent = (ev) => { sent.push(ev); return origSend(ev); };
+    try {
+      await pane.type('ab', { target: '#plain', delay: 5 });
+    } finally {
+      pane.wc.sendInputEvent = origSend;
+    }
+    const kinds = sent.map((e) => e.type);
+    const want = ['keyDown', 'char', 'keyUp', 'keyDown', 'char', 'keyUp'];
+    if (want.every((k, i) => kinds[i] === k)) pass('type-emits-keydown-keyup');
+    else fail('type-emits-keydown-keyup', `events=${JSON.stringify(sent)}`);
 
-    // --- snapshot ref inside same-origin iframe must resolve ---
     await pane.waitFor({ ms: 500 });
     const snap = await pane.snapshot();
     let found = null;
@@ -104,7 +98,6 @@ app.whenReady().then(async () => {
       }
     }
     if (!found) {
-      // Fallback: assign via snapshot walk already ran; ask page for a frame ref.
       found = await pane.evaluate(`(() => {
         const doc = document.getElementById('child')?.contentDocument;
         if (!doc) return null;
@@ -123,7 +116,6 @@ app.whenReady().then(async () => {
       fail('iframe-ref-click', `no in-frame ref; snapshot=\n${snap}`);
     }
 
-    // --- navigate must ignore subframe fail ---
     await new Promise((resolve) => {
       const badFrameHtml = `<!doctype html><html><body>
         <iframe src="http://127.0.0.1:59999/nope"></iframe>

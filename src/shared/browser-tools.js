@@ -17,7 +17,7 @@ function browserTools(z) {
     },
     {
       name: 'browser_snapshot', bridgeTool: 'snapshot', title: 'Snapshot the page',
-      description: 'Accessibility-style outline of what is on screen, with [ref=eN] handles for interaction. Start here, and take a fresh one after every navigation.',
+      description: 'Accessibility-style outline of what is on screen, with [ref=eN] handles for interaction, including same-origin iframes. Start here, and take a fresh one after every navigation.',
       schema: {},
     },
     {
