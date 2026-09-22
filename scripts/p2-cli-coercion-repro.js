@@ -16,6 +16,8 @@ function checkLocalHosts() {
     'loop    http://127.0.0.1:8080/health',
     'sub     http://app.localhost:3000/',
     'public  http://notlocalhost.example.com/app',
+    'prefix  http://localhost.example.com/',
+    'ip      http://127.0.0.1.example.com/',
     'path    http://evil.com/localhost',
   ].join('\n');
   const found = localUrls(text);
