@@ -85,9 +85,6 @@ let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode
 // right starting point: naming a level here would pin every chat to whatever
 // today's default happens to be and never follow it.
 let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get('agent').effort : '';
-// Mode, model and effort for each chat. The window globals above are only what
-// a brand-new chat starts on; once a chat has been given a value, it lives here
-// so switching chats cannot rewrite another one's settings under it.
 const chatPrefs = createChatPrefs();
 let driverReady = null;
 let fileWatcher = null;
@@ -667,9 +664,6 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   const cwd = project && open.has(project) ? project : cwdOfChat(chat);
   chatProjects.set(chat, cwd);
 
-  // This chat's own prefs beat the window defaults. A parked chat resumes on
-  // what it last ran with, not on whatever the picker was showing for another
-  // chat when it woke up.
   const prefs = chatPrefs.resolve(chat, {
     mode: chosenMode,
     model: modelFor(runs),
@@ -1007,7 +1001,7 @@ function registerIpc() {
      and the next message on it resumes its transcript at the new level. A chat
      mid-turn is left alone, because pulling the session out from under a
      running turn to change how hard it thinks is a worse trade than the turn
-     finishing at the old level. Other chats keep the level they already have. */
+     finishing at the old level. */
   ipcMain.handle('agent:setEffort', async (_e, { chat, effort } = {}) => {
     const key = chat || activeChat.chat;
     // Codex reports its own levels per model and the 5.6 line has one claude
@@ -1058,9 +1052,6 @@ function registerIpc() {
     // in the picker after a restart. Only claude keeps a hand-typed list: codex
     // answers model/list from the account, so there is nothing to type in.
     if (provider === 'claude' && next) driver.remember(next);
-    // Only this chat follows the picker. Other live chats keep the model they
-    // already have; a cold chat without its own pref still starts on the
-    // window default above.
     await sessions.get(key)?.setModel(next);
     // The window pills are a property of the name, not a setting on the session,
     // and a codex model has no long twin. Without these the pill keeps whatever
@@ -1113,9 +1104,6 @@ function registerIpc() {
   });
   ipcMain.handle('settings:set', async (_e, partial) => {
     const next = settings.patch(partial || {});
-    // Settings are the window defaults for chats that have not picked their
-    // own. Live chats keep what they already run with; pushing these into every
-    // session would rewrite a background chat's mode or model under it.
     if (partial?.agent?.mode && isMode(partial.agent.mode)) {
       chosenMode = partial.agent.mode;
     }

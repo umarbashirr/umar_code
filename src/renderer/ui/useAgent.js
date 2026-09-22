@@ -150,8 +150,6 @@ const blankChat = (project = null, provider = 'claude') => ({
   startedAt: 0,
   queued: [],
   mode: 'ask',
-  // How hard this chat's model thinks. Kept per chat so switching chats does
-  // not hand another chat's effort to the one on screen.
   effort: '',
   // task id -> Agent tool_use id. The live-task feed talks in task ids and
   // everything else talks in tool_use ids.
@@ -926,7 +924,7 @@ export function useAgent() {
      starts and has no setter for it, so main parks this chat when idle and the
      next message resumes its transcript at the new level. A chat mid-turn
      keeps the level it started on rather than having the session pulled out
-     from under it. Other chats keep theirs. */
+     from under it. */
   const changeEffort = useCallback(async (value) => {
     const key = activeRef.current;
     const next = value === effort ? '' : value;
@@ -984,9 +982,8 @@ export function useAgent() {
     const key = activeRef.current;
     setModel(value);
     if (want) setProvider(want);
-    // Only this chat and empty ones follow the picker. A chat that already has
-    // messages keeps the model it was running.
-    setChats((cur) => cur.map((c) => (c.key === key || !c.items.length
+    const followsPicker = (c) => c.key === key || !c.items.length;
+    setChats((cur) => cur.map((c) => (followsPicker(c)
       ? { ...c, ...(want ? { provider: want } : {}), usage: { ...c.usage, model: value, window: 0 } }
       : c)));
     // A name typed by hand comes back as part of the list, so the picker has it

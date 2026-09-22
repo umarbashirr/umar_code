@@ -1,11 +1,5 @@
 'use strict';
 
-/* Per-chat agent preferences. The window still keeps defaults for brand-new
-   chats; once a chat has been given a mode, model, or effort, that value lives
-   here until the chat is forgotten. ensureAgent reads through resolve() so a
-   parked chat resumes on its own settings rather than whatever the picker last
-   showed for another chat. */
-
 function createChatPrefs() {
   const byChat = new Map();
 
@@ -26,9 +20,10 @@ function createChatPrefs() {
     return byChat.get(chat)?.model ?? fallback;
   }
 
+  // Empty string is a real choice (CLI default), so unset and '' must differ.
   function effortOf(chat, fallback) {
     const e = byChat.get(chat);
-    return e && Object.prototype.hasOwnProperty.call(e, 'effort') ? e.effort : fallback;
+    return e && 'effort' in e ? e.effort : fallback;
   }
 
   function setMode(chat, mode) {
