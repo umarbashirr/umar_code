@@ -7,7 +7,7 @@
    the view until the popup closes. The bounds never change, so nothing reflows
    and the page comes back on exactly the frame it left. */
 'use strict';
-import { guestWanted } from './browser-store.js';
+import { frameBox, guestWanted, onScreen, parseViewport, previewOf } from './browser-store.js';
 
 let still = null;
 
@@ -88,6 +88,14 @@ export async function coverPane(rect) {
 
   const img = document.createElement('img');
   img.className = 'pane-still';
+  // A page in responsive mode sits in a frame inside the slot, and the picture
+  // has to hang on the frame or the page jumps when the menu opens.
+  const page = previewOf(onScreen());
+  const dims = page.live && !page.error ? parseViewport(page.viewport) : null;
+  if (dims) {
+    const f = frameBox(r, dims, page.hold);
+    Object.assign(img.style, { left: `${f.x}px`, top: `${f.y}px`, width: `${f.width}px`, height: `${f.height}px` });
+  }
   if (url) {
     img.src = url;
     // A picture that is in the document but has not decoded yet paints as

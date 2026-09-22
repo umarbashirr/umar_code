@@ -198,7 +198,10 @@ class BrowserPane extends EventEmitter {
   // later, and screenshot() is the one that keeps a file.
   async still() {
     try {
-      const img = await this.wc.capturePage();
+      // Cropped to the view: under an emulated viewport the capture comes back
+      // at the emulated size, with the scaled page in its corner.
+      const { width, height } = this.view.getBounds();
+      const img = await this.wc.capturePage({ x: 0, y: 0, width, height });
       return img.isEmpty() ? null : img.toDataURL();
     } catch {
       return null;
