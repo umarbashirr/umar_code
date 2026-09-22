@@ -16,6 +16,8 @@
    of their folder, whole and one click away. */
 'use strict';
 
+import { keepRailOpen } from './chat-attention.js';
+
 const state = {
   projects: [],
   live: [],
@@ -142,6 +144,7 @@ function rows(dir, sessions) {
     if (row) {
       row.key = c.key;
       row.busy = c.busy;
+      row.waiting = c.waiting;
       row.agents = c.agents;
       continue;
     }
@@ -152,6 +155,7 @@ function rows(dir, sessions) {
       title: c.title,
       at: seenAt(c.key),
       busy: c.busy,
+      waiting: c.waiting,
       agents: c.agents,
     });
   }
@@ -201,7 +205,7 @@ export function grouped(filter = '') {
        reads as put away: it keeps its tick. */
     const open = [];
     const done = [];
-    for (const row of list) (!q && isDone(row) && !row.busy ? done : open).push(row);
+    for (const row of list) (!q && isDone(row) && !keepRailOpen(row) ? done : open).push(row);
 
     // A folder the search missed leaves altogether. A header sitting over
     // nothing reads as a bug, and there is already an empty state for a search
