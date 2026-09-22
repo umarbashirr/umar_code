@@ -1,6 +1,6 @@
-/* The app's own strip, under the window frame. What the agent last did in the
-   preview, who is driving it, the three views the right column can show, and
-   the switches for the terminal panel and the theme.
+/* The app's own controls, hosted in the title bar: what the agent last did in
+   the preview, who is driving it, the three views the right column can show,
+   and the switches for the terminal panel and the theme.
 
    Every button here says what it does with `title` rather than a Tooltip. The
    preview is a native view the window paints on top of this document, so a
@@ -243,24 +243,26 @@ function OpenIn({ folder }) {
 
 // -------------------------------------------------------------------- strip
 
-export default function Toolbar() {
+export function SidebarButton() {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={ICON_BUTTON}
+      title="Sessions (Ctrl+Shift+S)"
+      onClick={() => runCommand('rail')}>
+      <PanelLeftIcon />
+    </Button>
+  );
+}
+
+export function ToolbarActions() {
   const { panelOpen } = useLayout();
   const [, bump] = useState(0);
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
 
   return (
-    <div id="toolbar">
-      <Button
-        variant="ghost"
-        size="icon"
-        className={ICON_BUTTON}
-        title="Sessions (Ctrl+Shift+S)"
-        onClick={() => runCommand('rail')}>
-        <PanelLeftIcon />
-      </Button>
-
-      <span className="flex-1" />
-
+    <div className="flex shrink-0 items-center gap-1.5">
       <Activity />
       <Driver />
       <ViewStrip />
@@ -280,6 +282,8 @@ export default function Toolbar() {
       </Button>
 
       <ThemeButton />
+
+      <Separator orientation="vertical" className="mx-0.5 !h-[18px]" />
     </div>
   );
 }

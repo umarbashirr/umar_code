@@ -21,6 +21,7 @@ import { runCommand } from '../../app.js';
 import { onProject, openFolder, openRecent, project, shortPath } from '../../project.js';
 import { chosenEditor, editors, getEditorsVersion, openEditor, subscribeEditors } from './editors-store';
 import { coverPane, uncoverPane } from './pane-cover';
+import { SidebarButton, ToolbarActions } from './Toolbar';
 
 // project.js still owns the folder and tells its listeners when it changes.
 function useProject() {
@@ -248,6 +249,7 @@ export default function TitleBar() {
   return (
     <header id="titlebar" onDoubleClick={onDoubleClick}>
       <span className="flex text-muted-foreground"><HexagonIcon className="size-[15px]" /></span>
+      <SidebarButton />
 
       {/* A menu bar in a title bar is the chrome, not a card sitting on it. */}
       <Menubar
@@ -258,40 +260,30 @@ export default function TitleBar() {
         {MENUS.map((menu) => <SimpleMenu key={menu.value} menu={menu} />)}
       </Menubar>
 
-      {/* The strip between the menus and the window buttons was empty, and the
-          palette had no face: a chord nobody has been told about is a feature
-          nobody has. Centred on the window, not on the gap, since the menus and
-          the window buttons are not the same width. Below a wide window it goes
-          rather than shrinks into the menus, and the chord still works.
+      {/* The palette's face. A button dressed as a field, not a field: the
+          typing happens in the palette's own input a frame later. It takes the
+          room between the menus and the app's controls and shrinks before it
+          overlaps them; the chord still works when it is hidden.
 
-          A button dressed as a field, not a field. The typing happens in the
-          palette's own input a frame later, and a real input here would be a
-          second place to type with nothing behind it. */}
-      <span className="flex-1" />
-      {/* The wrapper is not decoration. styles.css strips the border and the
+          The wrapper is not decoration. styles.css strips the border and the
           background off any button that is not inside a shadcn slot, which is
-          how the window buttons and the menu triggers stay flat, and that rule
-          outranks a utility class. Sitting under a data-slot puts this one back
-          in the exempt half. */}
-      <div
-        data-slot="titlebar-search"
-        className="-translate-x-1/2 absolute left-1/2 hidden w-[min(420px,34vw)] lg:block">
+          how the window buttons and the menu triggers stay flat. Sitting under a
+          data-slot puts this one back in the exempt half. */}
+      <div data-slot="titlebar-search" className="flex min-w-0 flex-1 justify-center px-3">
         <button
           type="button"
           title="Search chats, folders, files and commands (Ctrl+K)"
           onClick={() => window.tandemPalette?.open()}
-          className="relative flex h-[22px] w-full min-w-0 items-center gap-2 rounded-md border border-input bg-input/30 pr-12 pl-2 text-muted-foreground text-xs transition-colors hover:border-ring hover:bg-input/50 hover:text-foreground">
+          className="relative hidden h-[26px] w-full min-w-0 max-w-[420px] items-center gap-2 rounded-md border border-input bg-input/30 pr-12 pl-2 text-muted-foreground text-xs transition-colors hover:border-ring hover:bg-input/50 hover:text-foreground lg:flex">
           <SearchIcon className="size-3.5 shrink-0" />
-          {/* The icon and the words sit where they would in a field you could
-              type in, at the left edge. The chord keeps the right edge, and the
-              padding on that side is what stops the two meeting when the window
-              narrows. */}
           <span className="truncate">Search chats, files and commands</span>
           <span className="-translate-y-1/2 absolute top-1/2 right-2.5 hidden text-[10px] text-muted-foreground/70 xl:block">
             Ctrl K
           </span>
         </button>
       </div>
+
+      <ToolbarActions />
 
       <div className="flex self-stretch">
         <Button variant="ghost" size="icon" className={WINDOW_BUTTON} title="Minimize" onClick={edit('minimize')}>

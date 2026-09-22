@@ -38,7 +38,6 @@ import Rail from './Rail';
 import StatusBar from './StatusBar';
 import Welcome from './Welcome';
 import TerminalPanel from './TerminalPanel';
-import Toolbar from './Toolbar';
 import { previewOf, subscribeBrowser, getBrowserVersion } from './browser-store';
 import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-store';
 import { coverPane, uncoverPane } from './pane-cover';
@@ -249,7 +248,6 @@ export default function Shell() {
   return (
     <>
       <TitleBar />
-      <Toolbar />
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1" onLayoutChange={relayoutNow}>
         <ResizablePanel id="rail" panelRef={rail} collapsible defaultSize="18" minSize="180px" maxSize="420px">

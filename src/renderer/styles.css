@@ -588,7 +588,7 @@
 
 /* The seams the shell draws itself, which are declared one side at a time, so
    setting all four widths only lands on the side that has a style. */
-[data-scheme="brutal"] :is(#toolbar, #right, #panel) { border-width: 2px; }
+[data-scheme="brutal"] :is(#titlebar, #right, #panel) { border-width: 2px; }
 
 /* The one piece of motion the style gets: a press pushes the control into its
    own shadow and lands flush, which is where the offset came from. */
@@ -696,10 +696,10 @@ button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
    of the gradient on <html> above it. */
 [data-scheme="glass"] body { background: transparent; }
 
-/* The two strips are already painted in --rail, which is a tint, so they only
-   want the blur. The panes are solid in every other theme and are cut back to
+/* The title bar is already painted in --rail, which is a tint, so it only
+   wants the blur. The panes are solid in every other theme and are cut back to
    a sheet here. */
-[data-scheme="glass"] :is(#titlebar, #toolbar) {
+[data-scheme="glass"] #titlebar {
   backdrop-filter: blur(20px) saturate(150%);
 }
 
@@ -781,30 +781,18 @@ kbd {
 
 /* ------------------------------------------------------------- title bar */
 
-/* Two strips. The top one is the window frame we draw ourselves: the app menu
-   on the left, the three window buttons on the right, everything between them
-   a drag handle. The second is the app's own toolbar. */
+/* One strip, the window frame we draw ourselves: the mark, the sidebar switch
+   and the menus on the left, the app's controls and the three window buttons on
+   the right, and everything between them a drag handle. */
 
 #titlebar {
-  display: flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 0 0 10px;
-  background: var(--rail);
-  -webkit-app-region: drag;
-  /* The search sits in the middle of the window rather than in the middle of
-     what the menus and the window buttons leave over, and those two ends are
-     not the same width. */
-  position: relative;
-}
-#titlebar button, #titlebar input { -webkit-app-region: no-drag; }
-
-#toolbar {
   display: flex; align-items: center; gap: 6px;
-  height: 38px; padding: 0 8px;
+  height: 42px; padding: 0 0 0 10px;
   background: var(--rail);
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }
-#toolbar button, #toolbar input { -webkit-app-region: no-drag; }
+#titlebar button, #titlebar input { -webkit-app-region: no-drag; }
 
 
 /* The preview's loading bar. A page load has no percentage worth reporting, so
