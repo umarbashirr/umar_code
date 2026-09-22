@@ -87,11 +87,8 @@
       "install.sh",
       "cli/**",
       "bin/**",
-      "mcp/**",
       "node_modules/node-pty/**",
-      "node_modules/@anthropic-ai/claude-agent-sdk/**",
-      "node_modules/zod/**",
-      "node_modules/@modelcontextprotocol/sdk/**"
+      "node_modules/@anthropic-ai/claude-agent-sdk/**"
     ],
     "npmRebuild": true,
     "linux": {

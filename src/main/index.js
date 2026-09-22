@@ -32,7 +32,7 @@ const { createChatPrefs } = require('./chat-prefs');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
-const { mcpServerPath, binDir } = require('./packaged-path');
+const { mcpServerPath, binDir } = require('../../cli/packaged-path');
 const bridgeState = require('../../cli/state');
 
 const fs = require('fs');

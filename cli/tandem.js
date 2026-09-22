@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const state = require('./state');
+const { mcpServerPath } = require('./packaged-path');
 
 // Which project the command was typed in. One window can have several open,
 // so every request says where it came from and the window routes it from
@@ -192,7 +193,8 @@ const COMMANDS = {
 
 // Register the MCP server with whatever agent is running in this terminal.
 function setup(rest) {
-  const server = process.env.TANDEM_MCP_SERVER || path.join(__dirname, '..', 'mcp', 'server.js');
+  const root = path.join(__dirname, '..');
+  const server = process.env.TANDEM_MCP_SERVER || mcpServerPath(root);
   const target = rest[0] || 'print';
   const command = process.env.TANDEM_NODE || 'node';
   const entry = { command, args: [server] };
