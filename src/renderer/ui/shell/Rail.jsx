@@ -107,7 +107,7 @@ function Row({ chat, current, onDelete }) {
             {badge.label}
           </Badge>
         )}
-        <span className={`shrink-0 text-[11px] text-muted-foreground${marked ? '' : ' ml-auto'}`}>
+        <span className={`shrink-0 text-[11px] text-muted-foreground ${marked ? '' : 'ml-auto'}`}>
           {relative(chat.at)}
         </span>
       </SidebarMenuButton>
@@ -225,7 +225,7 @@ function Folder({ folder, active, current, first, onDelete, onRemove }) {
           one column of text, and the only thing saying where one folder ended
           was the gap before the next. The first needs no rule, since the search
           box above it already draws one. */}
-      <SidebarGroup className={`gap-0 px-0 py-1${first ? '' : ' border-t border-sidebar-border'}`}>
+      <SidebarGroup className={`gap-0 px-0 py-1 ${first ? '' : 'border-t border-sidebar-border'}`}>
         {/* The heading stays put while its chats scroll under it. A folder with
             ninety chats otherwise scrolls its own name away, and then the rail
             is a list of titles with nothing saying whose they are. It needs the
@@ -237,8 +237,8 @@ function Folder({ folder, active, current, first, onDelete, onRemove }) {
             over it, text on top. */}
         <div
           className={`sticky top-0 z-10 flex items-center gap-1 bg-sidebar px-2 py-0.5
-            before:absolute before:inset-0 before:-z-10 before:bg-background${current
-            ? ' text-sidebar-foreground after:absolute after:top-1.5 after:bottom-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-sidebar-foreground/60'
+            before:absolute before:inset-0 before:-z-10 before:bg-background ${current
+            ? 'text-sidebar-foreground after:absolute after:top-1.5 after:bottom-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-sidebar-foreground/60'
             : ''}`}>
           {/* The heading styling rides on the label rather than on the trigger.
               The label merges a className through twMerge, so text-[11px] beats
@@ -246,7 +246,7 @@ function Folder({ folder, active, current, first, onDelete, onRemove }) {
               would leave the stylesheet to break the tie. */}
           <SidebarGroupLabel
             asChild
-            className={`h-7 min-w-0 flex-1 px-1.5 text-[11px] font-semibold uppercase tracking-wide [&>svg]:size-3.5${current ? ' text-sidebar-foreground' : ''}`}>
+            className={`h-7 min-w-0 flex-1 px-1.5 text-[11px] font-semibold uppercase tracking-wide [&>svg]:size-3.5 ${current ? 'text-sidebar-foreground' : ''}`}>
             <CollapsibleTrigger
               title={folder.dir}
               className="cursor-pointer gap-1.5 transition-colors hover:text-sidebar-foreground">
