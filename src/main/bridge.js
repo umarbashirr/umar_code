@@ -117,13 +117,13 @@ class Bridge {
     const url = new URL(req.url, 'http://127.0.0.1');
     const from = callerCwd(req, url);
 
+    if (!this.#tokenOk(req.headers['x-tandem-token'])) return send(401, { error: 'bad or missing x-tandem-token' });
+
     // cwd stays alongside projects. It is the first of them, so a client built
     // against the old shape still reads a real path rather than nothing.
     if (url.pathname === '/health') {
       return send(200, { ok: true, cwd: this.cwd, projects: this.projects, tools: Object.keys(TOOLS) });
     }
-
-    if (!this.#tokenOk(req.headers['x-tandem-token'])) return send(401, { error: 'bad or missing x-tandem-token' });
     // `tandem .` on a folder that already has a window raises that window, and
     // says which folder it meant so the window can bring that project forward.
     if (url.pathname === '/focus') {
