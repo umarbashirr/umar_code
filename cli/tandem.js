@@ -160,7 +160,7 @@ function parse(argv, positional) {
   return args;
 }
 
-const coerce = (v) => (v === 'true' ? true : v === 'false' ? false : /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v);
+const coerce = (v) => (v === 'true' ? true : v === 'false' ? false : v);
 
 const COMMANDS = {
   go: { tool: 'navigate', pos: ['url'], help: 'tandem go localhost:3000' },
