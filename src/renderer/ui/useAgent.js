@@ -938,15 +938,14 @@ export function useAgent() {
      from under it. */
   const changeEffort = useCallback(async (value) => {
     const key = activeRef.current;
-    const next = value === effort ? '' : value;
-    setEffort(next);
-    edit(key, (c) => ({ ...c, effort: next }));
-    const res = await tandem().agent.setEffort(key, next).catch(() => null);
+    setEffort(value);
+    edit(key, (c) => ({ ...c, effort: value }));
+    const res = await tandem().agent.setEffort(key, value).catch(() => null);
     if (res && typeof res.effort === 'string') {
       setEffort(res.effort);
       edit(key, (c) => ({ ...c, effort: res.effort }));
     }
-  }, [effort, edit]);
+  }, [edit]);
 
   // The long window is a different name for the same model, so this swaps the
   // name and the picker follows.

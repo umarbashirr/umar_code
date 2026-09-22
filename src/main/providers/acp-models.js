@@ -1,12 +1,8 @@
 'use strict';
-// Model rows from an ACP session/new answer. Grok names its models; Cursor
-// sends the id as the name, so the picker read `claude-opus-5-5` beside
-// Claude's own "Opus 5.5".
 
 const ACRONYM = new Set(['gpt', 'glm']);
 const NUMBER = /^\d+$/;
 
-// claude-opus-5-5 -> Claude Opus 5.5, gpt-5.6-sol -> GPT-5.6 Sol.
 function modelName(id) {
   const out = [];
   let prev = '';

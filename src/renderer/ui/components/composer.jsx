@@ -127,12 +127,6 @@ const chooseModels = () => window.tandemChat?.settings('cursor-models');
 const EFFORT_LABEL = { xhigh: 'Extra high' };
 const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);
 
-/* One button for the model and the two settings that ride on it, how hard it
-   thinks and how long a window it gets. Effort was never passed to the CLI
-   before, and the long window is a second name for a model rather than a
-   setting on it, so the list only ever showed whichever half the CLI
-   defaulted to. The label names only what was chosen: default effort and a
-   model with one window say nothing. */
 function ModelPicker({ agent, hidden }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
@@ -248,11 +242,6 @@ function ModelPicker({ agent, hidden }) {
           );
         })}
         <DropdownMenuSeparator />
-        {/* Empty effort means the CLI's own default. It is a level you can
-            return to because "whatever Claude Code does" is a real answer, and
-            pinning today's default would stop it following. Picking the level
-            already set is skipped, since changeEffort treats that as a toggle
-            back to the default. */}
         {agent.efforts?.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
@@ -264,7 +253,7 @@ function ModelPicker({ agent, hidden }) {
             <DropdownMenuSubContent className="min-w-36">
               <DropdownMenuRadioGroup
                 value={agent.effort || 'default'}
-                onValueChange={(v) => { if (v !== (agent.effort || 'default')) agent.changeEffort(v === 'default' ? '' : v); }}>
+                onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
                 <DropdownMenuRadioItem value="default">Default effort</DropdownMenuRadioItem>
                 {agent.efforts.map((level) => (
                   <DropdownMenuRadioItem key={level} value={level}>{effortLabel(level)}</DropdownMenuRadioItem>
@@ -297,8 +286,6 @@ function ModelPicker({ agent, hidden }) {
   );
 }
 
-// Shift+Tab still walks the modes in order. The menu is for landing on one
-// directly, which from the far end of the list is six presses otherwise.
 function ModeMenu({ agent }) {
   return (
     <DropdownMenu>
@@ -669,10 +656,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
           </PromptInputBody>
 
           <PromptInputFooter className="px-3 pb-3">
-            {/* The row shrinks. It used to size to its contents and slide under
-                the send button in a narrow window, still clickable, half of it
-                under a circle. The mode and model labels truncate before the
-                row gives up its edge. */}
             <PromptInputTools className="min-w-0 flex-1 gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -737,14 +720,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
         </PromptInput>
       </div>
 
-      {/* What the agent is pointed at, kept quiet under the box because it is
-          read far more often than it is changed.
-
-          It wraps. Every pill in here is a Button, and shadcn's Button carries
-          shrink-0, so in a narrow pane the row could only grow past the edge:
-          the branch ended up half cut off and the chat pane grew a horizontal
-          scrollbar under everything. A second line costs 24px and is the whole
-          row rather than most of it. */}
       <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-muted-foreground/60 text-[11px]">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

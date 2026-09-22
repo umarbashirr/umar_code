@@ -356,25 +356,20 @@ const FOLD_AT = 3;
 // a beat after its row — sits still instead of replaying.
 const Row = ({ children }) => <div className="tandem-in">{children}</div>;
 
-// A chat opens at its end, so only the newest groups are drawn up front. A long
-// chat parsed and laid out every message it had before the first paint.
 const TAIL = 30;
 
 function Transcript({ items, agent }) {
   const total = runs(items).length;
-  // Fixed once the history has loaded, so rows arriving during a turn append
-  // below instead of pushing the ones being read off the top.
-  const [from, setFrom] = useState(null);
-  const start = from ?? Math.max(0, total - TAIL);
-  useEffect(() => { if (from === null && total) setFrom(start); }, [from, total, start]);
+  const [pinnedStart, setPinnedStart] = useState(null);
+  const start = pinnedStart ?? Math.max(0, total - TAIL);
+  useEffect(() => { if (pinnedStart === null && total) setPinnedStart(start); }, [pinnedStart, total, start]);
 
-  // Rows land above the one being read, so hold its distance from the bottom.
   const { scrollRef } = useStickToBottomContext();
   const fromBottom = useRef(null);
   const earlier = () => {
     const el = scrollRef.current;
     fromBottom.current = el ? el.scrollHeight - el.scrollTop : null;
-    setFrom(Math.max(0, start - TAIL));
+    setPinnedStart(Math.max(0, start - TAIL));
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
