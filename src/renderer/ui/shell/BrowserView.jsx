@@ -42,6 +42,7 @@ import {
   MonitorIcon,
   MousePointer2Icon,
   RadioTowerIcon,
+  RotateCcwSquareIcon,
   RotateCwIcon,
   ScanIcon,
   SmartphoneIcon,
@@ -59,7 +60,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
@@ -87,6 +87,11 @@ import {
   recentUrls,
   removeRecent,
   rotateViewport,
+  frameBox,
+  holdScale,
+  MAX_VIEWPORT,
+  MIN_VIEWPORT,
+  toggleResponsive,
   screenshot,
   setViewport,
   showDrawer,
@@ -247,82 +252,114 @@ function PickButton({ tab }) {
   );
 }
 
-function ViewportMenu({ tab }) {
+function ResponsiveButton({ tab }) {
   const s = useBrowser(tab);
-  const [open, setOpen] = useState(false);
-  const [custom, setCustom] = useState('');
-  usePaneCover(open);
-
-  const held = VIEWPORTS.find((v) => v.size === s.viewport) || VIEWPORTS[0];
-  const Current = VIEWPORT_ICON[held.icon] || ScanIcon;
-  const dims = parseViewport(s.viewport);
+  const held = VIEWPORTS.find((v) => v.size === s.viewport);
+  const Current = VIEWPORT_ICON[held?.icon] || SmartphoneIcon;
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <Tip label={`Viewport: ${dims ? `${dims.width} × ${dims.height}` : held.label}`}>
+    <Tip label={s.viewport ? 'Close responsive mode' : 'Responsive mode'}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-pressed={!!s.viewport}
+        data-armed={s.viewport ? '' : undefined}
+        className={`${ICON_BUTTON} data-[armed]:bg-accent data-[armed]:text-foreground`}
+        onClick={() => toggleResponsive(tab)}>
+        <Current />
+      </Button>
+    </Tip>
+  );
+}
+
+/* Chrome's device toolbar, under the address bar while a viewport is set. The
+   presets used to live in a dropdown on the toolbar button; they are here now,
+   beside the numbers they set, and the button only turns the mode on and off. */
+function SizeInput({ value, label, onCommit }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    const n = Math.round(Number(draft));
+    if (draft !== null && n >= MIN_VIEWPORT && n <= MAX_VIEWPORT) onCommit(n);
+    setDraft(null);
+  };
+
+  return (
+    <input
+      aria-label={label}
+      inputMode="numeric"
+      className="h-6 w-14 rounded-md border bg-transparent px-1.5 text-center font-mono text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      value={draft ?? value}
+      onChange={(e) => setDraft(e.target.value.replace(/\D/g, ''))}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') { setDraft(null); e.currentTarget.blur(); }
+      }} />
+  );
+}
+
+function DeviceBar({ tab, showing }) {
+  const s = useBrowser(tab);
+  const [open, setOpen] = useState(false);
+  usePaneCover(open);
+  const dims = parseViewport(s.viewport);
+  if (!showing || !dims) return null;
+
+  const held = VIEWPORTS.find((v) => v.size === s.viewport);
+  const resize = (width, height) => setViewport(`${width}x${height}`, tab);
+
+  return (
+    <div className="flex h-9 shrink-0 items-center justify-center gap-2 border-b border-border/60 px-2 text-xs">
+      <span className="text-muted-foreground">Dimensions:</span>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            data-armed={s.viewport ? '' : undefined}
-            className={`${ICON_BUTTON} data-[armed]:text-foreground`}
-            onPointerDown={warmPane}>
-            <Current />
+          <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs" onPointerDown={warmPane}>
+            {held ? held.label : 'Responsive'}
+            <ChevronDownIcon className="size-3" />
           </Button>
         </DropdownMenuTrigger>
-      </Tip>
-
-      <DropdownMenuContent align="end" className="min-w-56">
-        <DropdownMenuLabel>Viewport</DropdownMenuLabel>
-        <DropdownMenuGroup>
+        <DropdownMenuContent align="start" className="min-w-52">
+          <DropdownMenuCheckboxItem checked={!held} onCheckedChange={() => {}}>
+            <ScanIcon />
+            Responsive
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
           {VIEWPORTS.map((v) => {
             const Icon = VIEWPORT_ICON[v.icon];
             return (
               <DropdownMenuCheckboxItem
-                key={v.size || 'fit'}
+                key={v.size}
                 checked={s.viewport === v.size}
                 onCheckedChange={() => setViewport(v.size, tab)}>
                 <Icon />
                 {v.label}
-                {v.note && <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">{v.note}</span>}
+                <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">{v.note}</span>
               </DropdownMenuCheckboxItem>
             );
           })}
-        </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-        <DropdownMenuSeparator />
-        <div className="flex items-center gap-1.5 px-2 py-1.5">
-          <input
-            className="h-7 w-full rounded-md border bg-transparent px-2 font-mono text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            placeholder={dims ? `${dims.width}x${dims.height}` : '390x844'}
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              const next = custom.trim().replace(/\s*[×x]\s*/i, 'x');
-              if (parseViewport(next)) { setViewport(next, tab); setOpen(false); setCustom(''); }
-            }} />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 shrink-0 text-xs"
-            disabled={!parseViewport(custom.trim().replace(/\s*[×x]\s*/i, 'x'))}
-            onClick={() => {
-              const next = custom.trim().replace(/\s*[×x]\s*/i, 'x');
-              if (parseViewport(next)) { setViewport(next, tab); setOpen(false); setCustom(''); }
-            }}>
-            Set
-          </Button>
-        </div>
-        <DropdownMenuItem disabled={!dims} onSelect={() => rotateViewport(tab)}>
-          Rotate width ↔ height
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      <SizeInput label="Width" value={dims.width} onCommit={(w) => resize(w, dims.height)} />
+      <span className="text-muted-foreground">×</span>
+      <SizeInput label="Height" value={dims.height} onCommit={(h) => resize(dims.width, h)} />
+
+      <Tip label="Rotate">
+        <Button variant="ghost" size="icon" className="size-6" onClick={() => rotateViewport(tab)}>
+          <RotateCcwSquareIcon />
+        </Button>
+      </Tip>
+      <Tip label="Close responsive mode">
+        <Button variant="ghost" size="icon" className="size-6" onClick={() => setViewport('', tab)}>
+          <XIcon />
+        </Button>
+      </Tip>
+    </div>
   );
 }
 
 function PaneMenu({ tab }) {
+  const s = useBrowser(tab);
   const { previewFull } = useLayout();
   const [open, setOpen] = useState(false);
   usePaneCover(open);
@@ -359,6 +396,10 @@ function PaneMenu({ tab }) {
             <ExternalLinkIcon />
             Open in system browser
           </DropdownMenuItem>
+          <DropdownMenuCheckboxItem checked={!!s.viewport} onCheckedChange={() => toggleResponsive(tab)}>
+            <SmartphoneIcon />
+            Responsive mode
+          </DropdownMenuCheckboxItem>
           <DropdownMenuItem onSelect={() => runCommand('previewFull')}>
             {previewFull ? <Minimize2Icon /> : <Maximize2Icon />}
             {previewFull ? 'Back to the chat' : 'Preview at full width'}
@@ -571,17 +612,96 @@ function Placeholder({ tab }) {
   );
 }
 
+function useSize(ref) {
+  const [size, setSize] = useState(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => setSize({ width: el.clientWidth, height: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
+
+/* The page itself is a native view that main lays over the frame's box, so all
+   this draws is what sits around it: the outline and the three handles. The
+   handles sit just outside the box, since anything inside it is under the view.
+
+   A drag holds the scale it started at. Refitting as the frame grows or
+   shrinks would move it under the pointer, and the handle would run away from
+   the hand dragging it. Past the edge of the pane it does have to shrink, and
+   the frame refits once the drag lets go. */
 function DeviceFrame({ tab, showing }) {
   const s = useBrowser(tab);
-  if (!showing || !s.live || s.error) return null;
+  const here = useRef(null);
+  const slot = useSize(here);
   const dims = parseViewport(s.viewport);
-  if (!dims) return null;
+  const on = showing && s.live && !s.error && dims;
+
+  const box = on && slot ? frameBox(slot, dims, s.hold) : null;
+
+  const drag = (axes) => (e) => {
+    if (!box || e.button !== 0) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    const start = { x: e.clientX, y: e.clientY, ...dims };
+    const { scale } = box;
+    const clamp = (n) => Math.max(MIN_VIEWPORT, Math.min(MAX_VIEWPORT, Math.round(n)));
+    holdScale(scale, tab);
+
+    let next = null;
+    let frame = 0;
+    const move = (ev) => {
+      // The frame is centred, so the right edge moves half of what the width
+      // does. Twice the pointer's travel keeps the handle under it.
+      const width = axes.includes('x') ? clamp(start.width + (2 * (ev.clientX - start.x)) / scale) : start.width;
+      const height = axes.includes('y') ? clamp(start.height + (ev.clientY - start.y) / scale) : start.height;
+      next = `${width}x${height}`;
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setViewport(next, tab); });
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      cancelAnimationFrame(frame);
+      if (next) setViewport(next, tab);
+      holdScale(null, tab);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
 
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-muted/35">
-      <div className="absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full border bg-background/90 px-2.5 py-0.5 font-mono text-[10.5px] text-muted-foreground shadow-xs backdrop-blur-sm">
-        {`${dims.width} × ${dims.height}`}
-      </div>
+    <div ref={here} className="absolute inset-0" hidden={!on || undefined}>
+      {box && (
+        <div className="absolute inset-0 bg-muted/35">
+          <div
+            className="pointer-events-none absolute rounded-[1px] outline outline-1 outline-border"
+            style={{ left: box.x, top: box.y, width: box.width, height: box.height }} />
+          <div
+            title="Drag to resize"
+            className="absolute flex w-3 cursor-ew-resize touch-none items-center justify-center rounded-sm hover:bg-accent"
+            style={{ left: box.x + box.width + 3, top: box.y, height: box.height }}
+            onPointerDown={drag('x')}>
+            <div className="h-8 w-1 rounded-full bg-muted-foreground/50" />
+          </div>
+          <div
+            title="Drag to resize"
+            className="absolute flex h-3 cursor-ns-resize touch-none items-center justify-center rounded-sm hover:bg-accent"
+            style={{ left: box.x, top: box.y + box.height + 3, width: box.width }}
+            onPointerDown={drag('y')}>
+            <div className="h-1 w-8 rounded-full bg-muted-foreground/50" />
+          </div>
+          <div
+            title="Drag to resize"
+            className="absolute size-3 cursor-nwse-resize touch-none rounded-sm hover:bg-accent"
+            style={{ left: box.x + box.width + 3, top: box.y + box.height + 3 }}
+            onPointerDown={drag('xy')} />
+        </div>
+      )}
     </div>
   );
 }
@@ -746,7 +866,7 @@ function Toolbar({ tab, showing }) {
       )}
 
       <PickButton tab={tab} />
-      <ViewportMenu tab={tab} />
+      <ResponsiveButton tab={tab} />
       <PaneMenu tab={tab} />
       <LoadingBar tab={tab} />
     </div>
@@ -764,6 +884,7 @@ export default function BrowserView() {
   return (
     <div className="flex h-full min-h-0 flex-col" hidden={!shown || undefined}>
       {open.map(({ tab }) => <Toolbar key={tab} tab={tab} showing={tab === shown} />)}
+      {open.map(({ tab }) => <DeviceBar key={tab} tab={tab} showing={tab === shown} />)}
 
       <div className="relative min-h-0 flex-1">
         <div id="paneslot" className="absolute inset-0" />

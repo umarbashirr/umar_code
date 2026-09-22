@@ -41,6 +41,9 @@ const blank = () => ({
   drawerOpen: false,
   drawerTab: 'console',
   viewport: '',
+  // The frame's scale, pinned while a handle is being dragged. Refitting on
+  // every move would slide the handle out from under the pointer.
+  hold: null,
   picking: false,
 });
 
@@ -307,12 +310,38 @@ export function clearLogs(tab = current) {
 // ---------------------------------------------------------------- viewport
 
 export const VIEWPORTS = [
-  { size: '', label: 'Fit the pane', icon: 'scan' },
   { size: '390x844', label: 'Phone', note: '390 × 844', icon: 'smartphone' },
   { size: '768x1024', label: 'Tablet', note: '768 × 1024', icon: 'tablet' },
   { size: '1280x800', label: 'Laptop', note: '1280 × 800', icon: 'laptop' },
   { size: '1920x1080', label: 'Desktop', note: '1920 × 1080', icon: 'monitor' },
 ];
+
+export const MIN_VIEWPORT = 200;
+export const MAX_VIEWPORT = 4000;
+// Room around the frame for its handles, in the shell's CSS pixels.
+export const FRAME_EDGE = 20;
+const FRAME_TOP = 12;
+
+/* Where the device frame sits in the slot, relative to the slot. Top and
+   centred, the way Chrome's device mode has it: the right handle then only has
+   to follow the pointer if a drag grows the frame on both sides, which is what
+   the handles do. Shrunk to fit and never grown past 1. A held scale is a
+   ceiling rather than a pin, so a frame dragged into the edge of the pane
+   keeps growing by shrinking. */
+export function frameBox(slot, dims, hold = null) {
+  const room = { width: slot.width - 2 * FRAME_EDGE, height: slot.height - FRAME_TOP - FRAME_EDGE };
+  const scale = Math.max(0.05, Math.min(room.width / dims.width, room.height / dims.height, hold ?? 1));
+  const width = Math.max(1, Math.round(dims.width * scale));
+  const height = Math.max(1, Math.round(dims.height * scale));
+  return { x: (slot.width - width) / 2, y: FRAME_TOP, width, height, scale };
+}
+
+export function holdScale(scale, tab = current) {
+  if (!tab) return;
+  recordOf(tab).hold = scale;
+  changed();
+  act('syncPreviewBounds');
+}
 
 export function parseViewport(size) {
   if (!size) return null;
@@ -335,6 +364,17 @@ export function setViewport(size, tab = current) {
   const dims = parseViewport(size);
   if (!dims) return undefined;
   return window.tandem.browser.action('setViewport', dims, tab);
+}
+
+// Responsive mode starts at the size the page already has, so turning it on
+// changes nothing until you drag.
+export async function toggleResponsive(tab = current) {
+  if (!tab) return undefined;
+  if (recordOf(tab).viewport) return setViewport('', tab);
+  const b = await window.tandem.browser.action('bounds', null, tab).catch(() => null);
+  const width = Math.max(MIN_VIEWPORT, Math.round(b?.width || 0)) || 1280;
+  const height = Math.max(MIN_VIEWPORT, Math.round(b?.height || 0)) || 800;
+  return setViewport(`${width}x${height}`, tab);
 }
 
 export function rotateViewport(tab = current) {
@@ -461,6 +501,8 @@ window.tandem.browser.onState((s) => {
   const drawing = b === browserState;
   const wasLive = b.live;
   const hadError = !!b.error;
+  const hadViewport = b.viewport;
+  if (s.viewport !== undefined) b.viewport = s.viewport;
 
   // Retyping an address while the page is still loading should not have the old
   // one land back on top of it. The bar keeps a local draft while focused; the
@@ -506,7 +548,7 @@ window.tandem.browser.onState((s) => {
   // read whole when you click back to it.
   if (drawing) {
     changed();
-    if (wasLive !== b.live || hadError !== !!b.error) {
+    if (wasLive !== b.live || hadError !== !!b.error || hadViewport !== b.viewport) {
       bumpGuest();
       act('syncPreviewBounds');
     }

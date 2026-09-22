@@ -177,6 +177,7 @@ class BrowserPane extends EventEmitter {
       x: Math.round(b.x), y: Math.round(b.y),
       width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)),
     });
+    if (this.viewport) this.#emulate().catch(() => {});
   }
 
   setVisible(v) { this.view.setVisible(v); }
@@ -212,6 +213,8 @@ class BrowserPane extends EventEmitter {
       canGoBack: this.wc.navigationHistory.canGoBack(),
       canGoForward: this.wc.navigationHistory.canGoForward(),
       favicon: this.favicon || '',
+      // The agent can set this too, and the shell has to draw the frame for it.
+      viewport: this.viewport ? `${this.viewport.width}x${this.viewport.height}` : '',
     };
   }
 
@@ -416,15 +419,30 @@ class BrowserPane extends EventEmitter {
     } catch {}
   }
 
+  /* The view is the device frame the shell drew, in window pixels: shrunk to
+     fit the pane and grown by the shell's zoom. The page lays out at the size
+     asked for either way, so it is scaled to the frame, or a desktop size
+     comes out cropped and a phone size leaves a gutter. */
+  async #emulate() {
+    const { width, height } = this.viewport;
+    const frame = this.bounds?.width;
+    const scale = frame > 0 ? frame / width : 1;
+    await this.wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+      width, height, deviceScaleFactor: 0, mobile: false, scale,
+    });
+  }
+
   async setViewport(width, height) {
     if (!this.debuggerAttached) return { error: 'debugger not attached' };
-    await this.wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
-      width: Math.round(width), height: Math.round(height), deviceScaleFactor: 0, mobile: false,
-    });
+    this.viewport = { width: Math.round(width), height: Math.round(height) };
+    await this.#emulate();
+    this.emit('state', this.state());
     return { ok: true, width, height };
   }
 
   async clearViewport() {
+    this.viewport = null;
+    this.emit('state', this.state());
     if (!this.debuggerAttached) return { ok: true };
     await this.wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride');
     return { ok: true };

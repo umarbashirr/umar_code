@@ -4,7 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { layout, onRelayout, registerActions, setLayout } from './ui/shell/layout-store.js';
 import { toast } from './ui/shell/toast.jsx';
 import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
-import { navigate, pickElement, toggleDrawer, guestWanted, previewOf, parseViewport } from './ui/shell/browser-store.js';
+import { navigate, pickElement, toggleDrawer, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
 import { isPaneCovered } from './ui/shell/pane-cover.js';
 import {
   activateTab, activeKind, activeTab, carryInto, dropProject as dropTabs,
@@ -623,22 +623,14 @@ function syncBounds() {
 
   // A fixed viewport is the page's layout size. Stretching that page to fill
   // the slot is what made phone mode look unresponsive: the CSS thought it was
-  // 390px wide while the pixels were 900. Letterbox the guest to the device
-  // frame (scaled down only when the slot is smaller) and keep CDP on the
-  // logical size.
+  // 390px wide while the pixels were 900. The guest goes in the device frame
+  // instead, and main scales the page to whatever size the frame came out.
   const tab = previewInBox();
   const page = previewOf(tab);
   const dims = page.live && !page.error ? parseViewport(page.viewport) : null;
   if (dims && r.width > 0 && r.height > 0) {
-    const scale = Math.min(r.width / dims.width, r.height / dims.height, 1);
-    const width = Math.max(1, Math.round(dims.width * scale));
-    const height = Math.max(1, Math.round(dims.height * scale));
-    box = {
-      x: r.x + (r.width - width) / 2,
-      y: r.y + (r.height - height) / 2,
-      width,
-      height,
-    };
+    const f = frameBox(r, dims, page.hold);
+    box = { x: r.x + f.x, y: r.y + f.y, width: f.width, height: f.height };
   }
 
   window.tandem.browser.setBounds(inWindowPixels(box));
