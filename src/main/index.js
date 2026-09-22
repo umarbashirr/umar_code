@@ -28,6 +28,7 @@ const attachments = require('./attachments');
 const projects = require('./projects');
 const completed = require('./completed');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
+const { createChatPrefs } = require('./chat-prefs');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
@@ -84,6 +85,10 @@ let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode
 // right starting point: naming a level here would pin every chat to whatever
 // today's default happens to be and never follow it.
 let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get('agent').effort : '';
+// Mode, model and effort for each chat. The window globals above are only what
+// a brand-new chat starts on; once a chat has been given a value, it lives here
+// so switching chats cannot rewrite another one's settings under it.
+const chatPrefs = createChatPrefs();
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
@@ -237,6 +242,7 @@ function forgetChat(chat) {
   stopChat(chat);
   chatProjects.delete(chat);
   chatProviders.delete(chat);
+  chatPrefs.forget(chat);
 }
 
 function stopAllChats() {
@@ -244,6 +250,7 @@ function stopAllChats() {
   sessions.clear();
   chatProjects.clear();
   chatProviders.clear();
+  chatPrefs.clear();
   for (const l of leases.values()) l.stop();
   leases.clear();
 }
@@ -660,23 +667,32 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   const cwd = project && open.has(project) ? project : cwdOfChat(chat);
   chatProjects.set(chat, cwd);
 
+  // This chat's own prefs beat the window defaults. A parked chat resumes on
+  // what it last ran with, not on whatever the picker was showing for another
+  // chat when it woke up.
+  const prefs = chatPrefs.resolve(chat, {
+    mode: chosenMode,
+    model: modelFor(runs),
+    effort: chosenEffort || undefined,
+  });
+
   // codex reaches the preview the same way a terminal agent does, through the
   // MCP server on the bridge, so it needs the bridge's address rather than the
   // in-process tools the SDK gets. See codex.js.
   const agent = runs === 'codex'
     ? new CodexSession({
       resume: resume || null,
-      model: modelFor(runs),
-      mode: chosenMode,
-      effort: chosenEffort || undefined,
+      model: prefs.model,
+      mode: prefs.mode,
+      effort: prefs.effort || undefined,
       cwd,
       bridgeEnv: bridge.env(),
     })
     : new AgentSession({
       resume: resume || null,
-      model: modelFor(runs),
-      mode: chosenMode,
-      effort: chosenEffort || undefined,
+      model: prefs.model,
+      mode: prefs.mode,
+      effort: prefs.effort || undefined,
       cwd,
       settings: catalog.sessionSettings(cwd),
       mcpOff: catalog.offAtRuntime(cwd),
@@ -701,6 +717,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     send('agent:message', { chat, msg: lighten(m) });
   });
   agent.on('ready', (r) => {
+    if (r?.model) chatPrefs.setModel(chat, r.model);
     send('agent:ready', { ...r, chat });
     // A running session knows the account's real entitlements; the catalogue in
     // driver.js can only infer them from a version number.
@@ -710,7 +727,10 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     learnCatalog();
   });
   agent.on('permission', (p) => send('agent:permission', { ...p, chat }));
-  agent.on('mode', (m) => send('agent:mode', { ...m, chat }));
+  agent.on('mode', (m) => {
+    if (m?.mode) chatPrefs.setMode(chat, m.mode);
+    send('agent:mode', { ...m, chat });
+  });
   agent.on('error', (e) => send('agent:error', { error: e, chat }));
   agent.on('closed', () => send('agent:closed', { chat }));
   agent.on('stderr', (d) => send('agent:stderr', { data: String(d).slice(0, 2000), chat }));
@@ -930,19 +950,29 @@ function registerIpc() {
   ipcMain.handle('agent:mode', async (_e, { chat, mode }) => {
     // The last mode picked is what the next new chat starts on, and it outlives
     // the window: settings owns the same value the composer is showing.
-    if (isMode(mode)) { chosenMode = mode; settings.patch({ agent: { mode } }); }
-    return { mode: await sessions.get(chat)?.setMode(mode) ?? chosenMode };
+    if (isMode(mode)) {
+      chatPrefs.setMode(chat, mode);
+      chosenMode = mode;
+      settings.patch({ agent: { mode } });
+    }
+    const live = sessions.get(chat);
+    if (live) return { mode: await live.setMode(mode) };
+    return { mode: chatPrefs.modeOf(chat, chosenMode) };
   });
   // Answered from the driver cache. Asking the SDK would mean starting a
   // session, and the picker is drawn before anyone has said anything.
-  ipcMain.handle('agent:models', () => {
+  ipcMain.handle('agent:models', (_e, { chat } = {}) => {
     // Both drivers, so the picker can offer both. current() refreshes a stale
     // snapshot behind the caller; the idle one costs a spawn every six hours
     // and nothing at all when its CLI is not installed.
     activeDriver().current();
     driverFor(provider === 'codex' ? 'claude' : 'codex')?.current();
     const d = { ...activeDriver().current({ refresh: false }), models: allModels() };
-    const current = settleModel() || anySession()?.model || '';
+    const runs = chat ? providerOfChat(chat) : provider;
+    const fallback = modelFor(runs) || anySession()?.model || '';
+    const current = (chat
+      ? chatPrefs.modelOf(chat, sessions.get(chat)?.model || fallback)
+      : settleModel() || anySession()?.model || '') || '';
     // A name pinned against a proxy is not always one this app can see. Keep it
     // on the list rather than move someone to a different model without saying so.
     const models = current && !d.models.some((m) => m.value === current)
@@ -952,12 +982,13 @@ function registerIpc() {
     // for every model: the 5.6 line adds `ultra`, the older ones stop at xhigh.
     // Falling back to the fixed list keeps claude drawing what it always did.
     const row = models.find((m) => m.value === current);
+    const effort = chat ? chatPrefs.effortOf(chat, chosenEffort) : chosenEffort;
     return {
-      provider,
+      provider: runs,
       providers: providerStates(),
       models,
       current,
-      effort: chosenEffort,
+      effort,
       efforts: row?.effortLevels?.length ? row.effortLevels : EFFORT,
       // Whether the name in the picker is the long-context half of a pair, and
       // what the other half is called. The suffix is the whole difference.
@@ -972,30 +1003,36 @@ function registerIpc() {
   });
 
   /* Effort has no live setter: the SDK takes it when a session starts and there
-     is no equivalent of setModel for it. So the running sessions are stopped
-     and the next message on each resumes its transcript at the new level. A
-     chat mid-turn is left alone, because pulling the session out from under a
+     is no equivalent of setModel for it. So this chat's idle session is stopped
+     and the next message on it resumes its transcript at the new level. A chat
+     mid-turn is left alone, because pulling the session out from under a
      running turn to change how hard it thinks is a worse trade than the turn
-     finishing at the old level. */
-  ipcMain.handle('agent:setEffort', async (_e, { effort } = {}) => {
+     finishing at the old level. Other chats keep the level they already have. */
+  ipcMain.handle('agent:setEffort', async (_e, { chat, effort } = {}) => {
+    const key = chat || activeChat.chat;
     // Codex reports its own levels per model and the 5.6 line has one claude
     // does not, so the fixed list cannot be the only thing that says yes.
-    const row = allModels().find((m) => m.value === settleModel());
+    const model = chatPrefs.modelOf(key, settleModel());
+    const row = allModels().find((m) => m.value === model);
     const allowed = row?.effortLevels?.length ? row.effortLevels : EFFORT;
     const next = allowed.includes(effort) ? effort : '';
+    chatPrefs.setEffort(key, next);
     chosenEffort = next;
     settings.patch({ agent: { effort: next } });
-    for (const [chat, a] of [...sessions]) if (!a.busy) stopChat(chat);
-    return { effort: chosenEffort, restarted: true };
+    const a = sessions.get(key);
+    if (a && !a.busy) stopChat(key);
+    return { effort: next, restarted: true };
   });
 
   /* The million-token window is not a setting on a model, it is a different
      name for one: `opus` and `opus[1m]`. The CLI lists whichever it defaults
      to, so switching means asking for the other name. */
-  ipcMain.handle('agent:setLongContext', async (_e, { on } = {}) => {
-    const from = settleModel() || anySession()?.model || '';
+  ipcMain.handle('agent:setLongContext', async (_e, { chat, on } = {}) => {
+    const key = chat || activeChat.chat;
+    const from = chatPrefs.modelOf(key, settleModel() || anySession()?.model || '');
     if (!from || !hasLong(from)) return { error: 'that model has no long-context twin' };
     const model = on ? withLong(from) : withoutLong(from);
+    chatPrefs.setModel(key, model);
     chosenModels.claude = model;
     rememberModel('claude', model);
     // The CLI lists one half of the pair and not the other, so the name we just
@@ -1003,30 +1040,37 @@ function registerIpc() {
     // name is remembered, or the picker goes blank on a model that is running
     // perfectly well.
     const d = driver.remember(model);
-    await Promise.all(liveSessions().map((a) => a.setModel(model)));
+    await sessions.get(key)?.setModel(model);
     return { model, long: isLong(model), models: d.models };
   });
-  ipcMain.handle('agent:setModel', async (_e, { model }) => {
+  ipcMain.handle('agent:setModel', async (_e, { chat, model }) => {
+    const key = chat || activeChat.chat;
     const next = model || null;
     // Picking a codex model while claude is running is how someone switches
     // CLI. Doing it here rather than behind a separate control is the whole
     // point of one list: the model is the choice, the CLI follows it.
     if (next) await applyProvider(providerOf(next));
+    chatPrefs.setModel(key, next);
+    if (next) chatProviders.set(key, providerOf(next));
     chosenModels[provider] = next;
     rememberModel(provider, next);
     // A name no probe offered is remembered for this endpoint, so it is still
     // in the picker after a restart. Only claude keeps a hand-typed list: codex
     // answers model/list from the account, so there is nothing to type in.
     if (provider === 'claude' && next) driver.remember(next);
-    // Every chat follows the picker, and a cold one starts on the choice.
-    await Promise.all(liveSessions().map((a) => a.setModel(next)));
+    // Only this chat follows the picker. Other live chats keep the model they
+    // already have; a cold chat without its own pref still starts on the
+    // window default above.
+    await sessions.get(key)?.setModel(next);
     // The window pills are a property of the name, not a setting on the session,
     // and a codex model has no long twin. Without these the pill keeps whatever
     // the last claude model made it say and offers 1M on a model that has none.
     return { model: next, provider, models: allModels(), long: isLong(next), longCapable: hasLong(next) };
   });
-  ipcMain.handle('agent:setProvider', async (_e, { provider: next } = {}) => {
+  ipcMain.handle('agent:setProvider', async (_e, { chat, provider: next } = {}) => {
+    const key = chat || activeChat.chat;
     await applyProvider(next);
+    if (key) chatProviders.set(key, provider);
     return { provider, models: allModels(), current: settleModel() || '' };
   });
   ipcMain.handle('agent:forgetModel', (_e, { model }) => {
@@ -1069,16 +1113,14 @@ function registerIpc() {
   });
   ipcMain.handle('settings:set', async (_e, partial) => {
     const next = settings.patch(partial || {});
-    // A change to how freely the agent may act, or to which model it runs,
-    // belongs to the sessions already up rather than only to the next one.
+    // Settings are the window defaults for chats that have not picked their
+    // own. Live chats keep what they already run with; pushing these into every
+    // session would rewrite a background chat's mode or model under it.
     if (partial?.agent?.mode && isMode(partial.agent.mode)) {
       chosenMode = partial.agent.mode;
-      await Promise.all(liveSessions().map((a) => a.setMode(chosenMode)));
-      send('agent:mode', { mode: chosenMode });
     }
     if (partial?.agent?.model !== undefined) {
       chosenModels[provider] = partial.agent.model || null;
-      await Promise.all(liveSessions().map((a) => a.setModel(chosenModels[provider])));
     }
     if (partial?.claude?.binary !== undefined || partial?.codex?.binary !== undefined) {
       await applyClaudeBinary();
@@ -1264,7 +1306,7 @@ function registerIpc() {
       chosen: open.get(cwd)?.chosen ?? true,
       running: !!(a && !a.closed),
       sessionId: a?.sessionId || null,
-      mode: a?.mode || chosenMode,
+      mode: a?.mode || chatPrefs.modeOf(chat, chosenMode),
     };
   });
 
