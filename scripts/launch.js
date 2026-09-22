@@ -30,5 +30,14 @@ function sandboxUsable() {
   }
 }
 
-const child = spawn(electron, [path.join(__dirname, '..'), ...args], { stdio: 'inherit' });
+// `npm run dev` hands this script npm's own settings as npm_* variables, and
+// everything the app starts would inherit them: every terminal, every agent.
+// nvm refuses to load under npm_config_prefix, and an `npm install` the agent
+// runs would take this repo's npm settings for its own. The installed app is
+// never launched through npm, so dropping them here makes the two match.
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => !/^npm_/i.test(k) && k !== 'INIT_CWD'),
+);
+
+const child = spawn(electron, [path.join(__dirname, '..'), ...args], { stdio: 'inherit', env });
 child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
