@@ -1,9 +1,8 @@
 'use strict';
 // Local control plane. The agent running inside the terminal reaches the
 // preview pane through this: cli/tandem.js and mcp/server.js are both clients.
-// One window means one port and one token, but the window can hold several
-// projects at once, so every request carries the project it was typed in and
-// the bridge hands that along to the window.
+// The window can hold several projects at once, so every request carries the
+// project it was typed in and the bridge hands that along to the window.
 const http = require('http');
 const crypto = require('crypto');
 const path = require('path');
@@ -37,6 +36,7 @@ class Bridge {
     this.ask = ask || null;
     this.decideFn = decide || null;
     this.token = crypto.randomBytes(24).toString('hex');
+    this.debugToken = this.debug ? crypto.randomBytes(24).toString('hex') : null;
     this.server = null;
     this.port = null;
     this.started = null;
@@ -96,10 +96,16 @@ class Bridge {
     state.write(this.state);
   }
 
-  #tokenOk(sent) {
-    return typeof sent === 'string' && sent.length === this.token.length
-      && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(this.token));
+  #matches(sent, secret) {
+    if (typeof sent !== 'string' || typeof secret !== 'string') return false;
+    const a = Buffer.from(sent);
+    const b = Buffer.from(secret);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
+
+  #tokenOk(sent) { return this.#matches(sent, this.token); }
+
+  #debugOk(sent) { return this.#matches(sent, this.debugToken); }
 
   async #handle(req, res) {
     const send = (code, body) => {
@@ -126,7 +132,12 @@ class Bridge {
       return send(200, { ok: true, cwd: from || this.cwd });
     }
 
-    if (url.pathname.startsWith('/debug/') && !this.debug) return send(404, { error: 'not found' });
+    if (url.pathname.startsWith('/debug/')) {
+      if (!this.debug) return send(404, { error: 'not found' });
+      if (!this.#debugOk(req.headers['x-tandem-debug-token'])) {
+        return send(401, { error: 'bad or missing x-tandem-debug-token' });
+      }
+    }
 
     // Development aid: capture the app's own chrome, terminal side included.
     if (url.pathname === '/debug/window' && this.captureWindow) {
