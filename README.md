@@ -64,10 +64,11 @@ irm https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.ps1 | i
 ```
 
 Same release, same idea. It downloads the installer and runs it. That installer is one click: it
-lands in `%LOCALAPPDATA%\Programs\tandem` for you alone, asks for no password, puts `tandem` on PATH
-and adds "Open with Tandem" to a folder's right-click menu. Open a new terminal afterwards, or the
-one you are in will not have the new PATH. A piped script takes no arguments, so pass them through a
-script block instead:
+lands in `%LOCALAPPDATA%\Programs\tandem` for you alone, asks for no password, puts
+`%LOCALAPPDATA%\Programs\tandem\bin` on PATH (the CLI shim, not the folder that holds
+`tandem.exe`), and adds "Open with Tandem" to a folder's right-click menu. Open a new terminal
+afterwards, or the one you are in will not have the new PATH. A piped script takes no arguments, so
+pass them through a script block instead:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/umarbashirr/umar_code/main/install.ps1))) -Uninstall
