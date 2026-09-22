@@ -320,6 +320,10 @@ class AgentSession extends EventEmitter {
   }
 
   async interrupt() {
+    // Same as stop(): unanswered permission prompts are a deny, not cards that
+    // outlive the turn. Denied before the SDK interrupt so canUseTool promises
+    // resolve instead of holding interrupt() open.
+    for (const [id] of this.pending) this.decide(id, 'deny');
     try { await this.query?.interrupt(); } catch {}
     this.busy = false;
   }
