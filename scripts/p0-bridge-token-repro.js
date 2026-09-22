@@ -144,6 +144,11 @@ async function checkConstantTimeCompare() {
   if (short.status === 401) pass('short-token-rejected');
   else fail('short-token-rejected', JSON.stringify(short));
 
+  const high = String.fromCharCode(...Array(bridge.token.length).fill(0xff));
+  const highRes = await hit(bridge.url, '/tools', { 'x-tandem-token': high });
+  if (highRes.status === 401) pass('high-byte-token-rejected');
+  else fail('high-byte-token-rejected', JSON.stringify(highRes));
+
   const a = Buffer.from(bridge.token);
   const b = Buffer.from('0'.repeat(bridge.token.length));
   const equal = crypto.timingSafeEqual(a, b);

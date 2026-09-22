@@ -96,16 +96,16 @@ class Bridge {
     state.write(this.state);
   }
 
-  #tokenOk(sent) {
-    return typeof sent === 'string' && sent.length === this.token.length
-      && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(this.token));
+  #matches(sent, secret) {
+    if (typeof sent !== 'string' || typeof secret !== 'string') return false;
+    const a = Buffer.from(sent);
+    const b = Buffer.from(secret);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
-  #debugOk(sent) {
-    if (!this.debugToken) return false;
-    return typeof sent === 'string' && sent.length === this.debugToken.length
-      && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(this.debugToken));
-  }
+  #tokenOk(sent) { return this.#matches(sent, this.token); }
+
+  #debugOk(sent) { return this.#matches(sent, this.debugToken); }
 
   async #handle(req, res) {
     const send = (code, body) => {
