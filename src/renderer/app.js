@@ -4,7 +4,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { layout, onRelayout, registerActions, setLayout } from './ui/shell/layout-store.js';
 import { toast } from './ui/shell/toast.jsx';
 import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
-import { navigate, pickElement, toggleDrawer } from './ui/shell/browser-store.js';
+import { navigate, pickElement, toggleDrawer, guestWanted, previewOf, parseViewport } from './ui/shell/browser-store.js';
+import { isPaneCovered } from './ui/shell/pane-cover.js';
 import {
   activateTab, activeKind, activeTab, carryInto, dropProject as dropTabs,
   openTab, previewTabs, projectDirs, subscribeTabs,
@@ -41,7 +42,17 @@ for (const key of ['railOpen', 'rightOpen', 'previewFull', 'panelOpen']) {
 onRelayout(() => { resizeActive(); syncPreview(); });
 
 // What the stores cannot do for themselves without importing this file back.
-registerActions({ openPreview: () => openPreview(), toast });
+registerActions({
+  openPreview: () => openPreview(),
+  toast,
+  syncGuestVisibility,
+  syncPreviewBounds: () => syncBounds(),
+});
+
+function syncGuestVisibility() {
+  if (isPaneCovered()) return;
+  window.tandem.browser.setVisible(guestWanted());
+}
 
 // ------------------------------------------------------------- preferences
 
@@ -589,6 +600,7 @@ function syncPreview() {
     window.tandem.browser.show(id);
   }
   syncBounds();
+  syncGuestVisibility();
 }
 
 function syncBounds() {
@@ -604,8 +616,32 @@ function syncBounds() {
     }));
     return;
   }
-  const r = $('#paneslot').getBoundingClientRect();
-  window.tandem.browser.setBounds(inWindowPixels({ x: r.x, y: r.y, width: r.width, height: r.height }));
+  const slot = $('#paneslot');
+  if (!slot) return;
+  const r = slot.getBoundingClientRect();
+  let box = { x: r.x, y: r.y, width: r.width, height: r.height };
+
+  // A fixed viewport is the page's layout size. Stretching that page to fill
+  // the slot is what made phone mode look unresponsive: the CSS thought it was
+  // 390px wide while the pixels were 900. Letterbox the guest to the device
+  // frame (scaled down only when the slot is smaller) and keep CDP on the
+  // logical size.
+  const tab = previewInBox();
+  const page = previewOf(tab);
+  const dims = page.live && !page.error ? parseViewport(page.viewport) : null;
+  if (dims && r.width > 0 && r.height > 0) {
+    const scale = Math.min(r.width / dims.width, r.height / dims.height, 1);
+    const width = Math.max(1, Math.round(dims.width * scale));
+    const height = Math.max(1, Math.round(dims.height * scale));
+    box = {
+      x: r.x + (r.width - width) / 2,
+      y: r.y + (r.height - height) / 2,
+      width,
+      height,
+    };
+  }
+
+  window.tandem.browser.setBounds(inWindowPixels(box));
 }
 
 // --------------------------------------------------------- right column
@@ -702,7 +738,20 @@ function hideRight() {
 
 function openPreview(focusUrl = false) {
   showRight('browser');
-  if (focusUrl && !state.paneLive) requestAnimationFrame(() => { $('#url').focus(); $('#url').select(); });
+  if (!focusUrl) return;
+  // The address bar only mounts after React commits a visible browser toolbar.
+  const focus = () => {
+    const box = $('#url');
+    if (!box) return false;
+    box.focus();
+    box.select();
+    return true;
+  };
+  if (focus()) return;
+  requestAnimationFrame(() => {
+    if (focus()) return;
+    setTimeout(focus, 50);
+  });
 }
 
 // Asked to hide the preview while the tree or the diff is showing, there is no
@@ -846,7 +895,7 @@ window.addEventListener('keydown', (e) => {
   else if (mod && shift && k === 'g') { e.preventDefault(); toggleChanges(); }
   else if (mod && shift && k === 't') { e.preventDefault(); newTerminalTab(); }
   else if (mod && shift && k === 'k') { e.preventDefault(); document.querySelector('#agent-root [contenteditable="true"]')?.focus(); }
-  else if (mod && shift && k === 'l') { e.preventDefault(); openPreview(); $('#url')?.select(); $('#url')?.focus(); }
+  else if (mod && shift && k === 'l') { e.preventDefault(); openPreview(true); }
   else if (mod && shift && k === 'e') { e.preventDefault(); pickElement(); }
   else if (mod && shift && k === 'j') { e.preventDefault(); toggleDrawer(); }
   else if (mod && e.key >= '1' && e.key <= '9' && state.panelOpen) {

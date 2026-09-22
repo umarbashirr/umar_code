@@ -17,7 +17,7 @@
    what they say still lands here: a build error a tab logged while you were
    reading another one is in its console when you click over to it. */
 'use strict';
-import { layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
+import { act, layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
 import { activateTab, activeTab, openTab, previewTabs, setTabTitle, subscribeTabs } from './tabs-store.js';
 import { toast } from './toast.jsx';
 
@@ -35,6 +35,7 @@ const blank = () => ({
   loading: false,
   status: '',
   error: null,
+  favicon: '',
   console: [],
   network: [],
   drawerOpen: false,
@@ -42,6 +43,19 @@ const blank = () => ({
   viewport: '',
   picking: false,
 });
+
+/* Whether the native guest should paint in the hole. Empty and error Stages
+   own that rectangle in the shell document, and the guest composites above it,
+   so those states must keep the view hidden. Menu cover is a separate layer
+   (pane-cover.js) and is applied on top of this answer. */
+export function guestWanted() {
+  const tab = onScreen();
+  if (!tab) return false;
+  const b = previewOf(tab);
+  return !!(b.live && !b.error);
+}
+
+const bumpGuest = () => act('syncGuestVisibility');
 
 const byTab = new Map(); // tab id -> record
 const ownerOf = new Map(); // tab id -> the folder whose strip that tab is in
@@ -190,6 +204,7 @@ function syncPreview() {
   if (mark === drawn) return;
   drawn = mark;
   changed();
+  bumpGuest();
 }
 
 /* Bring a preview forward: its folder's strip goes to it and the column opens.
@@ -299,15 +314,34 @@ export const VIEWPORTS = [
   { size: '1920x1080', label: 'Desktop', note: '1920 × 1080', icon: 'monitor' },
 ];
 
+export function parseViewport(size) {
+  if (!size) return null;
+  const m = /^(\d+)x(\d+)$/.exec(String(size));
+  if (!m) return null;
+  const width = Number(m[1]);
+  const height = Number(m[2]);
+  if (!width || !height) return null;
+  return { width, height };
+}
+
 // A viewport belongs to the preview it was chosen in: the phone frame you put
 // the marketing page in is no reason to shrink the admin page beside it.
 export function setViewport(size, tab = current) {
   if (!tab) return undefined;
-  recordOf(tab).viewport = size;
+  recordOf(tab).viewport = size || '';
   changed();
+  act('syncPreviewBounds');
   if (!size) return window.tandem.browser.action('setViewport', null, tab);
-  const [width, height] = size.split('x').map(Number);
-  return window.tandem.browser.action('setViewport', { width, height }, tab);
+  const dims = parseViewport(size);
+  if (!dims) return undefined;
+  return window.tandem.browser.action('setViewport', dims, tab);
+}
+
+export function rotateViewport(tab = current) {
+  if (!tab) return undefined;
+  const dims = parseViewport(recordOf(tab).viewport);
+  if (!dims) return undefined;
+  return setViewport(`${dims.height}x${dims.width}`, tab);
 }
 
 // ------------------------------------------------------------------ tools
@@ -359,6 +393,57 @@ export function askAboutError(tab = current) {
   );
 }
 
+// --------------------------------------------------------------- recents
+
+const RECENTS_KEY = 'tandem.browser.recents';
+const MAX_RECENTS = 12;
+
+function loadRecents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((e) => e && e.url).slice(0, MAX_RECENTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+let recents = loadRecents();
+const servers = new Map(); // project -> { url, at }
+
+function saveRecents() {
+  try { localStorage.setItem(RECENTS_KEY, JSON.stringify(recents)); } catch { /* quota */ }
+}
+
+function rememberVisit(url, title) {
+  if (!url || url === 'about:blank') return;
+  const full = /^(https?:\/\/)/i.test(url) ? url : `http://${url}`;
+  recents = [
+    { url: full, title: title || '', at: Date.now() },
+    ...recents.filter((e) => e.url !== full),
+  ].slice(0, MAX_RECENTS);
+  saveRecents();
+  changed({ soon: true });
+}
+
+export const recentUrls = () => recents;
+
+export function removeRecent(url) {
+  recents = recents.filter((e) => e.url !== url);
+  saveRecents();
+  changed();
+}
+
+export function localServers(project = focusedDir) {
+  const hit = servers.get(project);
+  return hit ? [hit] : [];
+}
+
+export function rememberServer(url, project) {
+  if (!url || !project) return;
+  servers.set(project, { url, at: Date.now() });
+  changed({ soon: true });
+}
+
 // ------------------------------------------------------------------ wiring
 
 /* Nothing below tells main to make a pane visible. `show` names the one preview
@@ -374,12 +459,14 @@ window.tandem.browser.onState((s) => {
   const b = recordOf(tab);
   if (s.project) ownerOf.set(tab, s.project);
   const drawing = b === browserState;
+  const wasLive = b.live;
+  const hadError = !!b.error;
 
   // Retyping an address while the page is still loading should not have the old
-  // one land back on top of it. Only the tab with the bar on screen can be
-  // typed in, and it is the only one wearing the id.
-  const editing = drawing && document.activeElement?.id === 'url';
-  if (!editing && s.url && s.url !== 'about:blank') {
+  // one land back on top of it. The bar keeps a local draft while focused; the
+  // record still tracks the real page so a blur or an agent navigation can
+  // catch up.
+  if (s.url && s.url !== 'about:blank') {
     const m = /^(https?:\/\/)(.*)$/.exec(s.url);
     b.scheme = m ? (m[1] === 'https://' ? '' : 'http://') : '';
     b.url = m ? m[2] : s.url;
@@ -387,11 +474,14 @@ window.tandem.browser.onState((s) => {
 
   b.canGoBack = !!s.canGoBack;
   b.canGoForward = !!s.canGoForward;
+  if (s.favicon !== undefined) b.favicon = s.favicon || '';
 
   if (s.error) {
     b.error = { message: s.error, url: s.failedUrl || s.url };
     if (drawing) reveal(tab);
-  } else if (s.loading || s.url) {
+  } else if (s.loading) {
+    // A new load attempt retires the previous failure. A later stop-loading
+    // event still carries the failed URL and must not wipe the error card.
     b.error = null;
   }
 
@@ -408,9 +498,19 @@ window.tandem.browser.onState((s) => {
   const owner = ownerOf.get(tab);
   if (owner) setTabTitle(owner, tab, empty ? '' : (s.title || b.url));
 
+  if (b.live && !b.loading && !b.error && s.url && s.url !== 'about:blank') {
+    rememberVisit(s.url, s.title || '');
+  }
+
   // Nothing on screen moved for a tab that is not drawing, and its record is
   // read whole when you click back to it.
-  if (drawing) changed();
+  if (drawing) {
+    changed();
+    if (wasLive !== b.live || hadError !== !!b.error) {
+      bumpGuest();
+      act('syncPreviewBounds');
+    }
+  }
 });
 
 window.tandem.browser.onConsole((c) => {
@@ -437,6 +537,7 @@ window.tandem.browser.onOpenTab(({ project, tab }) => {
 });
 
 window.tandem.term.onUrl(({ url, project }) => {
+  rememberServer(url, project);
   if (autoOpen.has(project)) { navigate(url, project); return; }
   // A shell in a folder you are not looking at prints an address too, and it is
   // that folder's preview the address belongs in, so say whose it is.
@@ -461,6 +562,7 @@ function projectsChanged(info) {
   for (const [tab, owner] of ownerOf) if (!open.has(owner)) forget(tab);
   for (const key of [...lastPreview.keys()]) if (!open.has(key)) lastPreview.delete(key);
   for (const key of [...autoOpen]) if (!open.has(key)) autoOpen.delete(key);
+  for (const key of [...servers.keys()]) if (!open.has(key)) servers.delete(key);
 
   focusedDir = dir;
   syncPreview();
