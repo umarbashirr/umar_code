@@ -14,19 +14,24 @@ function namesFor(base) {
   return out;
 }
 
-function findOnPath(binaries) {
+function findOnPath(binaries, accept) {
   const names = namesFor(binaries);
   for (const dir of (shellEnv.cached() || '').split(path.delimiter)) {
     if (!dir) continue;
     for (const name of names) {
       const candidate = path.join(dir, name);
-      try { if (fs.existsSync(candidate)) return fs.realpathSync(candidate); } catch {}
+      try {
+        if (!fs.existsSync(candidate)) continue;
+        const realPath = fs.realpathSync(candidate);
+        if (typeof accept === 'function' && !accept(realPath, name)) continue;
+        return realPath;
+      } catch {}
     }
   }
   return null;
 }
 
-function makeLocator(binaries) {
+function makeLocator(binaries, accept) {
   let preferred = null;
   return {
     prefer(p) {
@@ -37,7 +42,7 @@ function makeLocator(binaries) {
       if (preferred) {
         try { if (fs.existsSync(preferred)) return preferred; } catch {}
       }
-      return findOnPath(binaries);
+      return findOnPath(binaries, accept);
     },
   };
 }
