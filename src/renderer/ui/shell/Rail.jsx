@@ -14,6 +14,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
+import { railBadge } from './chat-attention.js';
+import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
@@ -75,6 +77,8 @@ function Row({ chat, current, onDelete }) {
   // is no session id to write down against it.
   const saved = !!chat.id && chat.id !== chat.key;
   const Icon = done ? CircleCheckIcon : current ? MessageSquareDotIcon : MessageSquareIcon;
+  const badge = railBadge(chat);
+  const marked = !!(chat.busy || chat.waiting);
 
   return (
     /* The chat you are in thickens the guide line beside it. The row already
@@ -93,12 +97,17 @@ function Row({ chat, current, onDelete }) {
         onClick={() => { if (!current) window.tandemChat?.open(chat); }}>
         <Icon />
         <span className="truncate">{chat.title}</span>
-        {chat.busy && (
-          <Badge variant="secondary" className="ml-auto shrink-0 px-1.5 py-0 text-[10px]">
-            {chat.agents ? `${chat.agents} agents` : 'working'}
+        {badge && (
+          <Badge
+            variant="secondary"
+            className={cn(
+              'ml-auto shrink-0 px-1.5 py-0 text-[10px]',
+              badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
+            )}>
+            {badge.label}
           </Badge>
         )}
-        <span className={`shrink-0 text-[11px] text-muted-foreground${chat.busy ? '' : ' ml-auto'}`}>
+        <span className={`shrink-0 text-[11px] text-muted-foreground${marked ? '' : ' ml-auto'}`}>
           {relative(chat.at)}
         </span>
       </SidebarMenuButton>
