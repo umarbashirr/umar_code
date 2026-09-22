@@ -21,6 +21,9 @@ const MAX_INFLIGHT = 500;
 // them. Keep a working set; the agent only ever looks at the recent ones.
 const MAX_SHOTS = 60;
 
+const ERR_ABORTED = -3;
+const isMainFrameNavFail = (isMainFrame, code) => isMainFrame && code !== ERR_ABORTED;
+
 const KEY_ALIASES = {
   enter: 'Return', esc: 'Escape', escape: 'Escape', tab: 'Tab', backspace: 'Backspace',
   delete: 'Delete', up: 'Up', down: 'Down', left: 'Left', right: 'Right',
@@ -81,7 +84,7 @@ class BrowserPane extends EventEmitter {
       push();
     });
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
-      if (isMainFrame && code !== -3) {
+      if (isMainFrameNavFail(isMainFrame, code)) {
         this.network.push({ t: Date.now(), kind: 'navigation-failed', url, code, desc });
         // failedUrl matters: after a failed load getURL() can still report the
         // previous page, and the error card needs the address that broke.
@@ -224,14 +227,19 @@ class BrowserPane extends EventEmitter {
     }
     const done = new Promise((res) => {
       const finish = () => { clearTimeout(t); cleanup(); res(); };
-      const fail = (_e, code, desc) => { clearTimeout(t); cleanup(); res({ error: `${desc} (${code})` }); };
+      const fail = (_e, code, desc, _url, isMainFrame) => {
+        if (!isMainFrameNavFail(isMainFrame, code)) return;
+        clearTimeout(t);
+        cleanup();
+        res({ error: `${desc} (${code})` });
+      };
       const cleanup = () => {
         this.wc.off('did-finish-load', finish);
         this.wc.off('did-fail-load', fail);
       };
       const t = setTimeout(() => { cleanup(); res({ warning: 'load timed out, returning current state' }); }, timeout);
       this.wc.once('did-finish-load', finish);
-      this.wc.once('did-fail-load', fail);
+      this.wc.on('did-fail-load', fail);
     });
     this.console.length = 0;
     this.network.length = 0;
@@ -300,7 +308,7 @@ class BrowserPane extends EventEmitter {
   async type(text, { target, delay = 12 } = {}) {
     if (target) await this.#js(`window.__tandem.focus(${JSON.stringify(target)})`);
     for (const ch of String(text)) {
-      this.wc.sendInputEvent({ type: 'char', keyCode: ch });
+      this.#sendKey(ch);
       if (delay) await sleep(delay);
     }
     return { ok: true, typed: text.length };
@@ -311,15 +319,19 @@ class BrowserPane extends EventEmitter {
     const raw = parts.pop();
     const mods = [...modifiers, ...parts.map((m) => m.toLowerCase().replace('cmd', 'meta').replace('ctrl', 'control'))];
     const keyCode = KEY_ALIASES[raw.toLowerCase()] || raw;
-    this.wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers: mods });
-    // Chromium only runs the default action (implicit form submit, text entry)
-    // when a char event follows the keydown.
-    if (keyCode.length === 1) this.wc.sendInputEvent({ type: 'char', keyCode, modifiers: mods });
-    else if (keyCode === 'Return') this.wc.sendInputEvent({ type: 'char', keyCode: '\r', modifiers: mods });
-    else if (keyCode === 'Tab') this.wc.sendInputEvent({ type: 'char', keyCode: '\t', modifiers: mods });
-    this.wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers: mods });
+    this.#sendKey(keyCode, mods);
     await sleep(80);
     return { ok: true, key: `${mods.join('+')}${mods.length ? '+' : ''}${keyCode}` };
+  }
+
+  #sendKey(keyCode, modifiers = []) {
+    this.wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+    // Chromium only runs the default action (implicit form submit, text entry)
+    // when a char event follows the keydown.
+    if (keyCode.length === 1) this.wc.sendInputEvent({ type: 'char', keyCode, modifiers });
+    else if (keyCode === 'Return') this.wc.sendInputEvent({ type: 'char', keyCode: '\r', modifiers });
+    else if (keyCode === 'Tab') this.wc.sendInputEvent({ type: 'char', keyCode: '\t', modifiers });
+    this.wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
   }
 
   async scroll(dy = 400, dx = 0) { return this.#js(`window.__tandem.scroll(${Number(dy)}, ${Number(dx)})`); }

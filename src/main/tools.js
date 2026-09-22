@@ -7,7 +7,7 @@ const TOOLS = {
   back: { args: '{}', help: 'Go back one entry in history.' },
   forward: { args: '{}', help: 'Go forward one entry in history.' },
   reload: { args: '{}', help: 'Reload the current page.' },
-  snapshot: { args: '{ max? }', help: 'Accessibility-style outline of the page with [ref=eN] handles. Start here: refs feed click/fill/hover.' },
+  snapshot: { args: '{ max? }', help: 'Accessibility-style outline of the page with [ref=eN] handles, including same-origin iframes. Start here: refs feed click/fill/hover.' },
   text: { args: '{ max? }', help: 'Visible text of the page.' },
   html: { args: '{ max? }', help: 'Raw outer HTML.' },
   click: { args: '{ target, button?, clickCount?, modifiers? }', help: 'Click a ref from snapshot or a CSS selector, using a real mouse event.' },
