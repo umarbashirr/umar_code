@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, BrainIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
-  FolderIcon, GaugeIcon, GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
+  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
+  FolderIcon, GitBranchIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
   PromptInput, PromptInputBody, PromptInputHeader, PromptInputFooter,
   PromptInputTools, PromptInputSubmit,
-  PromptInputSelect, PromptInputSelectTrigger, PromptInputSelectContent,
-  PromptInputSelectItem, PromptInputSelectValue,
 } from '@/components/ai-elements/prompt-input';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { isHidden } from '@/lib/cursor-models';
@@ -126,6 +124,14 @@ function ModelItems({ rows, current, onPick }) {
 
 const chooseModels = () => window.tandemChat?.settings('cursor-models');
 
+const capitalized = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/* One button for the model and the two settings that ride on it, how hard it
+   thinks and how long a window it gets. Effort was never passed to the CLI
+   before, and the long window is a second name for a model rather than a
+   setting on it, so the list only ever showed whichever half the CLI
+   defaulted to. The label names only what was chosen: default effort and a
+   model with one window say nothing. */
 function ModelPicker({ agent, hidden }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
@@ -136,6 +142,7 @@ function ModelPicker({ agent, hidden }) {
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
   const nested = groups.length > 1;
+  const { on: long, capable } = agent.longContext || {};
 
   const done = (value) => {
     setTyping(false);
@@ -157,7 +164,7 @@ function ModelPicker({ agent, hidden }) {
           if (e.key === 'Enter') { e.preventDefault(); done(draft.trim()); }
           if (e.key === 'Escape') { e.preventDefault(); setTyping(false); setDraft(''); }
         }}
-        className="h-7 w-56 px-2 text-xs" />
+        className="ml-auto h-7 w-56 min-w-0 shrink px-2 text-xs" />
     );
   }
 
@@ -165,17 +172,22 @@ function ModelPicker({ agent, hidden }) {
   // a proxy routes names no probe here can see, and a chat resumed on one would
   // otherwise leave the button blank.
   const row = agent.models.find((m) => m.value === agent.model);
-  const label = row ? cleanModelName(row) : agent.model || 'Pick a model';
+  const label = [
+    row ? cleanModelName(row) : agent.model || 'Pick a model',
+    agent.effort && capitalized(agent.effort),
+    capable && (long ? '1M' : '200K'),
+  ].filter(Boolean).join(' · ');
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Pill className="rounded-md px-2 font-medium text-xs hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
+        <Pill
+          className="ml-auto shrink rounded-md px-2 font-medium text-foreground/80 text-xs hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
           <span className="min-w-0 truncate">{label}</span>
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Pill>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-44">
+      <DropdownMenuContent align="end" className="min-w-44">
         {/* One CLI installed means one submenu, and a submenu you have to open
             to reach the only thing inside it is a click charged for nothing. */}
         {groups.map((g) => {
@@ -235,6 +247,47 @@ function ModelPicker({ agent, hidden }) {
           );
         })}
         <DropdownMenuSeparator />
+        {/* Empty effort means the CLI's own default. It is a level you can
+            return to because "whatever Claude Code does" is a real answer, and
+            pinning today's default would stop it following. Picking the level
+            already set is skipped, since changeEffort treats that as a toggle
+            back to the default. */}
+        {agent.efforts?.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              Effort
+              <span className="ml-auto pl-4 text-muted-foreground text-xs">
+                {agent.effort ? capitalized(agent.effort) : 'Default'}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="min-w-36">
+              <DropdownMenuRadioGroup
+                value={agent.effort || 'default'}
+                onValueChange={(v) => { if (v !== (agent.effort || 'default')) agent.changeEffort(v === 'default' ? '' : v); }}>
+                <DropdownMenuRadioItem value="default">Default effort</DropdownMenuRadioItem>
+                {agent.efforts.map((level) => (
+                  <DropdownMenuRadioItem key={level} value={level}>{capitalized(level)}</DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        {capable && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              Context window
+              <span className="ml-auto pl-4 text-muted-foreground text-xs">{long ? '1M' : '200K'}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="min-w-36">
+              <DropdownMenuRadioGroup
+                value={long ? '1M' : '200K'}
+                onValueChange={(v) => { if ((v === '1M') !== !!long) agent.changeLongContext(v === '1M'); }}>
+                <DropdownMenuRadioItem value="200K">200K</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="1M">1M</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         {/* A proxy routes whatever names its owner configured, and no probe
             here can be sure it has seen all of them. */}
         <DropdownMenuItem onSelect={() => setTyping(true)}>Type a model name…</DropdownMenuItem>
@@ -243,52 +296,39 @@ function ModelPicker({ agent, hidden }) {
   );
 }
 
-/* How hard the model thinks, and how long a window it gets. Both sit next to
-   the model because both are about the same choice, and neither was reachable
-   before: effort was never passed to the CLI at all, and the long window is a
-   second name for a model rather than a setting on it, so the list only ever
-   showed whichever half the CLI defaulted to.
-
-   Empty effort means the CLI's own default. It is offered as a level you can
-   return to rather than left off the list, because "whatever Claude Code does"
-   is a real answer and pinning it to today's default would stop it following. */
-function ThinkingPicker({ agent }) {
-  if (!agent.efforts?.length) return null;
-
+// Shift+Tab still walks the modes in order. The menu is for landing on one
+// directly, which from the far end of the list is six presses otherwise.
+function ModeMenu({ agent }) {
   return (
-    <PromptInputSelect value={agent.effort || 'default'} onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
-      <PromptInputSelectTrigger className="h-7 min-w-0 gap-1.5 rounded-md px-2 text-xs">
-        <BrainIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        {/* The brain says what the control is. "Default effort" is the longest
-            label down here and the first thing worth losing. */}
-        <span className="min-w-0 truncate @max-[300px]/tools:hidden">
-          <PromptInputSelectValue />
-        </span>
-      </PromptInputSelectTrigger>
-      <PromptInputSelectContent>
-        <PromptInputSelectItem value="default">Default effort</PromptInputSelectItem>
-        {agent.efforts.map((level) => (
-          <PromptInputSelectItem key={level} value={level}>{`${level} effort`}</PromptInputSelectItem>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant={agent.mode !== 'ask' ? 'default' : 'outline'}
+          size="xs"
+          className="h-7 min-w-0 shrink gap-1.5 rounded-full px-3 font-normal"
+          title={MODES.find(([v]) => v === agent.mode)?.[2]}>
+          <span className="min-w-0 truncate">{MODE_LABEL[agent.mode] || agent.mode}</span>
+          <span className={cn('font-mono text-[10px]', agent.mode !== 'ask' ? 'opacity-70' : 'text-muted-foreground/70')}>
+            ⇧Tab
+          </span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        {MODES.map(([value, label, note]) => (
+          <DropdownMenuItem
+            key={value}
+            onSelect={() => { if (value !== agent.mode) agent.changeMode(value); }}
+            className="items-start">
+            <span className="flex min-w-0 flex-col">
+              <span>{label}</span>
+              <span className="text-muted-foreground text-xs">{note}</span>
+            </span>
+            {value === agent.mode && <CheckIcon className="mt-0.5 ml-auto size-3.5" />}
+          </DropdownMenuItem>
         ))}
-      </PromptInputSelectContent>
-    </PromptInputSelect>
-  );
-}
-
-function ContextPill({ agent }) {
-  const { on, capable } = agent.longContext || {};
-  if (!capable) return null;
-
-  return (
-    <Pill
-      title={on
-        ? 'Running the million-token window. Click for the ordinary one.'
-        : 'Running the ordinary window. Click for the million-token one.'}
-      className={on ? 'text-foreground/80' : undefined}
-      onClick={() => agent.changeLongContext(!on)}>
-      <GaugeIcon className="size-3.5 shrink-0" />
-      {on ? '1M' : '200K'}
-    </Pill>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -301,24 +341,6 @@ function Pill({ className, children, ...props }) {
       className={cn('h-7 min-w-0 gap-1.5 font-normal text-muted-foreground', className)}
       {...props}>
       {children}
-    </Button>
-  );
-}
-
-function Chip({ active, shortcut, children, ...props }) {
-  return (
-    <Button
-      type="button"
-      variant={active ? 'default' : 'outline'}
-      size="xs"
-      className="h-7 gap-1.5 rounded-full px-3 font-normal"
-      {...props}>
-      {children}
-      {shortcut && (
-        <span className={cn('font-mono text-[10px]', active ? 'opacity-70' : 'text-muted-foreground/70')}>
-          {shortcut}
-        </span>
-      )}
     </Button>
   );
 }
@@ -549,91 +571,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
-      {/* What the agent is pointed at: the folder, the branch, and how freely it
-          is allowed to act there.
-
-          It wraps. Every pill in here is a Button, and shadcn's Button carries
-          shrink-0, so in a narrow pane the row could only grow past the edge:
-          the branch ended up half cut off and the chat pane grew a horizontal
-          scrollbar under everything. A second line costs 28px and is the whole
-          row rather than most of it. */}
-      <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-0.5 gap-y-1 px-1">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Pill className="max-w-full font-medium text-foreground/80">
-              <FolderIcon className="size-3.5 shrink-0" />
-              <span className="truncate">{project.name || 'no folder'}</span>
-              <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
-            </Pill>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="max-w-[380px]">
-            <DropdownMenuLabel className="font-normal text-muted-foreground text-xs">
-              {shortPath(project.dir, window_.home)}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => window.tandem.project.open({})}>Open folder…</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => window.tandem.project.open({ newWindow: true })}>
-              Open folder in new window…
-            </DropdownMenuItem>
-            {/* The folders already open here. The label on this menu names the
-                folder the chat runs in, so picking one has to move the chat and
-                not only the window: it used to move the window alone, which left
-                the label naming the folder you had just picked your way out of
-                and the next message running in it. Nothing starts and nothing
-                stops, which is what separates this from opening a folder. */}
-            {window_.projects?.length > 1 && <DropdownMenuSeparator />}
-            {window_.projects?.length > 1 && window_.projects.map((p) => (
-              <DropdownMenuItem
-                key={p.dir}
-                onSelect={() => { window.tandem.project.focus(p.dir); agent.setProject?.(p.dir); }}>
-                <FolderIcon className="size-3.5 text-muted-foreground" />
-                <span className="truncate">{p.name}</span>
-                {p.dir === project.dir && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
-              </DropdownMenuItem>
-            ))}
-            {window_.recents.length > 0 && <DropdownMenuSeparator />}
-            {window_.recents.slice(0, 6).map((r) => (
-              <DropdownMenuItem key={r.path} onSelect={() => window.tandem.project.open({ dir: r.path })}>
-                <FolderIcon className="size-3.5 text-muted-foreground" />
-                <span className="truncate">{r.name}</span>
-                <span className="ml-auto truncate text-muted-foreground text-xs" dir="rtl">
-                  {shortPath(r.path, window_.home)}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {project.branch && (
-          <Pill
-            tabIndex={-1}
-            className="pointer-events-none"
-            title={`${shortPath(project.dir, window_.home)} is on ${project.branch}`}>
-            <GitBranchIcon className="size-3.5 shrink-0" />
-            <span className="truncate">{project.branch}</span>
-          </Pill>
-        )}
-
-        <PromptInputSelect value={agent.mode} onValueChange={agent.changeMode}>
-          <PromptInputSelectTrigger className="h-7 gap-1.5 rounded-md px-2 font-normal text-xs">
-            <PromptInputSelectValue />
-          </PromptInputSelectTrigger>
-          <PromptInputSelectContent>
-            {MODES.map(([value, label, note]) => (
-              <PromptInputSelectItem key={value} value={value} title={note}>{label}</PromptInputSelectItem>
-            ))}
-          </PromptInputSelectContent>
-        </PromptInputSelect>
-
-        <Pill
-          onClick={() => setShowCatalog(true)}
-          title="Skills and MCP servers this folder offers the agent">
-          <PlugZapIcon className="size-3.5 shrink-0" />
-          <span>{catalog.skills.length} skills</span>
-          {catalog.mcp.length > 0 && <span>· {catalog.mcp.length} MCP</span>}
-        </Pill>
-      </div>
-
       <CatalogDialog catalog={catalog} open={showCatalog} onOpenChange={setShowCatalog} />
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
@@ -731,14 +668,11 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
           </PromptInputBody>
 
           <PromptInputFooter className="px-3 pb-3">
-            {/* The row shrinks now. It used to size to its contents and slide
-                under the send button in a narrow window, which is where the
-                effort control was going when the pane got tight: still there,
-                still clickable, half of it under a circle. Everything inside
-                gives up its label before the row gives up its edge, and the
-                measure is the row rather than the window, so it holds at any
-                split of the panes. */}
-            <PromptInputTools className="@container/tools min-w-0 flex-1 gap-1.5">
+            {/* The row shrinks. It used to size to its contents and slide under
+                the send button in a narrow window, still clickable, half of it
+                under a circle. The mode and model labels truncate before the
+                row gives up its edge. */}
+            <PromptInputTools className="min-w-0 flex-1 gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -768,6 +702,8 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
                 </DropdownMenuContent>
               </DropdownMenu>
 
+              <ModeMenu agent={agent} />
+
               {agent.models.length === 0 && agent.driver?.message && (
                 // Not installed is the one worth clicking: the Agent tab names
                 // what to run, and there is no chat at all until it is there.
@@ -787,8 +723,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
                   models still needs a way to name one, and with no CLI at all
                   the menu is the thing that says which ones to install. */}
               <ModelPicker agent={agent} hidden={hiddenModels} />
-              <ContextPill agent={agent} />
-              <ThinkingPicker agent={agent} />
             </PromptInputTools>
 
             <PromptInputSubmit
@@ -802,17 +736,87 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
         </PromptInput>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 px-1">
-        <Chip
-          active={agent.mode !== 'ask'}
-          shortcut="⇧Tab"
-          onClick={cycleMode}
-          title={MODES.find(([v]) => v === agent.mode)?.[2]}>
-          {MODE_LABEL[agent.mode] || agent.mode}
-        </Chip>
+      {/* What the agent is pointed at, kept quiet under the box because it is
+          read far more often than it is changed.
 
-        <UsageMeter usage={agent.usage} chat={agent.activeKey} />
+          It wraps. Every pill in here is a Button, and shadcn's Button carries
+          shrink-0, so in a narrow pane the row could only grow past the edge:
+          the branch ended up half cut off and the chat pane grew a horizontal
+          scrollbar under everything. A second line costs 24px and is the whole
+          row rather than most of it. */}
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-0.5 gap-y-1 px-1 text-muted-foreground/60 text-[11px]">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Pill className="h-6 max-w-full px-1.5 text-[11px]">
+              <FolderIcon className="size-3 shrink-0" />
+              <span className="truncate">{project.name || 'no folder'}</span>
+              <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
+            </Pill>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="max-w-[380px]">
+            <DropdownMenuLabel className="font-normal text-muted-foreground text-xs">
+              {shortPath(project.dir, window_.home)}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => window.tandem.project.open({})}>Open folder…</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => window.tandem.project.open({ newWindow: true })}>
+              Open folder in new window…
+            </DropdownMenuItem>
+            {/* The folders already open here. The label on this menu names the
+                folder the chat runs in, so picking one has to move the chat and
+                not only the window: it used to move the window alone, which left
+                the label naming the folder you had just picked your way out of
+                and the next message running in it. Nothing starts and nothing
+                stops, which is what separates this from opening a folder. */}
+            {window_.projects?.length > 1 && <DropdownMenuSeparator />}
+            {window_.projects?.length > 1 && window_.projects.map((p) => (
+              <DropdownMenuItem
+                key={p.dir}
+                onSelect={() => { window.tandem.project.focus(p.dir); agent.setProject?.(p.dir); }}>
+                <FolderIcon className="size-3.5 text-muted-foreground" />
+                <span className="truncate">{p.name}</span>
+                {p.dir === project.dir && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
+              </DropdownMenuItem>
+            ))}
+            {window_.recents.length > 0 && <DropdownMenuSeparator />}
+            {window_.recents.slice(0, 6).map((r) => (
+              <DropdownMenuItem key={r.path} onSelect={() => window.tandem.project.open({ dir: r.path })}>
+                <FolderIcon className="size-3.5 text-muted-foreground" />
+                <span className="truncate">{r.name}</span>
+                <span className="ml-auto truncate text-muted-foreground text-xs" dir="rtl">
+                  {shortPath(r.path, window_.home)}
+                </span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {project.branch && <span aria-hidden="true">·</span>}
+        {project.branch && (
+          <Pill
+            tabIndex={-1}
+            className="pointer-events-none h-6 px-1.5 text-[11px]"
+            title={`${shortPath(project.dir, window_.home)} is on ${project.branch}`}>
+            <GitBranchIcon className="size-3 shrink-0" />
+            <span className="truncate">{project.branch}</span>
+          </Pill>
+        )}
+
+        <span aria-hidden="true">·</span>
+        <Pill
+          className="h-6 px-1.5 text-[11px]"
+          onClick={() => setShowCatalog(true)}
+          title="Skills and MCP servers this folder offers the agent">
+          <PlugZapIcon className="size-3 shrink-0" />
+          <span>{catalog.skills.length} skills</span>
+          {catalog.mcp.length > 0 && <span>· {catalog.mcp.length} MCP</span>}
+        </Pill>
+
+        <span className="ml-auto">
+          <UsageMeter usage={agent.usage} chat={agent.activeKey} />
+        </span>
       </div>
+
     </div>
   );
 }
