@@ -750,10 +750,24 @@ export function useAgent() {
 
   // Stopping the turn also empties the queue, and the parked text is handed
   // back to the caller so the composer can put it where the user left it.
+  // Pending permission cards are denied here too: main does the same for the
+  // SDK, and a card left clickable after Stop is a lie.
   const interrupt = useCallback(async () => {
     const key = activeRef.current;
     const parked = (chatsRef.current.find((c) => c.key === key)?.queued || []).map((m) => m.text);
-    edit(key, (c) => ({ ...c, queued: [], busy: false, items: [...c.items, { id: uid('i'), kind: 'note', text: 'interrupted' }] }));
+    edit(key, (c) => {
+      const waitingIds = new Set(
+        c.items
+          .filter((it) => it.kind === 'perm' && !it.decided && it.agent?.toolUseId)
+          .map((it) => it.agent.toolUseId),
+      );
+      const items = c.items.map((it) => {
+        if (it.kind === 'perm' && !it.decided) return { ...it, decided: 'deny' };
+        if (waitingIds.has(it.id)) return { ...it, waiting: false };
+        return it;
+      });
+      return { ...c, queued: [], busy: false, items: [...items, { id: uid('i'), kind: 'note', text: 'interrupted' }] };
+    });
     await tandem().agent.interrupt(key);
     return parked;
   }, [edit]);
