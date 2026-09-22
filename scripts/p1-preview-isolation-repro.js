@@ -1,7 +1,6 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const { spawn } = require('child_process');
 const ROOT = process.env.TANDEM_ROOT || path.join(__dirname, '..');
 
@@ -99,12 +98,6 @@ function checkPartitionWiring() {
   }
 }
 
-function electronBin() {
-  const local = path.join(ROOT, 'node_modules', 'electron', 'cli.js');
-  if (fs.existsSync(local)) return process.execPath;
-  return null;
-}
-
 function runCookieIsolation() {
   return new Promise((resolve) => {
     const probe = path.join(ROOT, 'scripts', '_p1-preview-cookie-probe.js');
@@ -144,7 +137,6 @@ function runCookieIsolation() {
 
 async function main() {
   console.log('=== P1 preview isolation ===');
-  console.log('cwd hash sample:', crypto.createHash('sha256').update('/tmp/a').digest('hex').slice(0, 8));
   checkSchemeAllowlist();
   checkPartitionWiring();
   await runCookieIsolation();
