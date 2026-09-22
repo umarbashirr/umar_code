@@ -255,7 +255,15 @@ class BrowserPane extends EventEmitter {
     this.reqs.clear();
     this.pending.clear();
     let loadError = null;
-    await this.wc.loadURL(target).catch((e) => { loadError = e.message; });
+    let superseded = false;
+    await this.wc.loadURL(target).catch((e) => {
+      // Another navigation started before this one finished, so this load was
+      // dropped for it. That is not a page failing to load, and reporting it as
+      // one put the error card over the page that did load.
+      if (e.errno === ERR_ABORTED || e.code === 'ERR_ABORTED') superseded = true;
+      else loadError = e.message;
+    });
+    if (superseded) return { ...this.state(), requested: target, warning: 'superseded by another navigation' };
     const r = await done;
     await this.#inject();
     const out = { ...this.state(), requested: target, ...(loadError ? { error: loadError } : {}), ...(r || {}) };
