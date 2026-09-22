@@ -17,7 +17,11 @@
    There is still only one hole. Bounds are measured and watched off #paneslot
    by id, and a native view can only be in one place, so the frames stack around
    a single slot that outlives all of them: toolbars above it, drawers below,
-   and the one that is showing gives the hole its height. */
+   and the one that is showing gives the hole its height.
+
+   Empty and error Stages paint inside the hole. The guest is hidden for those
+   states (see guestWanted in browser-store), otherwise Chromium's blank page
+   would cover this chrome. */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AppWindowIcon,
@@ -27,14 +31,17 @@ import {
   ChevronDownIcon,
   CodeXmlIcon,
   EllipsisVerticalIcon,
+  ExternalLinkIcon,
   FolderTreeIcon,
   GitCompareIcon,
   GlobeIcon,
+  HistoryIcon,
   LaptopIcon,
   Maximize2Icon,
   Minimize2Icon,
   MonitorIcon,
   MousePointer2Icon,
+  RadioTowerIcon,
   RotateCwIcon,
   ScanIcon,
   SmartphoneIcon,
@@ -61,6 +68,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { runCommand } from '../../app.js';
 import {
   askAboutError,
@@ -69,11 +77,16 @@ import {
   getBrowserVersion,
   go,
   hideDrawer,
+  localServers,
   navigateTab,
   onScreen,
+  parseViewport,
   pickElement,
   previewOf,
   previews,
+  recentUrls,
+  removeRecent,
+  rotateViewport,
   screenshot,
   setViewport,
   showDrawer,
@@ -93,13 +106,39 @@ const VIEWPORT_ICON = {
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
-// Every frame listens and only the one on screen is repainted by the store, so
-// a hidden frame costs a version compare. A tab that has not loaded anything
-// yet reads as blank rather than borrowing the page of whichever tab is
-// current.
+const ERROR_HINTS = [
+  [/ERR_CONNECTION_REFUSED|refused|(-102)/i, 'Connection refused'],
+  [/ERR_NAME_NOT_RESOLVED|(-105)/i, 'DNS address could not be found'],
+  [/ERR_CONNECTION_TIMED_OUT|(-118)/i, 'Connection timed out'],
+  [/ERR_INTERNET_DISCONNECTED|(-106)/i, 'No internet connection'],
+  [/ERR_SSL|CERT_/i, 'SSL certificate problem'],
+  [/ERR_EMPTY_RESPONSE|(-324)/i, 'Empty response from server'],
+];
+
+function friendlyError(message) {
+  for (const [re, label] of ERROR_HINTS) {
+    if (re.test(message || '')) return label;
+  }
+  return 'The page did not load';
+}
+
+function errorCode(message) {
+  const m = /(ERR_[A-Z0-9_]+)|(-?\d{2,4})/.exec(message || '');
+  return m ? (m[1] || `ERR_${Math.abs(Number(m[2]))}`) : 'ERR_FAILED';
+}
+
 function useBrowser(tab) {
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
   return previewOf(tab);
+}
+
+function Tip({ label, children }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 // ------------------------------------------------------------- address bar
@@ -107,44 +146,80 @@ function useBrowser(tab) {
 function AddressBar({ tab, showing }) {
   const s = useBrowser(tab);
   const [draft, setDraft] = useState(s.url);
+  const [focused, setFocused] = useState(false);
   const input = useRef(null);
 
-  // The bar follows the page while you are not typing in it.
-  const focused = document.activeElement === input.current;
   useEffect(() => { if (!focused) setDraft(s.url); }, [s.url, focused]);
+  // An agent or a failed load can change the page while the bar is focused.
+  // Keep the draft on the real address once a load settles, so the field does
+  // not stick on what you were halfway through typing over a different page.
+  useEffect(() => {
+    if (focused && !s.loading) setDraft(s.url);
+  }, [s.url, s.loading, focused]);
 
-  const onKeyDown = (e) => {
-    if (e.key === 'Enter') { navigateTab((s.scheme + draft).trim(), tab); input.current?.blur(); }
-    if (e.key === 'Escape') input.current?.blur();
+  const submit = () => {
+    const next = (s.scheme + draft).trim();
+    if (!next) return;
+    navigateTab(next, tab);
+    input.current?.blur();
   };
 
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') submit();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setDraft(s.url);
+      input.current?.blur();
+    }
+  };
+
+  const openExternal = () => go('openExternal', tab);
+  const canOpen = s.live && !s.error;
+
   return (
-    <InputGroup className="h-8">
+    <InputGroup className="group/address h-8">
       {s.scheme && (
         <InputGroupAddon>
-          <span className="font-mono text-[11px] text-muted-foreground">{s.scheme}</span>
+          <span className="font-mono text-[11px] text-amber-600 dark:text-amber-400">{s.scheme}</span>
         </InputGroupAddon>
       )}
       <InputGroupInput
-        /* Ctrl+Shift+L and the store's "are you typing" check both go by this
-           id, so it belongs to the one bar you can see. */
         id={showing ? 'url' : undefined}
         ref={input}
         spellCheck={false}
-        placeholder="localhost:3000, a URL, or a search"
+        placeholder="Search or enter URL"
         className="font-mono text-[13px]"
-        value={draft}
+        value={focused ? draft : (s.scheme + s.url || draft)}
         onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => {
+          setDraft(s.url);
+          setFocused(true);
+          queueMicrotask(() => input.current?.select());
+        }}
+        onBlur={() => setFocused(false)}
         onKeyDown={onKeyDown} />
+      {canOpen && !focused && (
+        <InputGroupAddon
+          align="inline-end"
+          className="pointer-events-none absolute inset-y-0 right-0 opacity-0 transition-opacity group-hover/address:pointer-events-auto group-hover/address:opacity-100">
+          <Tip label="Open in system browser">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              type="button"
+              onClick={openExternal}>
+              <ExternalLinkIcon className="size-3.5" />
+            </Button>
+          </Tip>
+        </InputGroupAddon>
+      )}
     </InputGroup>
   );
 }
 
 // ---------------------------------------------------------------- pane menu
 
-/* Lucide has a pointer, and it has sparkles, and nothing that is both. The
-   sparkle rides the pointer's top corner, small enough to read as a mark on the
-   tool rather than as a second icon standing beside it. */
 function PointerSparkIcon() {
   return (
     <span className="relative inline-flex size-4 items-center justify-center">
@@ -154,52 +229,50 @@ function PointerSparkIcon() {
   );
 }
 
-/* Pointing at something in the page and handing it to the agent. It was a line
-   in the menu, two clicks from the pointer being on the thing you meant, which
-   is the wrong price for the one tool here that is used mid-thought. Armed, it
-   wears the state the menu button used to. */
 function PickButton({ tab }) {
   const s = useBrowser(tab);
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      data-armed={s.picking ? '' : undefined}
-      className={`${ICON_BUTTON} data-[armed]:bg-muted-foreground data-[armed]:text-background`}
-      title="Point at an element (Ctrl+Shift+E)"
-      onClick={() => pickElement(tab)}>
-      <PointerSparkIcon />
-    </Button>
+    <Tip label={s.picking ? 'Cancel pick (Esc)' : 'Point at an element (Ctrl+Shift+E)'}>
+      <Button
+        variant="ghost"
+        size="icon"
+        data-armed={s.picking ? '' : undefined}
+        className={`${ICON_BUTTON} data-[armed]:bg-muted-foreground data-[armed]:text-background`}
+        aria-pressed={s.picking ? 'true' : 'false'}
+        onClick={() => pickElement(tab)}>
+        <PointerSparkIcon />
+      </Button>
+    </Tip>
   );
 }
 
-/* The widths, on their own. Which one the page is in is a thing you change and
-   change back while you work, so it gets a button that says which one you are
-   in rather than a group buried under a menu that says nothing. */
 function ViewportMenu({ tab }) {
   const s = useBrowser(tab);
   const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState('');
   usePaneCover(open);
 
   const held = VIEWPORTS.find((v) => v.size === s.viewport) || VIEWPORTS[0];
-  const Current = VIEWPORT_ICON[held.icon];
+  const Current = VIEWPORT_ICON[held.icon] || ScanIcon;
+  const dims = parseViewport(s.viewport);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          data-armed={s.viewport ? '' : undefined}
-          className={`${ICON_BUTTON} data-[armed]:text-foreground`}
-          title={`Viewport: ${held.label}`}
-          onPointerDown={warmPane}>
-          <Current />
-        </Button>
-      </DropdownMenuTrigger>
+      <Tip label={`Viewport: ${dims ? `${dims.width} × ${dims.height}` : held.label}`}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            data-armed={s.viewport ? '' : undefined}
+            className={`${ICON_BUTTON} data-[armed]:text-foreground`}
+            onPointerDown={warmPane}>
+            <Current />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tip>
 
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="min-w-56">
         <DropdownMenuLabel>Viewport</DropdownMenuLabel>
         <DropdownMenuGroup>
           {VIEWPORTS.map((v) => {
@@ -216,32 +289,57 @@ function ViewportMenu({ tab }) {
             );
           })}
         </DropdownMenuGroup>
+
+        <DropdownMenuSeparator />
+        <div className="flex items-center gap-1.5 px-2 py-1.5">
+          <input
+            className="h-7 w-full rounded-md border bg-transparent px-2 font-mono text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            placeholder={dims ? `${dims.width}x${dims.height}` : '390x844'}
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              const next = custom.trim().replace(/\s*[×x]\s*/i, 'x');
+              if (parseViewport(next)) { setViewport(next, tab); setOpen(false); setCustom(''); }
+            }} />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 text-xs"
+            disabled={!parseViewport(custom.trim().replace(/\s*[×x]\s*/i, 'x'))}
+            onClick={() => {
+              const next = custom.trim().replace(/\s*[×x]\s*/i, 'x');
+              if (parseViewport(next)) { setViewport(next, tab); setOpen(false); setCustom(''); }
+            }}>
+            Set
+          </Button>
+        </div>
+        <DropdownMenuItem disabled={!dims} onSelect={() => rotateViewport(tab)}>
+          Rotate width ↔ height
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-/* What is left once the pointer and the widths have their own buttons: the
-   things you reach for once and are done with. */
 function PaneMenu({ tab }) {
   const { previewFull } = useLayout();
   const [open, setOpen] = useState(false);
-
-  // The menu opens over a native view, so freeze the page under it.
   usePaneCover(open);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={ICON_BUTTON}
-          title="Preview tools"
-          onPointerDown={warmPane}>
-          <EllipsisVerticalIcon />
-        </Button>
-      </DropdownMenuTrigger>
+      <Tip label="Preview tools">
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={ICON_BUTTON}
+            onPointerDown={warmPane}>
+            <EllipsisVerticalIcon />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tip>
 
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
@@ -249,9 +347,17 @@ function PaneMenu({ tab }) {
             <CameraIcon />
             Screenshot to disk
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => go('hardReload', tab)}>
+            <RotateCwIcon />
+            Hard reload
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => go('devtools', tab)}>
             <CodeXmlIcon />
             DevTools
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => go('openExternal', tab)}>
+            <ExternalLinkIcon />
+            Open in system browser
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => runCommand('previewFull')}>
             {previewFull ? <Minimize2Icon /> : <Maximize2Icon />}
@@ -275,40 +381,62 @@ function PaneMenu({ tab }) {
 
 // ------------------------------------------------------------------- stage
 
-const CONNECTION = /ERR_CONNECTION|refused|(-102)/i;
-
 function PageError({ tab, error }) {
+  const [details, setDetails] = useState(false);
+  const host = (() => {
+    try { return new URL(error.url || 'http://local').host; } catch { return error.url || 'the page'; }
+  })();
+
   return (
-    <Empty className="absolute inset-0 bg-card">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <TriangleAlertIcon />
-        </EmptyMedia>
-        <EmptyTitle>
-          {CONNECTION.test(error.message) ? "Can't connect to server" : 'This page did not load'}
-        </EmptyTitle>
-        <EmptyDescription>{`${error.url || 'the page'} — ${error.message}`}</EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={() => askAboutError(tab)}>Ask Agent</Button>
-          <Button size="sm" variant="outline" onClick={() => showDrawer('network', tab)}>Show Details</Button>
+    <div className="absolute inset-0 overflow-y-auto bg-background">
+      <div className="mx-auto flex min-h-full w-full max-w-xl flex-col px-8 py-12">
+        <TriangleAlertIcon className="mb-6 size-10 text-muted-foreground/70" />
+        <h1 className="mb-3 font-semibold text-2xl text-foreground leading-tight">
+          This site can&apos;t be reached
+        </h1>
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          <span className="font-semibold text-foreground">{host}</span>
+          {`: ${friendlyError(error.message)}.`}
+        </p>
+
+        {details && (
+          <div className="mt-6 rounded-lg border bg-muted/40 p-4 text-sm">
+            <p className="mb-2 font-medium text-foreground">Try:</p>
+            <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+              <li>Confirming the dev server is running</li>
+              <li>Checking the port in the address bar</li>
+              <li>Asking the agent to start or fix the server</li>
+            </ul>
+            <p className="mt-3 break-all font-mono text-[11px] text-muted-foreground">
+              {error.message}
+            </p>
+          </div>
+        )}
+
+        <div className="mt-8 text-[11px] text-muted-foreground/70 uppercase tracking-wide">
+          {errorCode(error.message)}
         </div>
-      </EmptyContent>
-    </Empty>
+
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-8">
+          <Button type="button" variant="outline" size="sm" onClick={() => setDetails((v) => !v)}>
+            {details ? 'Hide details' : 'Details'}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => showDrawer('network', tab)}>
+            Network
+          </Button>
+          <span className="flex-1" />
+          <Button type="button" variant="outline" size="sm" onClick={() => go('reload', tab)}>
+            Reload
+          </Button>
+          <Button type="button" size="sm" onClick={() => askAboutError(tab)}>
+            Ask Agent
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-/* A tab with nothing in it yet.
-
-   It used to be a sentence explaining that nothing was there, which is the one
-   thing the empty pane had already said. A new tab is a decision, so this is
-   the decision: the four things this column can hold, each one click away, and
-   the address bar first because it is the one this tab is already set up for.
-
-   Files and Changes are the column's other kinds rather than this tab's, so
-   picking one opens that tab beside this one. The preview stays where it is
-   with its address bar ready. */
 function Tile({ icon: Icon, label, hint, onClick }) {
   return (
     <button
@@ -322,47 +450,147 @@ function Tile({ icon: Icon, label, hint, onClick }) {
   );
 }
 
-function Placeholder() {
+function RecentRow({ entry, onOpen, onRemove }) {
+  let label = entry.url;
+  try {
+    const u = new URL(entry.url);
+    label = `${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search}`;
+  } catch { /* keep url */ }
+
+  return (
+    <div className="group relative flex w-full items-center">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-3 px-3 py-2.5 pr-10 text-left hover:bg-accent/40">
+        <GlobeIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-sm">{entry.title || label}</span>
+          {entry.title && <span className="block truncate text-muted-foreground text-xs">{label}</span>}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Remove ${label}`}
+        className="absolute right-2 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+        onClick={onRemove}>
+        <XIcon className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function Placeholder({ tab }) {
+  useBrowser(tab);
+  const recents = recentUrls().slice(0, 8);
+  const servers = localServers();
+
   const address = () => {
     const box = document.getElementById('url');
     box?.focus();
     box?.select();
   };
 
-  return (
-    <Empty className="absolute inset-0">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <AppWindowIcon />
-        </EmptyMedia>
-        <EmptyTitle>New tab</EmptyTitle>
-        <EmptyDescription>
-          Start a dev server in the terminal and this pane offers to open it, or pick something below.
-        </EmptyDescription>
-      </EmptyHeader>
+  const hasLists = recents.length > 0 || servers.length > 0;
 
-      <EmptyContent>
-        <div className="grid grid-cols-2 gap-2">
-          <Tile icon={GlobeIcon} label="Open an address" hint="^⇧L" onClick={address} />
-          <Tile icon={TerminalIcon} label="Terminal" hint="^`" onClick={() => runCommand('terminal')} />
-          <Tile icon={FolderTreeIcon} label="Project files" hint="^⇧D" onClick={() => runCommand('files')} />
-          <Tile icon={GitCompareIcon} label="Changes" hint="^⇧G" onClick={() => runCommand('changes')} />
+  return (
+    <div className="absolute inset-0 overflow-y-auto">
+      {!hasLists ? (
+        <Empty className="min-h-full">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <AppWindowIcon />
+            </EmptyMedia>
+            <EmptyTitle>New tab</EmptyTitle>
+            <EmptyDescription>
+              Type a URL above, or run a dev script. Local servers show up here when the terminal prints them.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <div className="grid grid-cols-2 gap-2">
+              <Tile icon={GlobeIcon} label="Open an address" hint="^⇧L" onClick={address} />
+              <Tile icon={TerminalIcon} label="Terminal" hint="^`" onClick={() => runCommand('terminal')} />
+              <Tile icon={FolderTreeIcon} label="Project files" hint="^⇧D" onClick={() => runCommand('files')} />
+              <Tile icon={GitCompareIcon} label="Changes" hint="^⇧G" onClick={() => runCommand('changes')} />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              <code>tandem go 3000</code> from the shell or the agent
+            </p>
+          </EmptyContent>
+        </Empty>
+      ) : (
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-6 px-5 py-8">
+          {recents.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <HistoryIcon className="size-4 shrink-0" />
+                <h2 className="font-medium">Recently used</h2>
+              </div>
+              <div className="overflow-hidden rounded-lg border">
+                {recents.map((entry) => (
+                  <RecentRow
+                    key={entry.url}
+                    entry={entry}
+                    onOpen={() => navigateTab(entry.url, tab)}
+                    onRemove={() => removeRecent(entry.url)} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {servers.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <RadioTowerIcon className="size-4 shrink-0" />
+                <h2 className="font-medium">Local servers</h2>
+              </div>
+              <div className="overflow-hidden rounded-lg border">
+                {servers.map((server) => (
+                  <button
+                    key={server.url}
+                    type="button"
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/40"
+                    onClick={() => navigateTab(server.url, tab)}>
+                    <RadioTowerIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-sm">{server.url}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Tile icon={GlobeIcon} label="Address" hint="^⇧L" onClick={address} />
+            <Tile icon={TerminalIcon} label="Terminal" hint="^`" onClick={() => runCommand('terminal')} />
+            <Tile icon={FolderTreeIcon} label="Files" hint="^⇧D" onClick={() => runCommand('files')} />
+            <Tile icon={GitCompareIcon} label="Changes" hint="^⇧G" onClick={() => runCommand('changes')} />
+          </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          <code>tandem go 3000</code> from the shell or the agent
-        </p>
-      </EmptyContent>
-    </Empty>
+      )}
+    </div>
   );
 }
 
-// What is over the hole for one tab. Only the showing tab's is drawn, because
-// they would otherwise stack on top of each other in the one stage.
+function DeviceFrame({ tab, showing }) {
+  const s = useBrowser(tab);
+  if (!showing || !s.live || s.error) return null;
+  const dims = parseViewport(s.viewport);
+  if (!dims) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-muted/35">
+      <div className="absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full border bg-background/90 px-2.5 py-0.5 font-mono text-[10.5px] text-muted-foreground shadow-xs backdrop-blur-sm">
+        {`${dims.width} × ${dims.height}`}
+      </div>
+    </div>
+  );
+}
+
 function Stage({ tab, showing }) {
   const s = useBrowser(tab);
   if (!showing) return null;
   if (s.error) return <PageError tab={tab} error={s.error} />;
-  return s.live ? null : <Placeholder />;
+  return s.live ? <DeviceFrame tab={tab} showing={showing} /> : <Placeholder tab={tab} />;
 }
 
 // ------------------------------------------------------------------ drawer
@@ -386,8 +614,6 @@ function LogRow({ row }) {
 function Drawer({ tab, showing }) {
   const s = useBrowser(tab);
   const body = useRef(null);
-  // Where this tab was reading. A hidden drawer is display:none, which drops
-  // the scroll offset on the floor, so the tab carries its own place back.
   const seat = useRef({ top: 0, stick: true });
   const rows = s.drawerTab === 'console' ? s.console : s.network;
 
@@ -402,8 +628,6 @@ function Drawer({ tab, showing }) {
     return () => el.removeEventListener('scroll', onScroll);
   }, [s.drawerOpen]);
 
-  // New lines arrive at the bottom, which is where you are reading, unless you
-  // have scrolled off it to look at something.
   useEffect(() => {
     const el = body.current;
     if (!el || !showing) return;
@@ -444,14 +668,15 @@ function Drawer({ tab, showing }) {
             onClick={() => clearLogs(tab)}>
             clear
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={ICON_BUTTON}
-            title="Close (Ctrl+Shift+J)"
-            onClick={() => hideDrawer(tab)}>
-            <ChevronDownIcon />
-          </Button>
+          <Tip label="Close drawer (Ctrl+Shift+J)">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={ICON_BUTTON}
+              onClick={() => hideDrawer(tab)}>
+              <ChevronDownIcon />
+            </Button>
+          </Tip>
         </div>
 
         <ScrollArea className="min-h-0 flex-1" viewportRef={body}>
@@ -466,74 +691,64 @@ function Drawer({ tab, showing }) {
 
 // ------------------------------------------------------------------ toolbar
 
-/* One bar across the top of the pane while a page is on its way.
-
-   The status line has said "loading…" in words since the beginning, at the very
-   bottom of the window, in the place nobody looks while they are waiting to
-   find out whether the thing is stuck. This is at the top of the pane, where
-   the page is about to appear. */
 function LoadingBar({ tab }) {
   const s = useBrowser(tab);
-  if (!s.loading) return null;
-
   return (
-    <div className="h-0.5 shrink-0 overflow-hidden bg-transparent">
-      <div className="pane-load h-full w-1/4 rounded-full bg-primary" />
-    </div>
+    <div
+      aria-hidden
+      data-loading={s.loading ? '' : undefined}
+      className="preview-loading-progress pointer-events-none absolute right-0 bottom-0 left-0 z-10 h-0.5 origin-left rounded-r-full bg-primary" />
   );
 }
 
 function Toolbar({ tab, showing }) {
   const s = useBrowser(tab);
   const errors = consoleErrors(tab);
-  // Held a beat past the click so the turn is seen even when the load is not.
-  const [spun, setSpun] = useState(false);
-  useEffect(() => {
-    if (!spun) return undefined;
-    const t = setTimeout(() => setSpun(false), 600);
-    return () => clearTimeout(t);
-  }, [spun]);
+
+  const onRefresh = () => {
+    if (s.loading) go('stop', tab);
+    else go('reload', tab);
+  };
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2.5" hidden={!showing || undefined}>
-      <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Back" disabled={!s.canGoBack} onClick={() => go('back', tab)}>
-        <ArrowLeftIcon />
-      </Button>
-      <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Forward" disabled={!s.canGoForward} onClick={() => go('forward', tab)}>
-        <ArrowRightIcon />
-      </Button>
-      {/* A reload of a page already in cache is over before the next frame, and
-          a button that does nothing visible reads as a button that did nothing.
-          The spin outlives the fastest load on purpose. */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className={ICON_BUTTON}
-        title="Reload"
-        onClick={() => { setSpun(true); go('reload', tab); }}>
-        <RotateCwIcon className={spun || s.loading ? 'animate-spin' : undefined} />
-      </Button>
+    <div className="relative flex h-10 shrink-0 items-center gap-1 border-b border-border/60 px-2" hidden={!showing || undefined}>
+      <div className="flex items-center gap-0.5" role="group" aria-label="Navigation">
+        <Tip label="Back">
+          <Button variant="ghost" size="icon" className={ICON_BUTTON} disabled={!s.canGoBack} onClick={() => go('back', tab)}>
+            <ArrowLeftIcon />
+          </Button>
+        </Tip>
+        <Tip label="Forward">
+          <Button variant="ghost" size="icon" className={ICON_BUTTON} disabled={!s.canGoForward} onClick={() => go('forward', tab)}>
+            <ArrowRightIcon />
+          </Button>
+        </Tip>
+        <Tip label={s.loading ? 'Stop' : 'Reload'}>
+          <Button variant="ghost" size="icon" className={ICON_BUTTON} onClick={onRefresh}>
+            <RotateCwIcon className={s.loading ? 'animate-spin' : undefined} />
+          </Button>
+        </Tip>
+      </div>
 
       <div className="min-w-0 flex-1"><AddressBar tab={tab} showing={showing} /></div>
 
-      {/* The tab badges go off screen with the closed drawer, and the drawer
-          starts closed, so a page that loaded fine and then threw a hundred
-          times looked exactly like a clean one. */}
       {errors > 0 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 px-2 text-destructive"
-          title="Console errors. Click to open the console."
-          onClick={() => showDrawer('console', tab)}>
-          <TriangleAlertIcon />
-          {errors}
-        </Button>
+        <Tip label="Console errors">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-destructive"
+            onClick={() => showDrawer('console', tab)}>
+            <TriangleAlertIcon />
+            {errors}
+          </Button>
+        </Tip>
       )}
 
       <PickButton tab={tab} />
       <ViewportMenu tab={tab} />
       <PaneMenu tab={tab} />
+      <LoadingBar tab={tab} />
     </div>
   );
 }
@@ -542,8 +757,6 @@ function Toolbar({ tab, showing }) {
 
 export default function BrowserView() {
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
-  // Read for the repaint rather than for a value: onScreen() answers out of the
-  // layout, so this frame has to redraw when the column opens or shuts.
   useLayout();
   const shown = onScreen();
   const open = previews();
@@ -551,7 +764,6 @@ export default function BrowserView() {
   return (
     <div className="flex h-full min-h-0 flex-col" hidden={!shown || undefined}>
       {open.map(({ tab }) => <Toolbar key={tab} tab={tab} showing={tab === shown} />)}
-      {shown && <LoadingBar tab={shown} />}
 
       <div className="relative min-h-0 flex-1">
         <div id="paneslot" className="absolute inset-0" />

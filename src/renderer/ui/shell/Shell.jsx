@@ -39,6 +39,7 @@ import StatusBar from './StatusBar';
 import Welcome from './Welcome';
 import TerminalPanel from './TerminalPanel';
 import Toolbar from './Toolbar';
+import { previewOf, subscribeBrowser, getBrowserVersion } from './browser-store';
 import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-store';
 import { coverPane, uncoverPane } from './pane-cover';
 import {
@@ -158,6 +159,7 @@ function AddTab() {
    leave the page laid out for the wrong box. */
 function TabStrip() {
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
+  useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
   const dir = useFocusedDir();
   const tabs = tabsOf(dir);
   const active = activeTab(dir);
@@ -183,9 +185,15 @@ function TabStrip() {
         {tabs.map((tab) => {
           const { icon: Icon } = VIEW_KINDS[tab.kind];
           const label = labelOf(tab);
+          const favicon = tab.kind === 'browser' ? previewOf(tab.id).favicon : '';
+          const faviconOk = favicon && !favicon.startsWith('data:,');
           return (
             <TabsTrigger key={tab.id} value={tab.id} title={label} className="group flex-none gap-1.5 text-xs">
-              <Icon />
+              {faviconOk ? (
+                <img src={favicon} alt="" className="size-3.5 shrink-0 rounded-sm object-contain" />
+              ) : (
+                <Icon className="size-3.5 shrink-0" />
+              )}
               <span className="max-w-[22ch] truncate">{label}</span>
               {/* The same aim as the terminal strip: the cross is only on the
                   tab under the pointer or the one you are in, so a page you have

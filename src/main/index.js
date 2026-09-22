@@ -1332,6 +1332,8 @@ function registerIpc() {
       case 'back': return pane.back();
       case 'forward': return pane.forward();
       case 'reload': return pane.reload();
+      case 'hardReload': return pane.hardReload();
+      case 'stop': return pane.stop();
       case 'devtools': return pane.toggleDevTools();
       case 'state': return pane.state();
       case 'console': return pane.consoleLog({ limit: 200 });

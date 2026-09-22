@@ -816,6 +816,28 @@ kbd {
 }
 .pane-load { animation: pane-load 1.05s ease-in-out infinite; }
 
+/* Grows toward ~90% while a page loads, then snaps off. Reduced motion holds
+   a still bar so the chrome still says "working" without the sweep. */
+.preview-loading-progress {
+  transform: scaleX(0);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.preview-loading-progress[data-loading] {
+  opacity: 1;
+  animation: preview-loading-progress 5.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+@keyframes preview-loading-progress {
+  from { transform: scaleX(0.04); }
+  to { transform: scaleX(0.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-loading-progress[data-loading] {
+    animation: none;
+    transform: scaleX(0.9);
+  }
+}
+
 /* ------------------------------------------------------------------ shell */
 
 [data-slot="resizable-handle"]:hover { background: var(--accent); }

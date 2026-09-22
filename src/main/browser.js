@@ -31,6 +31,7 @@ class BrowserPane extends EventEmitter {
     this.reqs = new Map();          // requestId -> the bits needed to log a failure
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
+    this.favicon = '';
     this.shotDir = path.join(os.tmpdir(), 'tandem-shots');
     fs.mkdirSync(this.shotDir, { recursive: true });
     this.#pruneShots();
@@ -57,10 +58,14 @@ class BrowserPane extends EventEmitter {
     wc.on('did-start-loading', push);
     wc.on('did-stop-loading', push);
     wc.on('page-title-updated', push);
-    wc.on('did-navigate', push);
+    wc.on('did-navigate', () => { this.favicon = ''; push(); });
     wc.on('did-navigate-in-page', push);
     wc.on('did-finish-load', () => { this.#inject(); push(); });
     wc.on('dom-ready', () => this.#inject());
+    wc.on('page-favicon-updated', (_e, favicons) => {
+      this.favicon = (favicons && favicons[0]) || '';
+      push();
+    });
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrame && code !== -3) {
         this.network.push({ t: Date.now(), kind: 'navigation-failed', url, code, desc });
@@ -185,6 +190,7 @@ class BrowserPane extends EventEmitter {
       loading: this.wc.isLoading(),
       canGoBack: this.wc.navigationHistory.canGoBack(),
       canGoForward: this.wc.navigationHistory.canGoForward(),
+      favicon: this.favicon || '',
     };
   }
 
@@ -213,7 +219,11 @@ class BrowserPane extends EventEmitter {
     await this.wc.loadURL(target).catch((e) => { loadError = e.message; });
     const r = await done;
     await this.#inject();
-    return { ...this.state(), requested: target, ...(loadError ? { error: loadError } : {}), ...(r || {}) };
+    const out = { ...this.state(), requested: target, ...(loadError ? { error: loadError } : {}), ...(r || {}) };
+    if (out.error) {
+      this.emit('state', { ...this.state(), error: out.error, failedUrl: target });
+    }
+    return out;
   }
 
   async back() {
@@ -229,6 +239,8 @@ class BrowserPane extends EventEmitter {
     return this.state();
   }
   async reload() { this.wc.reload(); await settle(this.wc); return this.state(); }
+  async hardReload() { this.wc.reloadIgnoringCache(); await settle(this.wc); return this.state(); }
+  async stop() { this.wc.stop(); return this.state(); }
 
   async snapshot(opts = {}) {
     return this.#js(`window.__tandem.snapshot(${JSON.stringify(opts)})`);

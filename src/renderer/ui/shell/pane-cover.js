@@ -7,8 +7,11 @@
    the view until the popup closes. The bounds never change, so nothing reflows
    and the page comes back on exactly the frame it left. */
 'use strict';
+import { guestWanted } from './browser-store.js';
 
 let still = null;
+
+export const isPaneCovered = () => !!still;
 
 // A photograph takes a round trip to the main process, and the popup that asked
 // for it may be gone by the time it lands. Every uncover retires whatever is in
@@ -20,10 +23,10 @@ export function uncoverPane() {
   if (!still) return;
   const going = still;
   still = null;
-  // The native view takes a frame to come back. Pulling the picture out in the
-  // same one leaves a hole where the page should be, which is the white blink
-  // people saw on the way out of the menu.
-  window.tandem.browser.setVisible(true);
+  // Only bring the guest back when the Stage is showing a live page. Empty and
+  // error states own the hole, and uncovering a menu must not put about:blank
+  // on top of them again.
+  window.tandem.browser.setVisible(guestWanted());
   requestAnimationFrame(() => going.remove());
 }
 
