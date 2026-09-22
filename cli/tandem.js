@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const state = require('./state');
+const { mcpServerPath } = require('./packaged-path');
 
 // Which project the command was typed in. One window can have several open,
 // so every request says where it came from and the window routes it from
@@ -192,14 +193,16 @@ const COMMANDS = {
 
 // Register the MCP server with whatever agent is running in this terminal.
 function setup(rest) {
-  const server = process.env.TANDEM_MCP_SERVER || path.join(__dirname, '..', 'mcp', 'server.js');
+  const root = path.join(__dirname, '..');
+  const server = process.env.TANDEM_MCP_SERVER || mcpServerPath(root);
   const target = rest[0] || 'print';
-  const entry = { command: 'node', args: [server] };
+  const command = process.env.TANDEM_NODE || 'node';
+  const entry = { command, args: [server] };
 
   if (target === 'print') {
     process.stdout.write(
       'Add the preview browser to your agent:\n\n' +
-      `  claude mcp add tandem -- node ${server}\n\n` +
+      `  claude mcp add tandem -- ${command} ${server}\n\n` +
       'or write it into this project:\n\n' +
       '  tandem setup project      # creates or updates ./.mcp.json\n\n' +
       'No MCP? The CLI works on its own: tandem go 3000 && tandem snapshot\n',
