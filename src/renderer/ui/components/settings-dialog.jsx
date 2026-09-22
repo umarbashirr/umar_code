@@ -253,7 +253,7 @@ function ModelRow({ agent }) {
   );
 }
 
-/* The two CLIs the panel can drive. Neither ships with Tandem, so for each one
+/* The CLIs the panel can drive. None of them ship with Tandem, so for each one
    this is the name, where to get it, and what the box on the settings page
    should suggest when someone has it somewhere odd. */
 const PROVIDERS = {
@@ -263,6 +263,20 @@ const PROVIDERS = {
     install: 'npm install -g @anthropic-ai/claude-code',
     where: '/usr/local/bin/claude',
     missing: 'Nothing named claude on your PATH. Install it, check that claude --version answers in a terminal, then restart Tandem.',
+  },
+  cursor: {
+    label: 'Cursor',
+    cli: 'agent',
+    install: 'curl https://cursor.com/install -fsS | bash',
+    where: '/usr/local/bin/agent',
+    missing: 'Nothing named agent on your PATH. Install the Cursor CLI from cursor.com/cli, run agent login, then restart Tandem.',
+  },
+  grok: {
+    label: 'Grok',
+    cli: 'grok',
+    install: 'See https://x.ai/cli',
+    where: '/usr/local/bin/grok',
+    missing: 'Nothing named grok on your PATH. Install the Grok CLI from x.ai/cli, run grok login, then restart Tandem.',
   },
   codex: {
     label: 'Codex',
@@ -276,6 +290,8 @@ const PROVIDERS = {
 // The CLI updates itself whichever way it was installed, so one command covers
 // the npm copy and the one the native installer put down.
 const CLAUDE_UPDATE = 'claude update';
+const CURSOR_UPDATE = 'agent update';
+const GROK_UPDATE = 'See https://x.ai/cli';
 // codex has a `codex update`, but it only works for the native install and
 // refuses on an npm one, which is how most people have it.
 const CODEX_UPDATE = 'npm install -g @openai/codex';
@@ -287,20 +303,19 @@ const copy = (text) => {
 };
 
 function Agent({ settings, set, agent, updates }) {
-  const provider = agent.provider === 'codex' ? 'codex' : 'claude';
+  const provider = PROVIDERS[agent.provider] ? agent.provider : 'claude';
   const p = PROVIDERS[provider];
   // The driver knows first: it probes on every launch, while the update check
   // is a network call someone can switch off. Only the version comes from the
-  // update cache, and only when the driver has not reported one yet, and only
-  // for claude, which is the only one that check asks about.
-  const claude = updates.claude || {};
+  // update cache, and only when the driver has not reported one yet.
+  const cli = updates[provider] || {};
   const running = agent.driver?.installed
     ? {
       path: agent.driver.binaryPath,
-      version: agent.driver.version || (provider === 'claude' ? claude.running?.version : null),
+      version: agent.driver.version || cli.running?.version || null,
     }
     : null;
-  const saved = settings[provider].binary || '';
+  const saved = settings[provider]?.binary || '';
   const [draft, setDraft] = useState(saved);
   // Two things move this box: switching provider, and a settings reset. Either
   // way a stale path would be written back on the next blur.
@@ -546,7 +561,7 @@ function CliSection({ title, note, state, update, absent }) {
 }
 
 function Updates({ settings, set, updates }) {
-  const { app, claude, codex, kind, progress, file, checking } = updates;
+  const { app, claude, codex, cursor, grok, kind, progress, file, checking } = updates;
   const behind = app.behind;
 
   return (
@@ -639,10 +654,24 @@ function Updates({ settings, set, updates }) {
 
       <CliSection
         title="Codex CLI"
-        note="Only needed if you drive codex. Same deal: Tandem reads the version and nothing else."
+        note="Only needed if you drive Codex. Same deal: Tandem reads the version and nothing else."
         state={codex}
         update={CODEX_UPDATE}
-        absent="No codex on your PATH. Install it if you want to drive codex from the Agent tab." />
+        absent="No codex on your PATH. Install it if you want to drive Codex from the Agent tab." />
+
+      <CliSection
+        title="Cursor CLI"
+        note="Only needed if you drive Cursor. Tandem reads the version; there is no npm latest to compare."
+        state={cursor}
+        update={CURSOR_UPDATE}
+        absent="No Cursor CLI (agent) on your PATH. Install it from cursor.com/cli if you want Cursor chats." />
+
+      <CliSection
+        title="Grok CLI"
+        note="Only needed if you drive Grok. Tandem reads the version; there is no npm latest to compare."
+        state={grok}
+        update={GROK_UPDATE}
+        absent="No grok on your PATH. Install it from x.ai/cli if you want Grok chats." />
 
       {updates.error && (
         <Alert variant="destructive">
@@ -746,7 +775,8 @@ export function SettingsDialog({ open, onOpenChange, section = 'appearance', set
               {label}
               {/* The one place a badge earns its keep: an update nobody has
                   looked at yet is the reason this page exists. */}
-              {id === 'updates' && (updates.app.behind || updates.claude?.behind || updates.codex?.behind) && (
+              {id === 'updates' && (updates.app.behind || updates.claude?.behind || updates.codex?.behind
+                || updates.cursor?.behind || updates.grok?.behind) && (
                 <span className="ml-auto size-2 rounded-full bg-primary" />
               )}
             </Button>

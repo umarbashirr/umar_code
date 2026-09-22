@@ -35,6 +35,8 @@ const NO_UPDATES = {
   app: { current: '', latest: null, behind: false },
   claude: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
   codex: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
+  cursor: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
+  grok: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
   kind: 'dev',
   checkedAt: null,
   error: null,

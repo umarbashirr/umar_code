@@ -55,11 +55,13 @@ const cleanModelName = (m) =>
    allow "Claude Code" as a name inside someone else's product. These head two
    groups of models, so the vendor name is the accurate word anyway, and it
    reads level with ChatGPT rather than naming one CLI and one company. */
-const PROVIDER_LABEL = { claude: 'Claude', codex: 'ChatGPT' };
+const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', codex: 'ChatGPT' };
 
 // Where to get each one, for the row that says it is missing.
 const INSTALL = {
   claude: 'npm install -g @anthropic-ai/claude-code',
+  cursor: 'curl https://cursor.com/install -fsS | bash',
+  grok: 'See https://x.ai/cli',
   codex: 'npm install -g @openai/codex',
 };
 
@@ -76,7 +78,8 @@ function byProvider(models, providers) {
     else out.push({ id, rows: [m] });
   }
   for (const p of providers || []) {
-    if (!out.some((g) => g.id === p.id)) out.push({ id: p.id, rows: [], missing: p, locked: true });
+    if (out.some((g) => g.id === p.id)) continue;
+    out.push({ id: p.id, rows: [], missing: p, locked: !p.installed });
   }
   return out;
 }
@@ -151,6 +154,18 @@ function ModelPicker({ agent }) {
                 className="justify-between gap-6">
                 {PROVIDER_LABEL[g.id] || g.id}
                 <span className="text-muted-foreground text-xs">not installed</span>
+              </DropdownMenuItem>
+            );
+          }
+          if (!g.rows.length) {
+            return (
+              <DropdownMenuItem
+                key={g.id}
+                disabled
+                title={g.missing?.message || 'Installed, but not logged in.'}
+                className="justify-between gap-6">
+                {PROVIDER_LABEL[g.id] || g.id}
+                <span className="text-muted-foreground text-xs">not logged in</span>
               </DropdownMenuItem>
             );
           }
