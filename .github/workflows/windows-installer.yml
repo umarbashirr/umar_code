@@ -1,23 +1,16 @@
 # The PowerShell install line downloads an .exe from the GitHub release.
 #
-# This job is no longer the only way to get one. node-pty 1.1.0 ships N-API
-# prebuilds for win32-x64 in its npm package, so nothing has to compile on
-# Windows any more, and the installer cross-builds from Linux inside
-# electronuserland/builder:wine. See docs in the release notes, or:
+# node-pty 1.1.0 ships N-API prebuilds for win32-x64, so the installer
+# cross-builds on Linux inside electronuserland/builder:wine. See:
 #
-#   docker run --rm -v "$PWD":/project -v /tmp/win-out:/out \
-#     -v "$HOME/.cache/electron":/root/.cache/electron \
-#     -v "$HOME/.cache/electron-builder":/root/.cache/electron-builder \
-#     electronuserland/builder:wine \
-#     bash -c "cd /project && npx electron-builder --win nsis \
-#       -c.npmRebuild=false -c.directories.output=/out"
+#   npm run dist:win:docker
 #
-# npmRebuild=false is the load-bearing flag: a rebuild on Linux would replace
-# the shipped win32 prebuild with a Linux one.
+# A windows-2022 job never started for v0.8.1 through v0.9.1: GitHub refused
+# the runner because the account is locked on a billing issue. This job uses
+# the Linux runner and the same docker build that already produces the .exe.
 #
-# The job stays as a fallback for anyone without docker, and to catch up a
-# release that shipped without the .exe. It runs when a release is published,
-# and can be started by hand against an existing tag.
+# macOS .dmg is not built here. electron-builder's dmgbuild bundle ships a
+# macOS Python, so a Linux runner cannot produce one.
 
 name: Windows installer
 
@@ -36,7 +29,7 @@ permissions:
 
 jobs:
   dist-win:
-    runs-on: windows-2022
+    runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
     steps:
@@ -49,22 +42,14 @@ jobs:
           node-version: 20
           cache: npm
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~\AppData\Local\electron
-            ~\AppData\Local\electron-builder
-          key: win-electron-${{ hashFiles('package-lock.json') }}
-
       - name: Install
         run: npm ci
 
       - name: Build the installer
-        run: npm run dist:win
+        run: npm run dist:win:docker
+
+      - name: Checksums
+        run: sh scripts/release-checksums.sh dist
 
       - name: Attach to the release
         env:
@@ -78,4 +63,8 @@ jobs:
             ls -la dist || true
             exit 1
           fi
-          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          if [ ! -f dist/SHA256SUMS ]; then
+            echo "no SHA256SUMS in dist/" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" dist/SHA256SUMS --clobber

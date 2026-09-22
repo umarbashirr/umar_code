@@ -88,6 +88,30 @@ download() {
   fi
 }
 
+# The curl one-liner always fetches this file from main. The bytes it installs
+# belong to a release. Run that release's copy so the script and the binary
+# are the same tag. A tag from before this pin has no such check and just installs.
+if [ -z "${TANDEM_INSTALL_FROM_TAG:-}" ] && [ -z "$LOCAL" ] && [ "$ACTION" = install ]; then
+  if [ -n "$VERSION" ]; then
+    JSON=$(fetch "$API/tags/v${VERSION#v}") || die "there is no release v${VERSION#v}"
+  else
+    JSON=$(fetch "$API/latest") || die "could not reach GitHub. Are you online?"
+  fi
+  TAG=$(printf '%s\n' "$JSON" | grep -m1 '"tag_name"' | sed 's/.*: *"//; s/".*//') || true
+  [ -n "$TAG" ] || die "GitHub answered with a release that has no tag"
+  PINDIR=$(mktemp -d "${TMPDIR:-/tmp}/tandem-install-pin.XXXXXX")
+  PIN=$PINDIR/install.sh
+  if fetch "https://raw.githubusercontent.com/$REPO/$TAG/install.sh" > "$PIN" \
+     && head -n 1 "$PIN" | grep -q '^#!/bin/sh'; then
+    export TANDEM_INSTALL_FROM_TAG=$TAG
+    sh "$PIN" "$@" || status=$?
+    status=${status:-0}
+    rm -rf "$PINDIR"
+    exit "$status"
+  fi
+  rm -rf "$PINDIR"
+fi
+
 # ------------------------------------------------------------------- root
 #
 # Asked for once, up front, rather than in the middle of a 250MB download.

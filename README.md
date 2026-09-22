@@ -91,8 +91,12 @@ npm run dist:win:docker # the same .exe, cross-built on Linux in docker
 `dist:win` needs a Windows machine, or wine. `npm run dist:win:docker` is the second option: it
 builds the installer on Linux inside `electronuserland/builder:wine`. That works because node-pty
 ships N-API prebuilds for win32-x64 in its own npm package, so nothing has to compile on Windows.
-A GitHub Action does the same job when a release is published, and can be run by hand against an
-existing tag if the .exe was not attached the first time.
+A GitHub Action runs that docker build on a Linux runner when a release is published, then attaches
+the .exe and `SHA256SUMS`. It can also be started by hand against an existing tag.
+`sh scripts/release-checksums.sh dist` writes the same checksum file for whatever installers are in `dist/`.
+
+There is no macOS `.dmg` on the release. electron-builder's dmgbuild bundle is a macOS executable,
+so this Linux build cannot produce one.
 
 To run from source:
 
