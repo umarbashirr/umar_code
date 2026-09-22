@@ -1,3 +1,4 @@
+import { chatTitle } from '../../shared/chat-title';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { blankUsage, totals, withRequest, withResult } from '@/lib/usage';
@@ -539,7 +540,7 @@ export function useAgent() {
         startedAt: c.busy ? c.startedAt : Date.now(),
         // Same as a message typed here: the first one names the chat, which is
         // what the rail shows until claude has written a transcript to read.
-        title: c.title === 'New chat' ? spoken(text).slice(0, 80) : c.title,
+        title: c.title === 'New chat' ? chatTitle(spoken(text)).slice(0, 80) : c.title,
         items: [...c.items, { id: uid('u'), kind: 'user', text }],
       }));
     }) ?? (() => {}));
@@ -650,7 +651,7 @@ export function useAgent() {
       // Only a turn starting from idle resets it.
       startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
-      title: c.title === 'New chat' ? said.slice(0, 80) : c.title,
+      title: c.title === 'New chat' ? chatTitle(said).slice(0, 80) : c.title,
       items: [...c.items, { id: uid('u'), kind: 'user', text: said, images }],
     }));
     try {

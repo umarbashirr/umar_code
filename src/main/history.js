@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { chatTitle } = require('../shared/chat-title');
 
 const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 
@@ -127,7 +128,7 @@ function listSessions(cwd, limit = 200) {
     const title = titleOf(full, st.size);
     if (!title) continue;
 
-    rows.push({ id: f.replace(/\.jsonl$/, ''), title: title.slice(0, 120), at: st.mtimeMs });
+    rows.push({ id: f.replace(/\.jsonl$/, ''), title: chatTitle(title).slice(0, 120), at: st.mtimeMs });
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);

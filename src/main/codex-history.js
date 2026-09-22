@@ -28,6 +28,7 @@ const os = require('os');
 const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
+const { chatTitle } = require('../shared/chat-title');
 
 const IDLE_MS = 5 * 60 * 1000;
 const CALL_MS = 20000;
@@ -137,7 +138,7 @@ async function listSessions(cwd, limit = 200) {
     // which is the same thing history.js digs out of the transcript head.
     const title = strip(t.name || t.preview);
     if (!title) continue;
-    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt) });
+    rows.push({ id: t.id, title: chatTitle(title).slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt) });
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);
