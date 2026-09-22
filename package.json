@@ -148,9 +148,7 @@
       ]
     },
     "appImage": {
-      "executableArgs": [
-        "--no-sandbox"
-      ]
+      "executableArgs": []
     },
     "nsis": {
       "oneClick": true,
