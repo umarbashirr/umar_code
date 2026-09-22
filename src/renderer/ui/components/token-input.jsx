@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 
-import { parse, pendingToken } from '@/lib/tokens';
+import { hoistSkill, leadsWithSkill, parse, pendingToken } from '@/lib/tokens';
 import { tokenElement } from '@/components/token-badge';
 import { cn } from '@/lib/utils';
 
@@ -110,14 +110,14 @@ function placeCaret(root, offset) {
 // What is half-typed at the caret. Read from the run of loose text the caret
 // is in rather than from the whole string, or parking the caret after a
 // finished @path badge would look exactly like typing one and pop the menu
-// back open. A slash only counts in the first run of text there is.
+// back open.
 function pendingAt(root) {
   const sel = root.ownerDocument.getSelection();
   if (!sel?.isCollapsed || !sel.rangeCount) return null;
   const node = sel.anchorNode;
   if (!root.contains(node) || node.nodeType !== 3) return null;
   const atStart = !node.previousSibling && node.parentNode === root;
-  return pendingToken(node.nodeValue.slice(0, sel.anchorOffset), atStart);
+  return pendingToken(node.nodeValue.slice(0, sel.anchorOffset), atStart, leadsWithSkill(valueOf(root)));
 }
 
 // The token the caret is sitting immediately before or after, if it is sitting
@@ -239,7 +239,14 @@ export const TokenInput = forwardRef(function TokenInput({
       // the selection, and the half-typed name would be lost with it.
       const text = valueOf(box);
       const offset = caretOffset(box) ?? text.length;
-      const start = offset - (pendingAt(box)?.length ?? 0);
+      const typing = pendingAt(box);
+      const start = offset - (typing?.length ?? 0);
+      if (token.kind === 'skill' && typing?.head === false) {
+        const moved = hoistSkill(text, start, offset, token.raw);
+        apply(moved.text, moved.caret);
+        box.focus();
+        return;
+      }
       const after = text.slice(offset);
       // A space after the badge, unless the sentence already has one there.
       const body = token.raw + (/^\s/.test(after) ? '' : ' ');

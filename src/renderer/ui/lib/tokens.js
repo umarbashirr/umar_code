@@ -84,12 +84,40 @@ export function tokenFor(kind, raw) {
 // the run of loose text to the left of the caret, never a finished token: a
 // caret parked after an @path badge is sitting next to something already
 // decided, not halfway through typing it.
-export function pendingToken(before, atStart) {
-  const slash = /^\/([\w:.-]*)$/.exec(before);
-  if (slash && atStart) return { kind: 'skill', query: slash[1], length: slash[0].length };
+//
+// A slash counts anywhere after a space too. The CLI only runs a skill at the
+// head of the message, so one picked mid-sentence is moved there (hoistSkill),
+// and a message that already leads with one does not offer a second.
+export function pendingToken(before, atStart, hasSkill) {
+  const head = /^\/([\w:.-]*)$/.exec(before);
+  if (head && atStart) return { kind: 'skill', query: head[1], length: head[0].length, head: true };
+  const mid = /[\s([]\/([\w:.-]*)$/.exec(before);
+  if (mid && !hasSkill) return { kind: 'skill', query: mid[1], length: mid[1].length + 1, head: false };
 
   const at = /(?:^|[\s([])@([\w.\-/]*)$/.exec(before);
   if (at) return { kind: 'path', query: at[1], length: at[1].length + 1 };
 
   return null;
+}
+
+// Where a skill goes: after the attachment blocks, which always lead.
+function headEnd(text) {
+  let end = 0;
+  for (let m; (m = ATTACHED.exec(text.slice(end)));) end += m[0].length;
+  return end;
+}
+
+export const leadsWithSkill = (text) => parse(text).some((n) => n.kind === 'skill');
+
+// A skill picked mid-sentence: drop the half-typed /name at [start, end) and
+// put the skill at the head, leaving the caret where the typing was.
+export function hoistSkill(text, start, end, raw) {
+  const at = headEnd(text);
+  const lead = `${raw} `;
+  let before = text.slice(at, start);
+  let after = text.slice(end);
+  if (/\s$/.test(before) && /^\s/.test(after)) after = after.slice(1);
+  if (!after && /\s$/.test(before)) before = before.replace(/\s+$/, ' ');
+  const out = text.slice(0, at) + lead + before + after;
+  return { text: out, caret: at + lead.length + before.length };
 }
