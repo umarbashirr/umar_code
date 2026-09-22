@@ -290,7 +290,7 @@ function paneOf(tab, { create = true, project = focused } = {}) {
   if (held) return held.pane;
   if (!create || !tab || !win || win.isDestroyed()) return null;
 
-  const made = new BrowserPane(win, HOME_URL);
+  const made = new BrowserPane(win, HOME_URL, { project });
   made.on('state', (st) => send('browser:state', { ...st, tab, project }));
   made.on('console', (c) => send('browser:console', { ...c, tab, project }));
   panes.set(tab, { pane: made, project });
@@ -1393,7 +1393,9 @@ function registerIpc() {
       // own web contents and leaves the pane out of the picture entirely, so
       // this is the only way to tell a parked pane from a visible one.
       case 'bounds': return pane.view.getBounds();
-      case 'normalize': return normalizeUrl(arg);
+      case 'normalize':
+        try { return normalizeUrl(arg); }
+        catch (e) { return { error: e.message }; }
       default: return { error: 'unknown action ' + action };
     }
   });

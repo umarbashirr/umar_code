@@ -1,10 +1,16 @@
 'use strict';
 const { WebContentsView, nativeImage } = require('electron');
 const { EventEmitter } = require('events');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { normalizeUrl } = require('./url');
+const { normalizeUrl, isAllowedUrl } = require('./url');
+
+function partitionFor(project) {
+  const key = crypto.createHash('sha256').update(String(project || '')).digest('hex').slice(0, 16);
+  return `persist:tandem-${key}`;
+}
 
 const PAGE_SCRIPT = fs.readFileSync(path.join(__dirname, 'page-script.js'), 'utf8');
 const RING = 300;
@@ -22,9 +28,11 @@ const KEY_ALIASES = {
 };
 
 class BrowserPane extends EventEmitter {
-  constructor(win, homeUrl) {
+  constructor(win, homeUrl, { project } = {}) {
     super();
     this.win = win;
+    this.project = project || '';
+    this.partition = partitionFor(this.project);
     this.console = [];
     this.network = [];
     this.pending = new Set();
@@ -37,7 +45,13 @@ class BrowserPane extends EventEmitter {
     this.#pruneShots();
 
     this.view = new WebContentsView({
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+        partition: this.partition,
+      },
     });
     this.wc = this.view.webContents;
     this.wc.setBackgroundThrottling(false); // it runs parked offscreen when the pane is closed
@@ -84,6 +98,9 @@ class BrowserPane extends EventEmitter {
     wc.setWindowOpenHandler(({ url }) => {
       this.navigate(url).catch(() => {});
       return { action: 'deny' };
+    });
+    wc.on('will-navigate', (e, url) => {
+      if (!isAllowedUrl(url)) e.preventDefault();
     });
   }
 
@@ -197,7 +214,14 @@ class BrowserPane extends EventEmitter {
   // --- agent-facing tools -------------------------------------------------
 
   async navigate(url, { timeout = 30000 } = {}) {
-    const target = normalizeUrl(url);
+    let target;
+    try {
+      target = normalizeUrl(url);
+    } catch (e) {
+      const err = e.message || String(e);
+      this.emit('state', { ...this.state(), error: err, failedUrl: String(url) });
+      return { ...this.state(), requested: String(url), error: err };
+    }
     const done = new Promise((res) => {
       const finish = () => { clearTimeout(t); cleanup(); res(); };
       const fail = (_e, code, desc) => { clearTimeout(t); cleanup(); res({ error: `${desc} (${code})` }); };
@@ -419,4 +443,4 @@ const settle = (wc) => new Promise((res) => {
   wc.once('did-stop-loading', () => { clearTimeout(t); res(); });
 });
 
-module.exports = { BrowserPane, normalizeUrl };
+module.exports = { BrowserPane, normalizeUrl, isAllowedUrl, partitionFor };
