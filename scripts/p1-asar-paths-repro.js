@@ -1,7 +1,4 @@
 'use strict';
-// Harness for P1: asar paths handed to system node and shells.
-// Contract: bin/cli go through app.asar.unpacked for shells. MCP stays inside
-// app.asar and is launched with the electron-as-node shim so packed deps resolve.
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
