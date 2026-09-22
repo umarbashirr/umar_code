@@ -1,9 +1,5 @@
 #!/usr/bin/env node
 'use strict';
-// Prove that a packaged Windows install resolves bare `tandem` to the CLI
-// shim, not tandem.exe. cmd.exe and PowerShell both walk PATHEXT in order;
-// the default list puts .EXE before .CMD, so a sibling tandem.cmd never wins
-// when the install dir itself is on PATH.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -83,8 +79,6 @@ function checkUpgradeKeepsExeOutOfPath() {
   const { base, pathDirs } = stageLayout('fixed');
   const inst = path.dirname(pathDirs[0]);
   try {
-    // Legacy installs put $INSTDIR on PATH. If it stays ahead of bin, the bug
-    // returns. Resolution with both entries must still hit the cmd shim.
     const hit = resolveCommand('tandem', [inst, ...pathDirs]);
     if (hit && path.basename(hit).toLowerCase() === 'tandem.exe') {
       pass('legacy-instdir-ahead-still-exe');

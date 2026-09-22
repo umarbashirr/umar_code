@@ -1,6 +1,3 @@
-; Two things the packaged installer does not do on its own: put the tandem CLI
-; where a shell can find it, and offer a folder to Tandem from Explorer.
-;
 ; The PATH edit goes through PowerShell rather than raw registry writes. The
 ; user PATH is REG_EXPAND_SZ, it has a length limit worth respecting, and
 ; SetEnvironmentVariable broadcasts the change so a shell opened afterwards
@@ -8,9 +5,7 @@
 ;
 ; PATH gets $INSTDIR\bin, not $INSTDIR. tandem.exe and tandem.cmd cannot share
 ; a PATH directory: default PATHEXT puts .EXE before .CMD, so bare `tandem`
-; would launch the GUI. Linux avoids this by writing /usr/bin/tandem as a shim
-; that points at /opt/tandem/tandem. The bin folder is that shim on Windows.
-; Upgrades also drop a leftover bare $INSTDIR from older installs.
+; would launch the GUI.
 
 !macro tandemRunPS Script
   InitPluginsDir
@@ -22,13 +17,10 @@
 !macroend
 
 !macro customInstall
-  ; Drop the old sibling shim if an earlier build left it next to the exe.
   Delete "$INSTDIR\tandem.cmd"
 
-  ; `tandem go 3000` from PowerShell or cmd, the way the .deb puts it on PATH.
   !insertmacro tandemRunPS "$$dir = '$INSTDIR'; $$bin = '$INSTDIR\bin'; $$p = [Environment]::GetEnvironmentVariable('Path','User'); if ($$null -eq $$p) { $$p = '' }; $$kept = @($$p -split ';' | Where-Object { $$_ -and $$_ -ne $$dir -and $$_ -ne $$bin }); $$kept += $$bin; [Environment]::SetEnvironmentVariable('Path', ($$kept -join ';'), 'User')"
 
-  ; Right-click a folder, or the background of one you are inside, and open it.
   ; %V is the folder in both cases; %1 is not, for the background verb.
   WriteRegStr HKCU "Software\Classes\Directory\shell\Tandem" "" "Open with Tandem"
   WriteRegStr HKCU "Software\Classes\Directory\shell\Tandem" "Icon" "$INSTDIR\tandem.exe"
