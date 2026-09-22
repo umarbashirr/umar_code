@@ -111,8 +111,6 @@
         ? doc.querySelector(`[data-tandem-ref="${target}"]`)
         : doc.querySelector(target);
       if (el) return el;
-      // Snapshot walks same-origin iframes and stamps refs there. Search the
-      // same tree, or agents get a stale-ref error for a live in-frame handle.
       for (const frame of doc.querySelectorAll('iframe')) {
         let child = null;
         try { child = frame.contentDocument; } catch { /* cross-origin */ }
@@ -261,9 +259,6 @@
       const c = center(el);
       mark(c.x, c.y, 'click');
       el.focus();
-      // Contenteditable first: borrowing HTMLInputElement's value setter and
-      // calling it on a div throws Illegal invocation and never reaches the
-      // textContent branch the help text promises.
       if (el.isContentEditable) {
         el.textContent = value;
       } else {

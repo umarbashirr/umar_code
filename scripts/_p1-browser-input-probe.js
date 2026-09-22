@@ -1,5 +1,4 @@
 'use strict';
-// Runtime probe for P1 browser-input mismatches. Spawns under Electron.
 const http = require('http');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
@@ -51,7 +50,6 @@ app.whenReady().then(async () => {
     if (nav.error) fail('navigate-fixture', nav.error);
     else pass('navigate-fixture');
 
-    // Force layout metrics so isVisible does not zero everything out.
     await pane.evaluate(`Object.defineProperty(window, 'innerWidth', { get: () => 900 });
       Object.defineProperty(window, 'innerHeight', { get: () => 700 });`);
 
@@ -71,8 +69,6 @@ app.whenReady().then(async () => {
       fail('fill-input', e.message);
     }
 
-    // Headless Electron often drops sendInputEvent before the page, so assert
-    // the wire sequence type builds (same shape as press).
     const sent = [];
     const origSend = pane.wc.sendInputEvent.bind(pane.wc);
     pane.wc.sendInputEvent = (ev) => { sent.push(ev); return origSend(ev); };

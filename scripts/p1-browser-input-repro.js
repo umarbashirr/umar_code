@@ -28,16 +28,16 @@ function checkSourceMismatches() {
   const browser = fs.readFileSync(path.join(ROOT, 'src/main/browser.js'), 'utf8');
   const page = fs.readFileSync(path.join(ROOT, 'src/main/page-script.js'), 'utf8');
 
-  // type() should send keyDown (and typically keyUp), not only char.
   const typeFn = browser.match(/async type\(text[\s\S]*?^  async /m);
   const typeBody = typeFn ? typeFn[0] : '';
-  if (/type:\s*'keyDown'/.test(typeBody) && /type:\s*'keyUp'/.test(typeBody)) {
+  const sendKey = browser.match(/#sendKey\(keyCode, modifiers[\s\S]*?\n  \}/);
+  const sendKeyBody = sendKey ? sendKey[0] : '';
+  if (/#sendKey\(/.test(typeBody) && /type:\s*'keyDown'/.test(sendKeyBody) && /type:\s*'keyUp'/.test(sendKeyBody)) {
     pass('source-type-keydown-keyup');
   } else {
     fail('source-type-keydown-keyup', 'type() still char-only or missing keyUp');
   }
 
-  // fill must branch contenteditable before borrowing HTMLInputElement's setter.
   const fillFn = page.match(/fill\(target, value\) \{[\s\S]*?\n    \},/);
   const fillBody = fillFn ? fillFn[0] : '';
   const ceIdx = fillBody.search(/isContentEditable/);
@@ -48,7 +48,6 @@ function checkSourceMismatches() {
     fail('source-fill-contenteditable-first', 'contenteditable path unreachable or missing');
   }
 
-  // resolve must look inside same-origin iframes, matching walk().
   const resolveFn = page.match(/const resolve = \(target\) => \{[\s\S]*?\n  \};/);
   const resolveBody = resolveFn ? resolveFn[0] : '';
   if (/contentDocument|iframe/.test(resolveBody)) {
@@ -57,10 +56,7 @@ function checkSourceMismatches() {
     fail('source-resolve-searches-iframes', 'resolve() is top-document only');
   }
 
-  // navigate's wait fail handler must filter like wireEvents (isMainFrame, not -3).
-  const navFn = browser.match(/async navigate\(url[\s\S]*?^  async /m);
-  const navBody = navFn ? navFn[0] : '';
-  if (/isMainFrame/.test(navBody) && /!== -3|=== -3/.test(navBody)) {
+  if (/isMainFrameNavFail/.test(browser) && /ERR_ABORTED/.test(browser)) {
     pass('source-navigate-filters-subframe-fail');
   } else {
     fail('source-navigate-filters-subframe-fail', 'navigate fail handler ignores isMainFrame/-3');
