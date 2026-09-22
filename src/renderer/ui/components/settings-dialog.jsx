@@ -238,19 +238,21 @@ function ModelRow({ agent }) {
           <Button variant="outline" onClick={() => agent.forgetModel(agent.model)}>Forget</Button>
         )}
       </Row>
-      <Row
-        label="Another model name"
-        hint={agent.driver?.endpoint && agent.driver.endpoint !== 'anthropic'
-          ? `${agent.driver.endpoint} decides which names work. Type one it routes.`
-          : 'For a name this app has not been told about. It is kept for next time.'}>
-        <Input
-          value={draft}
-          placeholder="e.g. claude-sonnet-4-5"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
-          className="w-56" />
-        <Button variant="outline" disabled={!draft.trim()} onClick={add}>Use it</Button>
-      </Row>
+      {agent.provider === 'claude' && (
+        <Row
+          label="Another model name"
+          hint={agent.driver?.endpoint && agent.driver.endpoint !== 'anthropic'
+            ? `${agent.driver.endpoint} decides which names work. Type one it routes.`
+            : 'For a name this app has not been told about. It is kept for next time.'}>
+          <Input
+            value={draft}
+            placeholder="e.g. claude-sonnet-4-5"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+            className="w-56" />
+          <Button variant="outline" disabled={!draft.trim()} onClick={add}>Use it</Button>
+        </Row>
+      )}
     </>
   );
 }
