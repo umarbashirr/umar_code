@@ -271,7 +271,7 @@ class AcpSession extends EventEmitter {
   async addMcpServer() { return { error: 'this CLI takes MCP servers at session start' }; }
   async removeMcpServer() { return { error: 'this CLI takes MCP servers at session start' }; }
   async setConnectors() { return { error: 'this CLI has no connectors to switch' }; }
-  async setSkillOverrides() { return { error: 'this CLI has no skills catalog in Tandem yet' }; }
+  async setSkillOverrides() { return { error: 'this CLI turns skills off where they are installed' }; }
   async stopTask() { return { ok: false }; }
   async background() { return { ok: false }; }
   async contextUsage() { return null; }

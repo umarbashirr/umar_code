@@ -3,7 +3,7 @@ const { makeLocator } = require('./find-binary');
 const { AcpDriver, probeVersion } = require('./acp-driver');
 const { AcpSession } = require('./acp-session');
 const history = require('./stub-history');
-const { createStubCatalog } = require('./stub-catalog');
+const { AcpCatalog } = require('./acp-catalog');
 
 const locate = makeLocator(['grok']);
 
@@ -34,10 +34,10 @@ function create({ cacheDir, settings }) {
     cli: 'grok',
     modelKey: 'grokModel',
     settingsKey: 'grok',
-    catalogKind: 'stub',
+    catalogKind: 'acp',
     hasHistory: false,
     driver,
-    catalog: createStubCatalog('Grok chats have no skills catalog in Tandem yet'),
+    catalog: new AcpCatalog({ id: 'grok', spec, cacheDir }),
     history,
     spec,
     preferBinary: (p) => locate.prefer(p),

@@ -1363,9 +1363,11 @@ app.whenReady().then(async () => {
   // than against the launcher's stunted PATH.
   registry = createRegistry({ cacheDir: app.getPath('userData'), settings });
   shellEnv.ready().then(() => applyBinaries()).catch(() => {});
-  rowOf('codex')?.catalog?.on?.('changed', (dir, listing) => {
-    if (dir === focusedCwd()) send('agent:catalog', listing);
-  });
+  for (const row of registry.all()) {
+    row.catalog?.on?.('changed', (dir, listing) => {
+      if (row.id === provider && dir === focusedCwd()) send('agent:catalog', listing);
+    });
+  }
   updates = new Updates();
   updates.on('changed', (snap) => send('updates:changed', snap));
   // Every idle CLI, so the picker has Cursor and Grok the first time it opens.

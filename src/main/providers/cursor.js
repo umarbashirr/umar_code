@@ -4,7 +4,7 @@ const { makeLocator } = require('./find-binary');
 const { AcpDriver, probeVersion } = require('./acp-driver');
 const { AcpSession } = require('./acp-session');
 const history = require('./stub-history');
-const { createStubCatalog } = require('./stub-catalog');
+const { AcpCatalog } = require('./acp-catalog');
 
 function acceptCursor(realPath, name) {
   const stem = path.basename(name).replace(/\.(exe|cmd|bat)$/i, '');
@@ -45,10 +45,10 @@ function create({ cacheDir, settings }) {
     cli: 'agent',
     modelKey: 'cursorModel',
     settingsKey: 'cursor',
-    catalogKind: 'stub',
+    catalogKind: 'acp',
     hasHistory: false,
     driver,
-    catalog: createStubCatalog('Cursor chats have no skills catalog in Tandem yet'),
+    catalog: new AcpCatalog({ id: 'cursor', spec, cacheDir }),
     history,
     spec,
     preferBinary: (p) => locate.prefer(p),
