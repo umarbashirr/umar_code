@@ -27,7 +27,7 @@ const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
 const completed = require('./completed');
-const { DEFAULT_MODE, isMode } = require('./modes');
+const { DEFAULT_MODE, isMode, decide } = require('./modes');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
@@ -687,19 +687,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
         const who = actor?.id && actor.id !== 'main'
           ? { ...actor, chat }
           : { id: `main:${chat}`, label: 'the main thread', chat };
-        // Whoever is driving keeps driving until they stop. A second agent that
-        // wants to change the page waits here rather than pulling the rug out
-        // from under the first one's refs.
-        const l = leaseFor(previewOf(cwd).tab);
-        const busy = await l.acquire(tool, who);
-        if (busy) throw new Error(busy);
-        try {
-          if (tool === 'navigate') showPreview(true, cwd);
-          send('agent:activity', { tool, args, t: Date.now(), actor: who, project: cwd });
-          return await runTool(tool, args, toolContext(cwd));
-        } finally {
-          l.done(tool, who);
-        }
+        return driveTool(tool, args, { cwd, actor: who });
       },
     });
   sessions.set(chat, agent);
@@ -737,6 +725,35 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     throw e;
   }
   return agent;
+}
+
+// Who a bridge caller is to the lease. Everything over HTTP is one driver.
+const BRIDGE_ACTOR = Object.freeze({ id: 'bridge', label: 'a terminal agent' });
+
+/**
+ * The one way onto a preview pane. Permission is already settled by the caller;
+ * this function never asks.
+ */
+async function driveTool(tool, args, { cwd, actor }) {
+  const l = leaseFor(previewOf(cwd).tab);
+  const busy = await l.acquire(tool, actor);
+  if (busy) throw new Error(busy);
+  try {
+    if (tool === 'navigate') showPreview(true, cwd);
+    send('agent:activity', {
+      tool, args, t: Date.now(), actor, project: cwd || focused,
+    });
+    return await runTool(tool, args, toolContext(cwd));
+  } finally {
+    l.done(tool, actor);
+  }
+}
+
+// What a terminal hears when the mode would have asked.
+function refusal(tool, verdict) {
+  return `${chosenMode} mode asks before ${tool}${verdict.reason ? ` (${verdict.reason})` : ''}. `
+    + 'A terminal has no permission card to answer, so this call was refused. '
+    + 'Do it from the chat panel, or set the mode to bypass.';
 }
 
 // Ask the running session what it ended up with, fold it into the cached
@@ -1384,12 +1401,15 @@ app.whenReady().then(async () => {
     .catch(() => null);
   if (open.get(focused)?.chosen) projects.remember(focused);
   projects.setOpenProjects(openDirs());
+  const bridgeDev = !app.isPackaged;
   bridge = new Bridge({
+    run: (tool, args, from) => {
+      const verdict = decide(chosenMode, tool, args);
+      if (verdict.action !== 'allow') throw new Error(refusal(tool, verdict));
+      return driveTool(tool, args, { cwd: from, actor: BRIDGE_ACTOR });
+    },
+    debug: bridgeDev,
     cwds: openDirs(),
-    // `tandem go 3000` typed in one project drives that project's preview.
-    getPane: (cwd) => previewOf(cwd).pane,
-    // A shell in project B asking to be raised means bring B forward, not just
-    // the window it happens to share with A.
     focusWindow: (cwd) => {
       if (cwd && open.has(path.resolve(cwd))) focusProject(cwd);
       if (!win || win.isDestroyed()) return;
@@ -1397,47 +1417,46 @@ app.whenReady().then(async () => {
       win.show();
       win.focus();
     },
-    onActivity: (tool, args, cwd) => send('agent:activity', { tool, args, t: Date.now(), project: cwd || focused }),
-    showPreview,
-    command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },
-    // Development aid: answer the oldest pending permission prompt. Scoped to
-    // the caller's project when it named one, so answering in project B does
-    // not accidentally approve something project A is waiting on.
-    decide: (decision, cwd) => {
-      const mine = cwd && open.has(path.resolve(cwd)) ? path.resolve(cwd) : null;
-      const agent = liveSessions().find((a) =>
-        a.pending.size && (!mine || a.cwd === mine));
-      const id = agent && [...agent.pending.keys()][0];
-      if (!id) return { error: 'nothing pending' };
-      agent.decide(id, decision);
-      send('agent:decided', { id, decision });
-      return { ok: true, id, decision };
-    },
-    // `tandem ask` typed in a shell. The terminal exports the project it was
-    // opened in, so a question asked in project B lands in a B chat rather than
-    // in whatever happens to be on screen.
-    ask: async (text, cwd) => {
-      const target = cwd && open.has(path.resolve(cwd)) ? path.resolve(cwd) : null;
-      let { chat, session } = activeChat;
-      if (target && cwdOfChat(chat) !== target) {
-        // The most recent chat in that project, or a new one rooted there.
-        chat = [...chatProjects].reverse().find(([, dir]) => dir === target)?.[0]
-          || `ask:${path.basename(target)}`;
-        session = sessions.get(chat)?.sessionId || null;
-      }
-      const a = await ensureAgent({ chat, resume: session, project: target || undefined });
-      send('agent:echo', { text, chat, project: cwdOfChat(chat) });
-      a.send(text);
-      return { ok: true, sessionId: a.sessionId, chat };
-    },
-    captureWindow: async () => {
-      if (!win) return { error: 'no window' };
-      const img = await win.webContents.capturePage();
-      const file = path.join(require('os').tmpdir(), 'tandem-shots', `window-${Date.now()}.png`);
-      require('fs').mkdirSync(path.dirname(file), { recursive: true });
-      require('fs').writeFileSync(file, img.toPNG());
-      return { path: file, ...img.getSize() };
-    },
+    ...(bridgeDev ? {
+      command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },
+      // Development aid: answer the oldest pending permission prompt. Scoped to
+      // the caller's project when it named one, so answering in project B does
+      // not accidentally approve something project A is waiting on.
+      decide: (decision, cwd) => {
+        const mine = cwd && open.has(path.resolve(cwd)) ? path.resolve(cwd) : null;
+        const agent = liveSessions().find((a) =>
+          a.pending.size && (!mine || a.cwd === mine));
+        const id = agent && [...agent.pending.keys()][0];
+        if (!id) return { error: 'nothing pending' };
+        agent.decide(id, decision);
+        send('agent:decided', { id, decision });
+        return { ok: true, id, decision };
+      },
+      // `tandem ask` typed in a shell. The terminal exports the project it was
+      // opened in, so a question asked in project B lands in a B chat rather than
+      // in whatever happens to be on screen.
+      ask: async (text, cwd) => {
+        const target = cwd && open.has(path.resolve(cwd)) ? path.resolve(cwd) : null;
+        let { chat, session } = activeChat;
+        if (target && cwdOfChat(chat) !== target) {
+          chat = [...chatProjects].reverse().find(([, dir]) => dir === target)?.[0]
+            || `ask:${path.basename(target)}`;
+          session = sessions.get(chat)?.sessionId || null;
+        }
+        const a = await ensureAgent({ chat, resume: session, project: target || undefined });
+        send('agent:echo', { text, chat, project: cwdOfChat(chat) });
+        a.send(text);
+        return { ok: true, sessionId: a.sessionId, chat };
+      },
+      captureWindow: async () => {
+        if (!win) return { error: 'no window' };
+        const img = await win.webContents.capturePage();
+        const file = path.join(require('os').tmpdir(), 'tandem-shots', `window-${Date.now()}.png`);
+        require('fs').mkdirSync(path.dirname(file), { recursive: true });
+        require('fs').writeFileSync(file, img.toPNG());
+        return { path: file, ...img.getSize() };
+      },
+    } : {}),
   });
   await bridge.start();
   registerIpc();
