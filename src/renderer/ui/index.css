@@ -7,6 +7,23 @@
    @streamdown/* plugins carry no classes of their own. */
 @source "../../../node_modules/streamdown/dist";
 
+/* Every Radix menu and dialog locks scrolling by setting this on <body>. As an
+   ordinary custom property it inherits, so each open restyled the whole
+   window, about 30 ms a time. Nothing below <body> reads it. */
+@property --removed-body-scroll-bar-size {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* Modal Radix layers also set pointer-events: none on <body>, which inherits
+   the same way. Declared here, the window stops at #root instead of restyling
+   under it. The window stays clickable behind an open menu, which still closes
+   on the click; dialogs keep their overlay. */
+#root {
+  pointer-events: auto;
+}
+
 /* The app toggles themes with data-theme on <html>, not a .dark class. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
