@@ -1517,8 +1517,7 @@ app.whenReady().then(async () => {
   }
 
   // One GitHub call and one npm call, after the window is up, and only if the
-  // person left the launch check on. Opening Updates or clicking Check fetches
-  // again rather than serving the last tag_name.
+  // person left the launch check on.
   if (settings.get('startup').checkUpdates) {
     updates.check()
       .then((snap) => send('updates:changed', snap))

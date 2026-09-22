@@ -180,8 +180,7 @@ class Updates extends EventEmitter {
   }
 
   // What the settings page draws on open: the last answer, straight away. A
-  // refresh re-hits GitHub behind the caller so a release published since the
-  // last check is visible without waiting out a cache.
+  // refresh re-hits GitHub behind the caller.
   current({ refresh = true } = {}) {
     if (refresh) this.check().catch(() => {});
     return this.snapshot();
