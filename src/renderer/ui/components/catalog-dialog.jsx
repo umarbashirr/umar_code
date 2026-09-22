@@ -75,7 +75,7 @@ function Skills({ catalog }) {
           autoFocus
           className="h-8" />
         <span className="whitespace-nowrap text-muted-foreground text-xs">
-          {off ? `${off} off` : 'all on'}
+          {catalog.skills.length - off} of {catalog.skills.length} on
         </span>
       </div>
 
@@ -85,7 +85,9 @@ function Skills({ catalog }) {
         )}
         {groups.map(([label, list]) => (
           <div key={label} className="mb-3">
-            <div className="px-1 pb-1 text-muted-foreground text-xs">{label}</div>
+            <div className="px-1 pb-1 text-muted-foreground text-xs">
+              {label} <span className="tabular-nums opacity-70">{list.length}</span>
+            </div>
             {list.map((s) => (
               <div
                 key={s.name}
@@ -360,7 +362,9 @@ function Agents({ catalog }) {
         )}
         {groups.map(([label, group]) => (
           <div key={label} className="mb-3">
-            <div className="px-1 pb-1 text-muted-foreground text-xs">{label}</div>
+            <div className="px-1 pb-1 text-muted-foreground text-xs">
+              {label} <span className="tabular-nums opacity-70">{list.length}</span>
+            </div>
             {group.map((a) => (
               <div key={a.name} className="flex items-baseline gap-2.5 rounded-md px-1 py-1.5 hover:bg-accent/50">
                 <span className="shrink-0 font-mono text-[13px]">{a.name}</span>
