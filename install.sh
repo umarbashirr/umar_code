@@ -109,7 +109,9 @@ PREFIX=/opt/tandem
 BIN=/usr/bin/tandem
 DESKTOP=/usr/share/applications/tandem.desktop
 ICON=/usr/share/icons/hicolor/512x512/apps/tandem.png
-if [ "$ROOT" = no ]; then
+# --user always means ~/.local, even if this shell somehow has root. Otherwise a
+# mistaken elevation during an update would plant a second copy in /opt.
+if [ "$KIND" = user ] || [ "$ROOT" = no ]; then
   PREFIX=$HOME/.local/lib/tandem
   BIN=$HOME/.local/bin/tandem
   DESKTOP=$HOME/.local/share/applications/tandem.desktop
