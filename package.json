@@ -112,13 +112,16 @@
     },
     "deb": {
       "depends": [
+        "libasound2",
+        "libatspi2.0-0",
+        "libgbm1",
+        "libgtk-3-0",
         "libnotify4",
         "libnss3",
+        "libsecret-1-0",
         "libxss1",
         "libxtst6",
-        "xdg-utils",
-        "libatspi2.0-0",
-        "libsecret-1-0"
+        "xdg-utils"
       ],
       "afterInstall": "build/deb-postinstall.sh",
       "afterRemove": "build/deb-postremove.sh"
