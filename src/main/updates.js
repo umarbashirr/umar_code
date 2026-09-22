@@ -10,9 +10,11 @@
 // hands the file to whatever the desktop uses to install packages. The last
 // step is the person's, which is also the only step that needs their password.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const https = require('https');
 const { EventEmitter } = require('events');
+const { execFile } = require('child_process');
 
 const { DIR } = require('./projects');
 const { compareVersions, probeVersion, claudeBinary } = require('./driver');
@@ -66,6 +68,14 @@ function repoSlug() {
   return m ? `${m[1]}/${m[2]}` : null;
 }
 
+// install.sh --user lands under ~/.local/lib/tandem. System tree installs land
+// under /opt/tandem. Both leave .tandem-version; the path is what separates them.
+function isUserTreeDir(dir) {
+  const marker = path.join('.local', 'lib', 'tandem');
+  if (dir === path.join(os.homedir(), marker)) return true;
+  return dir === marker || dir.endsWith(path.sep + marker);
+}
+
 // How this copy got onto the machine, which decides both which asset to fetch
 // and what to do with it once it is here.
 function installKind() {
@@ -75,11 +85,14 @@ function installKind() {
   if (!packaged) return 'dev';
   if (process.platform === 'darwin') return 'dmg';
   if (process.platform === 'win32') return 'nsis';
-  // install.sh unpacks the AppImage into /opt on distros that have no apt, and
-  // leaves this marker behind. Without it this copy would look like a .deb and
-  // try to update itself with a package manager the machine does not have.
+  // install.sh unpacks the AppImage into /opt (or ~/.local) and leaves this
+  // marker behind. Without it this copy would look like a .deb and try to
+  // update itself with a package manager the machine does not have.
   try {
-    if (fs.existsSync(path.join(path.dirname(process.execPath), '.tandem-version'))) return 'tree';
+    const root = path.dirname(process.execPath);
+    if (fs.existsSync(path.join(root, '.tandem-version'))) {
+      return isUserTreeDir(root) ? 'tree-user' : 'tree';
+    }
   } catch {}
   return 'deb';
 }
@@ -94,7 +107,30 @@ function installerScript() {
   return candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } }) || null;
 }
 
-const EXT = { appimage: '.appimage', tree: '.appimage', deb: '.deb', dmg: '.dmg', nsis: '.exe' };
+// Pure description of how a tree update should be invoked. Kept separate from
+// install() so a repro can assert argv and privilege without running pkexec.
+function planTreeInstall(file) {
+  const script = installerScript();
+  if (!script) return { error: 'missing-installer' };
+  const kind = installKind();
+  const resolved = path.resolve(file);
+  if (kind === 'tree-user') {
+    return { asRoot: false, argv: ['sh', script, '--user', '--file', resolved] };
+  }
+  if (kind === 'tree') {
+    return { asRoot: true, argv: ['sh', script, '--file', resolved] };
+  }
+  return { error: `not-a-tree:${kind}` };
+}
+
+const EXT = {
+  appimage: '.appimage',
+  tree: '.appimage',
+  'tree-user': '.appimage',
+  deb: '.deb',
+  dmg: '.dmg',
+  nsis: '.exe',
+};
 const ARCH_WORDS = {
   x64: ['x86_64', 'amd64', 'x64'],
   arm64: ['arm64', 'aarch64'],
@@ -339,15 +375,23 @@ class Updates extends EventEmitter {
     }
 
     // An unpacked install has no package manager behind it, so the update runs
-    // the installer that made it, on the file already downloaded.
-    if (kind === 'tree') {
-      const script = installerScript();
-      if (!script) return { error: 'This copy is missing its installer. Reinstall from the command on the release page.' };
-      if (!which('pkexec')) {
-        return { error: 'Replacing /opt/tandem needs root. In a terminal: sudo sh ' + script + ' --file ' + path.resolve(file) };
+    // the installer that made it, on the file already downloaded. A --user tree
+    // must stay under ~/.local; pkexec without --user plants a second copy in /opt.
+    if (kind === 'tree' || kind === 'tree-user') {
+      const plan = planTreeInstall(file);
+      if (plan.error === 'missing-installer') {
+        return { error: 'This copy is missing its installer. Reinstall from the command on the release page.' };
       }
-      const res = await runAsRoot(['sh', script, '--file', path.resolve(file)]);
-      if (res.code === 126) return { error: 'The password prompt was dismissed, so nothing was installed.' };
+      if (plan.asRoot) {
+        if (!which('pkexec')) {
+          return { error: 'Replacing /opt/tandem needs root. In a terminal: sudo ' + plan.argv.join(' ') };
+        }
+        const res = await runAsRoot(plan.argv);
+        if (res.code === 126) return { error: 'The password prompt was dismissed, so nothing was installed.' };
+        if (res.code !== 0) return { error: lastSaid(res) };
+        return { ok: true, action: 'installed' };
+      }
+      const res = await runAsUser(plan.argv);
       if (res.code !== 0) return { error: lastSaid(res) };
       return { ok: true, action: 'installed' };
     }
@@ -375,12 +419,23 @@ const which = (cmd) => {
 
 // polkit asks for the password; nothing here ever sees it.
 function runAsRoot(argv) {
-  const { execFile } = require('child_process');
   return new Promise((resolve) => {
     execFile(
       'pkexec',
       argv,
       { env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' }, maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, stdout, stderr }),
+    );
+  });
+}
+
+function runAsUser(argv) {
+  const [cmd, ...args] = argv;
+  return new Promise((resolve) => {
+    execFile(
+      cmd,
+      args,
+      { env: { ...process.env }, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout, stderr) => resolve({ code: err ? (err.code ?? 1) : 0, stdout, stderr }),
     );
   });
@@ -437,4 +492,12 @@ function pipe(url, dest, onProgress, redirects = 5) {
   });
 }
 
-module.exports = { Updates, installKind, installerScript, repoSlug, pickAsset, currentVersion };
+module.exports = {
+  Updates,
+  installKind,
+  installerScript,
+  planTreeInstall,
+  repoSlug,
+  pickAsset,
+  currentVersion,
+};
