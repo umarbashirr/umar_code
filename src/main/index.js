@@ -32,6 +32,7 @@ const { createChatPrefs } = require('./chat-prefs');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
+const { mcpServerPath, binDir } = require('./packaged-path');
 const bridgeState = require('../../cli/state');
 
 const fs = require('fs');
@@ -838,7 +839,13 @@ const windowState = () => ({
 });
 
 function registerIpc() {
-  ipcMain.handle('bridge:info', () => ({ url: bridge.url, token: bridge.token, mcp: path.join(ROOT, 'mcp', 'server.js'), root: ROOT }));
+  ipcMain.handle('bridge:info', () => ({
+    url: bridge.url,
+    token: bridge.token,
+    mcp: mcpServerPath(ROOT),
+    node: path.join(nodeShimDir(), process.platform === 'win32' ? 'node.cmd' : 'node'),
+    root: ROOT,
+  }));
 
   // --- window frame ---
   ipcMain.handle('win:state', () => windowState());
@@ -873,7 +880,7 @@ function registerIpc() {
   // --- terminal ---
   ipcMain.handle('term:create', (_e, { cwd, cols, rows, shell: sh, project } = {}) => {
     const id = 't' + (terms.size + 1) + '-' + Date.now().toString(36);
-    const extraPath = path.join(ROOT, 'bin');
+    const extraPath = binDir(ROOT);
     // A shell belongs to the project it was opened in, so closing that project
     // takes its shells with it and leaves the other projects' alone.
     const home = project && open.has(project) ? project : focusedCwd();
@@ -884,10 +891,10 @@ function registerIpc() {
         // What `tandem ask` typed in here reads to find its way back to the
         // right project's chat.
         TANDEM_CWD: home,
-        TANDEM_MCP_SERVER: path.join(ROOT, 'mcp', 'server.js'),
+        TANDEM_MCP_SERVER: mcpServerPath(ROOT),
         // `tandem` first, then whatever the user's shell has, then the node shim.
         PATH: shellEnv.merge([extraPath], [...shellEnv.cached().split(path.delimiter), nodeShimDir()]),
-        TANDEM_NODE: process.env.TANDEM_NODE || 'node',
+        TANDEM_NODE: process.env.TANDEM_NODE || path.join(nodeShimDir(), process.platform === 'win32' ? 'node.cmd' : 'node'),
       },
     });
     t.on('data', (data) => send('term:data', { id, data }));

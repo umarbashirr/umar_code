@@ -19,7 +19,7 @@ export async function loadBridge() {
   if (bridge.url) return bridge;
   const info = await window.tandem.bridgeInfo();
   bridge.url = info.url;
-  bridge.command = `claude mcp add tandem -- node ${info.mcp}`;
+  bridge.command = `claude mcp add tandem -- ${info.node || 'node'} ${info.mcp}`;
   version += 1;
   for (const fn of listeners) fn();
   return bridge;
