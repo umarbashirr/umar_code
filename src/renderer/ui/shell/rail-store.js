@@ -234,6 +234,14 @@ export function grouped(filter = '') {
 // is the only name a chat keeps across restarts.
 export const isDone = (row) => !!row?.id && Object.hasOwn(state.completed, row.id);
 
+// A live chat claude has not written yet is named by our own key, and there is
+// no session id to write down against it.
+export const isSaved = (row) => !!row?.id && row.id !== row.key;
+/* What "mark all completed" on a folder takes. A running chat is left out for
+   the same reason the fold will not hide one, and one already put away keeps
+   the time it was filed. Searching puts those back in the folder's list. */
+export const canMarkDone = (row) => isSaved(row) && !keepRailOpen(row) && !isDone(row);
+
 /* Marking one, or putting it back. The answer is written down by main, and the
    row moves here straight away rather than waiting for the round trip, because
    a click that takes a beat to do anything reads as a click that missed. */
@@ -252,6 +260,12 @@ export async function markDone(row, done = true) {
     changed();
   }
   return res || {};
+}
+
+// Answers with how many did not take.
+export async function markAllDone(rows) {
+  const results = await Promise.all(rows.map((row) => markDone(row)));
+  return results.filter((r) => r.error).length;
 }
 
 export const doneCount = () => Object.keys(state.completed).length;

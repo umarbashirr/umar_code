@@ -7,7 +7,7 @@
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
-  CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
+  CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
   FolderPlusIcon, MessageSquareDotIcon, MessageSquareIcon, PlusIcon, RotateCcwIcon,
   SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
@@ -43,8 +43,8 @@ import {
 import { closeProject, openFolder } from '../../project.js';
 import { shortPath, useProject } from '../useProject.js';
 import {
-  activeKey, doneOpen, getRailVersion, grouped, isDone, markDone, projectOpen, refreshRail,
-  relative, setDoneOpen, setProjectOpen, subscribeRail,
+  activeKey, canMarkDone, doneOpen, getRailVersion, grouped, isDone, isSaved, markAllDone, markDone,
+  projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
 
@@ -73,9 +73,7 @@ function useRail() {
 
 function Row({ chat, current, onDelete }) {
   const done = isDone(chat);
-  // A live chat claude has not written yet is named by our own key, and there
-  // is no session id to write down against it.
-  const saved = !!chat.id && chat.id !== chat.key;
+  const saved = isSaved(chat);
   const Icon = done ? CircleCheckIcon : current ? MessageSquareDotIcon : MessageSquareIcon;
   const badge = railBadge(chat);
   const marked = !!(chat.busy || chat.waiting);
@@ -214,6 +212,13 @@ function Completed({ folder, active, onDelete }) {
 function Folder({ folder, active, current, first, onDelete, onRemove }) {
   const open = projectOpen(folder.dir);
   const count = folder.rows.length + folder.done.length;
+  const finishable = folder.rows.filter(canMarkDone);
+
+  // No confirm: every chat it moves is one click from coming back.
+  const markAll = async () => {
+    const failed = await markAllDone(finishable);
+    if (failed) toast(`Could not mark ${failed} of those chats completed`, 'They are still in the list.', [{ label: 'OK' }]);
+  };
 
   return (
     <Collapsible
@@ -304,6 +309,10 @@ function Folder({ folder, active, current, first, onDelete, onRemove }) {
               <DropdownMenuItem onSelect={() => startChatIn(folder.dir)}>
                 <PlusIcon />
                 New chat here
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!finishable.length} onSelect={markAll}>
+                <CheckCheckIcon />
+                Mark all completed
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={() => onRemove(folder)}>
