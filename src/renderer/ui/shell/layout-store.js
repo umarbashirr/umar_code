@@ -14,7 +14,6 @@ export const layout = {
   // tabs-store.js rather than here.
   rightOpen: false,
   previewFull: false,
-  panelOpen: false,
   // How many files git has not been told about yet. changes-store.js counts
   // them and the toolbar's Changes tab wears the number.
   changesCount: 0,

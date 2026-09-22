@@ -1,6 +1,6 @@
 /* The app's own controls, hosted in the title bar: what the agent last did in
-   the preview, who is driving it, the three views the right column can show,
-   and the switches for the terminal panel and the theme.
+   the preview, who is driving it, the views the right column can show, and
+   the theme switch.
 
    Every button here says what it does with `title` rather than a Tooltip. The
    preview is a native view the window paints on top of this document, so a
@@ -10,14 +10,12 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   CodeXmlIcon,
   MoonIcon,
-  PanelBottomIcon,
   PanelLeftIcon,
   RotateCwIcon,
   SunIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ButtonGroup } from '@/components/ui/button-group';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -138,40 +136,48 @@ function Driver() {
 
 // --------------------------------------------------------------- the views
 
-/* The preview, the files and the changes. These were a toggle group while the
-   column held one view at a time: the pressed button was the answer to what am
-   I looking at, and pressing it again put the column away.
+/* The preview, the files, the changes and the terminal. These were a toggle
+   group while the column held one view at a time: the pressed button was the
+   answer to what am I looking at, and pressing it again put the column away.
 
    The column is a strip of tabs now and there is no single answer. A folder can
-   have three previews and a diff, so a pressed Browser would be a quarter true,
-   and nothing here can say which tab is in front as well as the strip itself
-   says it. They are three plain buttons that each open a tab, and the strip is
-   left to do the reporting.
+   have three previews, two shells and a diff, so a pressed Browser would be a
+   fraction true, and nothing here can say which tab is in front as well as the
+   strip itself says it. They are plain buttons that each open a tab, and the
+   strip is left to do the reporting. Icons only: the title says the rest,
+   shortcut included.
 
    They stay in the toolbar rather than moving into the strip's plus, because
-   the strip is not on screen when the column is shut and because these are
-   where you find out that the three have shortcuts. */
+   the strip is not on screen when the column is shut. */
 function ViewStrip() {
   const { changesCount } = useLayout();
 
   return (
-    <ButtonGroup>
+    <div className="flex items-center gap-0.5">
       {KINDS.map((kind) => {
-        const { icon: Icon, label, command, hint } = VIEW_KINDS[kind];
+        const { icon: Icon, command, hint } = VIEW_KINDS[kind];
         return (
-          <Button key={kind} variant="outline" size="sm" title={hint} onClick={() => runCommand(command)}>
+          <Button
+            key={kind}
+            variant="ghost"
+            size="icon"
+            className={`${ICON_BUTTON} relative`}
+            title={hint}
+            aria-label={hint}
+            onClick={() => runCommand(command)}>
             <Icon />
-            {label}
             {/* A glance at the count says whether the agent has been writing. It
                 is only there once the view has read the folder at least once, so
                 a window that never opens this tab never runs git. */}
             {kind === 'changes' && changesCount > 0 && (
-              <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">{changesCount}</Badge>
+              <span className="-top-0.5 -right-0.5 absolute min-w-3.5 rounded-full bg-primary px-1 text-[9px] text-primary-foreground leading-3.5 tabular-nums">
+                {changesCount}
+              </span>
             )}
           </Button>
         );
       })}
-    </ButtonGroup>
+    </div>
   );
 }
 
@@ -257,7 +263,6 @@ export function SidebarButton() {
 }
 
 export function ToolbarActions() {
-  const { panelOpen } = useLayout();
   const [, bump] = useState(0);
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
 
@@ -270,16 +275,6 @@ export function ToolbarActions() {
       <Separator orientation="vertical" className="mx-0.5 !h-[18px]" />
 
       <OpenIn folder={project} />
-
-      <Button
-        variant="ghost"
-        size="icon"
-        data-on={panelOpen ? '' : undefined}
-        className={`${ICON_BUTTON} data-[on]:bg-secondary data-[on]:text-foreground`}
-        title="Terminal panel (Ctrl+`)"
-        onClick={() => runCommand('terminal')}>
-        <PanelBottomIcon />
-      </Button>
 
       <ThemeButton />
 

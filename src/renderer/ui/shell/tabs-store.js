@@ -1,10 +1,10 @@
 /* The tabs in the right column.
 
    The column used to hold one view at a time, chosen by three toolbar buttons.
-   It holds a strip of tabs now, and each tab is a preview, the file tree or the
-   diff. A folder can have as many previews as it has things to look at, and one
-   tree and one diff, because a second of either would draw the same folder
-   twice.
+   It holds a strip of tabs now, and each tab is a preview, a terminal, the file
+   tree or the diff. A folder can have as many previews and shells as it has
+   things to run, and one tree and one diff, because a second of either would
+   draw the same folder twice.
 
    Tabs belong to a folder, the way shells and trees and diffs do. Switching
    folders swaps the strip, and the tabs you left are there when you come back.
@@ -14,11 +14,11 @@
 'use strict';
 import { layout, setLayout } from './layout-store.js';
 
-export const KINDS = ['browser', 'files', 'changes'];
+export const KINDS = ['browser', 'files', 'changes', 'terminal'];
 
 // One tree and one diff per folder, so opening either twice lands you back on
-// the one you have. A preview is the exception: two dev servers, or the docs
-// beside the app, is the reason this strip exists at all.
+// the one you have. Previews and terminals are the exception: two dev servers,
+// or a build beside a shell, is the reason this strip exists at all.
 const SINGLE = new Set(['files', 'changes']);
 
 const byProject = new Map(); // dir -> { tabs: [{ id, kind, title }], activeId }
@@ -126,8 +126,8 @@ export function closeTab(dir, id) {
   return gone;
 }
 
-// A browser tab wears the page it is showing. Nothing else has a title worth
-// keeping: a tree and a diff are named by their kind.
+// A browser tab wears the page it is showing and a terminal its shell. A tree
+// and a diff are named by their kind.
 export function setTabTitle(dir, id, title) {
   const tab = byProject.get(dir)?.tabs.find((t) => t.id === id);
   if (!tab || tab.title === title) return;

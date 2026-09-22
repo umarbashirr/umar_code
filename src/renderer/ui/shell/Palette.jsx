@@ -39,7 +39,7 @@ const COMMANDS = [
   { name: 'preview', label: 'Preview browser', icon: GlobeIcon, hint: 'Ctrl+Shift+B' },
   { name: 'files', label: 'Project files', icon: FolderTreeIcon, hint: 'Ctrl+Shift+D' },
   { name: 'changes', label: 'Uncommitted changes', icon: GitCompareIcon, hint: 'Ctrl+Shift+G' },
-  { name: 'terminal', label: 'Terminal panel', icon: TerminalIcon, hint: 'Ctrl+`' },
+  { name: 'terminal', label: 'Terminal', icon: TerminalIcon, hint: 'Ctrl+`' },
   { name: 'drawer', label: 'Console and network', icon: SquareTerminalIcon, hint: 'Ctrl+Shift+J' },
   { name: 'previewFull', label: 'Right pane at full width', icon: MaximizeIcon, hint: 'Ctrl+Shift+F' },
   { name: 'newTerminal', label: 'New terminal', icon: PlusIcon, hint: 'Ctrl+Shift+T' },

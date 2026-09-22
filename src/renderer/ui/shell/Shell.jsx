@@ -1,5 +1,6 @@
-/* The window's layout. Three nested resizable groups: the rail beside the
-   content, the panes above the terminal, and the chat beside the right column.
+/* The window's layout. Two nested resizable groups: the rail beside the
+   content, and the chat beside the right column, which holds the previews,
+   the terminals, the file tree and the diff as tabs.
 
    The splitters used to be 1px divs with a mousemove handler that wrote inline
    widths. react-resizable-panels owns them now.
@@ -14,7 +15,7 @@
    window and "180px" is the floor the rail used to have. */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
-import { FolderTreeIcon, GitCompareIcon, GlobeIcon, PlusIcon, XIcon } from 'lucide-react';
+import { FolderTreeIcon, GitCompareIcon, GlobeIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -27,7 +28,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import App from '../App';
-import { runCommand } from '../../app.js';
+import { focusShell, runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
 import TitleBar from './TitleBar';
 import BrowserView from './BrowserView';
@@ -37,7 +38,6 @@ import Palette from './Palette';
 import Rail from './Rail';
 import StatusBar from './StatusBar';
 import Welcome from './Welcome';
-import TerminalPanel from './TerminalPanel';
 import { previewOf, subscribeBrowser, getBrowserVersion } from './browser-store';
 import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-store';
 import { coverPane, uncoverPane } from './pane-cover';
@@ -58,8 +58,8 @@ export const useLayout = () => {
   return layout;
 };
 
-// The folder with focus. There is one right column and one terminal panel, so
-// one folder at a time gets to draw its tabs and its shells.
+// The folder with focus. There is one right column, so one folder at a time
+// gets to draw its tabs.
 export function useFocusedDir() {
   const [, bump] = useState(0);
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
@@ -102,11 +102,16 @@ export const VIEW_KINDS = {
   browser: { icon: GlobeIcon, label: 'Browser', command: 'preview', adds: 'newPreview', hint: 'Preview browser (Ctrl+Shift+B)' },
   files: { icon: FolderTreeIcon, label: 'Files', command: 'files', hint: 'Project files (Ctrl+Shift+D)' },
   changes: { icon: GitCompareIcon, label: 'Changes', command: 'changes', hint: 'Uncommitted changes (Ctrl+Shift+G)' },
+  terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', hint: 'Terminal (Ctrl+`)' },
 };
 
 // A preview whose page has not said what it is yet, or has not loaded anything
 // at all. Every browser calls that tab the same thing, so this one does too.
-const labelOf = (tab) => (tab.kind === 'browser' ? tab.title || 'New tab' : VIEW_KINDS[tab.kind].label);
+const labelOf = (tab) => {
+  if (tab.kind === 'browser') return tab.title || 'New tab';
+  if (tab.kind === 'terminal') return tab.title || 'Terminal';
+  return VIEW_KINDS[tab.kind].label;
+};
 
 /* Starting one. Files and Changes may already be open in this folder, in which
    case the store hands back the one that is there, so all three are offered
@@ -126,12 +131,15 @@ function AddTab() {
           <PlusIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      {/* Focus goes to whatever the menu opened rather than back to the plus.
+          The shell that just came up cannot take it for itself: the menu holds
+          focus until it has finished closing, and this is that moment. */}
+      <DropdownMenuContent align="start" onCloseAutoFocus={(e) => { e.preventDefault(); focusShell(); }}>
         {KINDS.map((kind) => {
           const { icon: Icon, label, command, adds } = VIEW_KINDS[kind];
           // The plus asks for another tab. For the tree and the diff there is
-          // only ever the one, so it lands you on it; for a preview it means a
-          // second page, which is what the toolbar button cannot ask for.
+          // only ever the one, so it lands you on it; for a preview or a shell
+          // it means another, which is what the toolbar button cannot ask for.
           return (
             <DropdownMenuItem key={kind} onSelect={() => runCommand(adds || command)}>
               <Icon />
@@ -220,21 +228,29 @@ function TabStrip() {
   );
 }
 
+/* Where the shells draw. React leaves #terms empty: xterm renders into a host
+   element per shell and owns every node under it, and app.js hangs those hosts
+   in here and says which one is showing. */
+function Terminals() {
+  useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
+  const { rightOpen } = useLayout();
+  const dir = useFocusedDir();
+  return <div id="terms" hidden={!(rightOpen && activeKind(dir) === 'terminal') || undefined} />;
+}
+
 // -------------------------------------------------------------------- window
 
 export default function Shell() {
-  const { railOpen, rightOpen, panelOpen } = useLayout();
+  const { railOpen, rightOpen } = useLayout();
   // There is nothing to go full width into until the right column is open.
   const full = layout.previewFull && rightOpen;
 
   const rail = usePanelRef();
   const agent = usePanelRef();
   const right = usePanelRef();
-  const panel = usePanelRef();
 
   useCollapse(rail, railOpen);
   useCollapse(right, rightOpen);
-  useCollapse(panel, panelOpen);
   useCollapse(agent, !full);
 
   // A panel that has just opened or closed has moved every other panel with it,
@@ -243,7 +259,7 @@ export default function Shell() {
   useEffect(() => {
     const id = requestAnimationFrame(relayoutNow);
     return () => cancelAnimationFrame(id);
-  }, [railOpen, rightOpen, full, panelOpen]);
+  }, [railOpen, rightOpen, full]);
 
   return (
     <>
@@ -263,36 +279,28 @@ export default function Shell() {
         {railOpen && <ResizableHandle />}
 
         <ResizablePanel id="content" minSize="380px">
-          <ResizablePanelGroup orientation="vertical" onLayoutChange={relayoutNow}>
-            <ResizablePanel id="panes" minSize="160px">
-              <ResizablePanelGroup orientation="horizontal" onLayoutChange={relayoutNow}>
-                {/* 300, not 380. Both panes are collapsible, and when their
-                    minimums stopped fitting the library picked one to drop to
-                    nothing: it picked the chat, and a window one notch too
-                    narrow became a preview pane with no conversation beside it.
-                    Two smaller floors both fit inside the window's own, so
-                    neither has to disappear for the other. */}
-                <ResizablePanel id="agent" panelRef={agent} collapsible minSize="300px">
-                  <section id="agent">
-                    <div id="agent-root"><App /></div>
-                    <Welcome />
-                  </section>
-                </ResizablePanel>
-                {!full && rightOpen && <ResizableHandle />}
-                <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
-                  <section id="right" data-full={full || undefined}>
-                    <TabStrip />
-                    <BrowserView />
-                    <FilesView />
-                    <ChangesView />
-                  </section>
-                </ResizablePanel>
-              </ResizablePanelGroup>
+          <ResizablePanelGroup orientation="horizontal" onLayoutChange={relayoutNow}>
+            {/* 300, not 380. Both panes are collapsible, and when their
+                minimums stopped fitting the library picked one to drop to
+                nothing: it picked the chat, and a window one notch too
+                narrow became a preview pane with no conversation beside it.
+                Two smaller floors both fit inside the window's own, so
+                neither has to disappear for the other. */}
+            <ResizablePanel id="agent" panelRef={agent} collapsible minSize="300px">
+              <section id="agent">
+                <div id="agent-root"><App /></div>
+                <Welcome />
+              </section>
             </ResizablePanel>
-
-            {panelOpen && <ResizableHandle />}
-            <ResizablePanel id="panel" panelRef={panel} collapsible defaultSize={280} minSize={124}>
-              <TerminalPanel />
+            {!full && rightOpen && <ResizableHandle />}
+            <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
+              <section id="right" data-full={full || undefined}>
+                <TabStrip />
+                <BrowserView />
+                <FilesView />
+                <ChangesView />
+                <Terminals />
+              </section>
             </ResizablePanel>
           </ResizablePanelGroup>
         </ResizablePanel>

@@ -588,7 +588,7 @@
 
 /* The seams the shell draws itself, which are declared one side at a time, so
    setting all four widths only lands on the side that has a style. */
-[data-scheme="brutal"] :is(#titlebar, #right, #panel) { border-width: 2px; }
+[data-scheme="brutal"] :is(#titlebar, #right) { border-width: 2px; }
 
 /* The one piece of motion the style gets: a press pushes the control into its
    own shadow and lands flush, which is where the offset came from. */
@@ -890,14 +890,12 @@ kbd {
 [data-theme="dark"] #file-view .shiki span { color: var(--shiki-dark) !important; }
 #file-view .shiki.plain .line { color: var(--code); }
 
-/* ------------------------------------------------------- terminal panel */
-
-#panel { height: 100%; display: flex; flex-direction: column; background: var(--term-bg); border-top: 1px solid var(--line); }
+/* ------------------------------------------------------------ terminals */
 
 /* xterm renders into a host element and owns every node under it, so the tab
    strip above is React's and this is not. Only the active host is displayed:
    they are stacked, and a hidden one keeps its scrollback. */
-#terms { flex: 1; position: relative; }
+#terms { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
 .term-host { position: absolute; inset: 0; padding: 8px 6px 6px 12px; display: none; }
 .term-host.active { display: block; }
 /* The one thing in the panel that is not painted from a --term-* property
