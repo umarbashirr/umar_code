@@ -134,8 +134,7 @@ export TANDEM_APP=~/Apps/tandem-0.7.1-x86_64.AppImage
 Type what you want changed and press Enter. The agent has the usual file and shell tools plus the
 browser, wired in already: no MCP config, no restart, no setup step.
 
-- **Permission modes** in the header: ask, accept edits, plan, yolo. Read-only tools and browser tools
-  never prompt; anything that writes or runs asks inline, and you can allow once, always, or deny.
+- **Permission modes** in the header: ask, accept edits, plan, yolo. Read-only tools never prompt, and neither does looking at the preview (snapshot, text, screenshot, console, network). Changing the page asks like any other write, and you can allow once, always, or deny. A terminal agent driving the preview through `tandem` or the MCP server follows the same mode. It can look in every mode but always, and it can change the page only in bypass, because a terminal has no permission card to answer.
 - **Stop** interrupts mid-turn.
 - **Earlier sessions** are behind the list button in the panel header. Sessions are read straight out
   of `~/.claude/projects/`, the same transcripts `claude --resume` uses, so a conversation you started
