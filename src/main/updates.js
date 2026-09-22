@@ -21,7 +21,6 @@ const { compareVersions, probeVersion, claudeBinary } = require('./driver');
 const { probeVersion: probeCodexVersion, codexBinary } = require('./codex-driver');
 
 const CACHE = path.join(DIR, 'update-check.json');
-const TTL_MS = 6 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 const CLAUDE_PACKAGE = '@anthropic-ai/claude-code';
 const CODEX_PACKAGE = '@openai/codex';
@@ -180,23 +179,8 @@ class Updates extends EventEmitter {
     this.downloading = null;
   }
 
-  get stale() {
-    if (!this.cache.checkedAt) return true;
-    // Written before Tandem stopped shipping its own claude, so it describes a
-    // binary that is no longer there. Anything is better than telling someone
-    // their CLI is missing for the next six hours.
-    if (this.cache.claude && !('path' in this.cache.claude)) return true;
-    // Written by a build that only knew about claude. The Updates tab has a
-    // codex row now and it would sit there saying nothing until the cache aged
-    // out, which is six hours of looking broken to anyone running codex.
-    if (!this.cache.codex) return true;
-    return Date.now() - this.cache.checkedAt > TTL_MS;
-  }
-
-  // What the settings page draws on open: the last answer, straight away. A
-  // stale one is refreshed behind the caller.
   current({ refresh = true } = {}) {
-    if (refresh && this.stale) this.check().catch(() => {});
+    if (refresh) this.check().catch(() => {});
     return this.snapshot();
   }
 
