@@ -1,4 +1,17 @@
 'use strict';
+const { TOOLS } = require('./tools');
+const { READS } = require('./pane-lease');
+const { BRIDGE_TOOL } = require('../shared/browser-tools');
+
+// Matches bare browser_* names and mcp__(preview|tandem)__browser_* only.
+const TANDEM_BROWSER_MCP = /^(?:mcp__(?:preview|tandem)__)?(browser_\w+)$/;
+
+function browserTool(tool) {
+  if (Object.hasOwn(TOOLS, tool)) return tool;
+  const m = TANDEM_BROWSER_MCP.exec(tool);
+  return (m && BRIDGE_TOOL.get(m[1])) || null;
+}
+
 // The seven modes the composer offers. The SDK knows four permission modes, so
 // the other three are ours: they ride on the closest SDK mode and the rest is
 // enforced in AgentSession#permission. The renderer keeps the same ids and the
@@ -87,9 +100,8 @@ function decide(mode, tool, input) {
   // The one mode where nothing is waved through, reads included.
   if (mode === 'always') return ask('this mode asks before every tool');
 
-  // The preview browser is this app driving its own window. Asking about a
-  // snapshot of a pane the human is already looking at helps nobody.
-  if (tool.startsWith('mcp__preview__')) return ALLOW;
+  const browser = browserTool(tool);
+  if (browser && READS.has(browser)) return ALLOW;
   if (READ_ONLY.has(tool)) return ALLOW;
 
   if (mode === 'bypass') return ALLOW;
@@ -129,4 +141,5 @@ const DEBUG_PREFACE = [
 
 module.exports = {
   SDK_MODE, CODEX_MODE, DEFAULT_MODE, isMode, decide, decideCodex, riskOf, READ_ONLY, DEBUG_PREFACE,
+  browserTool,
 };

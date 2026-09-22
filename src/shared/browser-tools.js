@@ -120,4 +120,30 @@ const INSTRUCTIONS = [
   'After any action that should have changed something, check browser_console and browser_network before concluding it worked.',
 ].join(' ');
 
-module.exports = { browserTools, INSTRUCTIONS };
+/** browser_* MCP name -> bare TOOLS key, for policy without loading zod. */
+const BRIDGE_TOOL = new Map([
+  ['browser_navigate', 'navigate'],
+  ['browser_snapshot', 'snapshot'],
+  ['browser_text', 'text'],
+  ['browser_click', 'click'],
+  ['browser_fill', 'fill'],
+  ['browser_type', 'type'],
+  ['browser_press', 'press'],
+  ['browser_select', 'select'],
+  ['browser_hover', 'hover'],
+  ['browser_scroll', 'scroll'],
+  ['browser_screenshot', 'screenshot'],
+  ['browser_console', 'console'],
+  ['browser_network', 'network'],
+  ['browser_evaluate', 'evaluate'],
+  ['browser_wait', 'waitFor'],
+  ['browser_viewport', 'setViewport'],
+  ['browser_back', 'back'],
+  ['browser_forward', 'forward'],
+  ['browser_reload', 'reload'],
+  ['browser_state', 'state'],
+  ['browser_show', 'preview'],
+  ['browser_highlight', 'highlight'],
+]);
+
+module.exports = { browserTools, INSTRUCTIONS, BRIDGE_TOOL };

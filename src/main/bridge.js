@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const path = require('path');
 
 const state = require('../../cli/state');
-const { TOOLS, runTool } = require('./tools');
+const { TOOLS } = require('./tools');
 
 // The same folder can arrive spelled two ways, relative or with a trailing
 // slash, and each spelling would earn its own state file. Settle on one form
@@ -27,16 +27,15 @@ const callerCwd = (req, url) => {
 };
 
 class Bridge {
-  constructor({ getPane, onActivity, captureWindow, showPreview, command, ask, decide, cwd, cwds, focusWindow }) {
+  constructor({ run, debug, captureWindow, command, ask, decide, cwd, cwds, focusWindow }) {
+    this.run = run || (() => { throw new Error('no window'); });
+    this.debug = debug === true;
     this.focusWindow = focusWindow || null;
     this.cwds = normalize(cwds || [cwd || process.cwd()]);
-    this.getPane = getPane;
     this.captureWindow = captureWindow || null;
-    this.showPreview = showPreview || null;
     this.command = command || null;
     this.ask = ask || null;
     this.decideFn = decide || null;
-    this.onActivity = onActivity || (() => {});
     this.token = crypto.randomBytes(24).toString('hex');
     this.server = null;
     this.port = null;
@@ -97,6 +96,11 @@ class Bridge {
     state.write(this.state);
   }
 
+  #tokenOk(sent) {
+    return typeof sent === 'string' && sent.length === this.token.length
+      && crypto.timingSafeEqual(Buffer.from(sent), Buffer.from(this.token));
+  }
+
   async #handle(req, res) {
     const send = (code, body) => {
       const payload = JSON.stringify(body);
@@ -113,7 +117,7 @@ class Bridge {
       return send(200, { ok: true, cwd: this.cwd, projects: this.projects, tools: Object.keys(TOOLS) });
     }
 
-    if (req.headers['x-tandem-token'] !== this.token) return send(401, { error: 'bad or missing x-tandem-token' });
+    if (!this.#tokenOk(req.headers['x-tandem-token'])) return send(401, { error: 'bad or missing x-tandem-token' });
     // `tandem .` on a folder that already has a window raises that window, and
     // says which folder it meant so the window can bring that project forward.
     if (url.pathname === '/focus') {
@@ -122,6 +126,7 @@ class Bridge {
       return send(200, { ok: true, cwd: from || this.cwd });
     }
 
+    if (url.pathname.startsWith('/debug/') && !this.debug) return send(404, { error: 'not found' });
 
     // Development aid: capture the app's own chrome, terminal side included.
     if (url.pathname === '/debug/window' && this.captureWindow) {
@@ -161,7 +166,7 @@ class Bridge {
 
     if (!url.pathname.startsWith('/tool/')) return send(404, { error: 'not found' });
     const name = url.pathname.slice('/tool/'.length);
-    if (!TOOLS[name]) return send(404, { error: `unknown tool ${name}`, tools: Object.keys(TOOLS) });
+    if (!Object.hasOwn(TOOLS, name)) return send(404, { error: `unknown tool ${name}`, tools: Object.keys(TOOLS) });
 
     let body = '';
     for await (const chunk of req) {
@@ -174,21 +179,10 @@ class Bridge {
     }
 
     try {
-      const result = await this.#run(name, args, from);
-      this.onActivity(name, args, from);
-      send(200, { ok: true, result });
+      send(200, { ok: true, result: await this.run(name, args, from) });
     } catch (err) {
       send(500, { ok: false, error: err?.message || String(err) });
     }
-  }
-
-  // A project has its own pane, so the tools have to be pointed at the pane of
-  // the project that asked before they run.
-  async #run(name, a, from) {
-    return runTool(name, a, {
-      getPane: () => this.getPane(from),
-      showPreview: this.showPreview ? (open) => this.showPreview(open, from) : null,
-    });
   }
 }
 
