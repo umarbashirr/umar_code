@@ -27,14 +27,8 @@ const callerCwd = (req, url) => {
 };
 
 class Bridge {
-  /**
-   * @param {object} o
-   * @param {(tool: string, args: object, from: string|null) => Promise<unknown>} [o.run]
-   *   The one way a request becomes a tool call. index.js hands in the door
-   *   that applies the mode and the pane lease.
-   * @param {boolean} [o.debug]
-   *   Serve /debug/*. Off unless the window says so.
-   */
+  // `run` is the only path onto a tool. `debug` serves /debug/* and stays off
+  // unless the window opts in (packaged builds leave it false).
   constructor({ run, debug, captureWindow, command, ask, decide, cwd, cwds, focusWindow }) {
     this.run = run || (() => { throw new Error('no window'); });
     this.debug = debug === true;
@@ -126,7 +120,8 @@ class Bridge {
     }
 
     if (!this.#tokenOk(req.headers['x-tandem-token'])) return send(401, { error: 'bad or missing x-tandem-token' });
-    // `tandem go 3000` typed in one project drives that project's preview.
+    // `tandem .` on a folder that already has a window raises that window, and
+    // says which folder it meant so the window can bring that project forward.
     if (url.pathname === '/focus') {
       if (!this.focusWindow) return send(404, { error: 'no window' });
       this.focusWindow(from);

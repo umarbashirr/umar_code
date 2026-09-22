@@ -141,7 +141,7 @@ async function checkBridgeRunSkipsMode() {
 }
 
 (async () => {
-  console.log('=== P0 browser-trust repro (expect FAIL before fix) ===');
+  console.log('=== P0 browser-trust gate ===');
   console.log('READS:', [...READS].join(', '));
   await checkDecide();
   await checkLeaseOnBridgePath();

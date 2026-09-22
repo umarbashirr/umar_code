@@ -7,12 +7,6 @@ const { BRIDGE_TOOL } = require('../shared/browser-tools');
 // not ours and keeps asking like any MCP tool.
 const OWN = /^(?:mcp__(?:preview|tandem)__)?(browser_\w+)$/;
 
-/**
- * The bare TOOLS key behind any spelling of a browser tool, or null when the
- * name is not one of ours.
- * @param {string} tool
- * @returns {string | null}
- */
 function browserTool(tool) {
   if (Object.hasOwn(TOOLS, tool)) return tool;
   const m = OWN.exec(tool);

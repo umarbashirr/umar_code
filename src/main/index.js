@@ -730,10 +730,8 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
 // Who a bridge caller is to the lease. Everything over HTTP is one driver.
 const BRIDGE_ACTOR = Object.freeze({ id: 'bridge', label: 'a terminal agent' });
 
-/**
- * The one way onto a preview pane. Permission is already settled by the caller;
- * this function never asks.
- */
+// The one way onto a preview pane. Permission is already settled by the caller;
+// this function never asks.
 async function driveTool(tool, args, { cwd, actor }) {
   const l = leaseFor(previewOf(cwd).tab);
   const busy = await l.acquire(tool, actor);
