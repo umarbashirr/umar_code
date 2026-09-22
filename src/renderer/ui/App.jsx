@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useStickToBottomContext } from 'use-stick-to-bottom';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -289,7 +290,7 @@ export default function App() {
           {empty ? (
             <h1 className="py-6 text-center font-medium text-2xl tracking-tight">What should change?</h1>
           ) : (
-            <Items items={agent.items} agent={agent} />
+            <Transcript key={agent.activeKey} items={agent.items} agent={agent} />
           )}
           {thinkingSince > 0 && <ThinkingLine since={thinkingSince} />}
         </ConversationContent>
@@ -355,8 +356,50 @@ const FOLD_AT = 3;
 // a beat after its row — sits still instead of replaying.
 const Row = ({ children }) => <div className="tandem-in">{children}</div>;
 
-function Items({ items, agent }) {
-  return runs(items).map((g) => {
+// A chat opens at its end, so only the newest groups are drawn up front. A long
+// chat parsed and laid out every message it had before the first paint.
+const TAIL = 30;
+
+function Transcript({ items, agent }) {
+  const total = runs(items).length;
+  // Fixed once the history has loaded, so rows arriving during a turn append
+  // below instead of pushing the ones being read off the top.
+  const [from, setFrom] = useState(null);
+  const start = from ?? Math.max(0, total - TAIL);
+  useEffect(() => { if (from === null && total) setFrom(start); }, [from, total, start]);
+
+  // Rows land above the one being read, so hold its distance from the bottom.
+  const { scrollRef } = useStickToBottomContext();
+  const fromBottom = useRef(null);
+  const earlier = () => {
+    const el = scrollRef.current;
+    fromBottom.current = el ? el.scrollHeight - el.scrollTop : null;
+    setFrom(Math.max(0, start - TAIL));
+  };
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && fromBottom.current !== null) el.scrollTop = el.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [start, scrollRef]);
+
+  return (
+    <>
+      {start > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="self-center text-muted-foreground"
+          onClick={earlier}>
+          Show {Math.min(start, TAIL)} earlier
+        </Button>
+      )}
+      <Items items={items} agent={agent} from={start} />
+    </>
+  );
+}
+
+function Items({ items, agent, from = 0 }) {
+  return runs(items).slice(from).map((g) => {
     if (!g.run) return <Row key={g.id}><Item item={g.item} agent={agent} /></Row>;
     if (g.run.length < FOLD_AT) {
       return (
