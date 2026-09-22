@@ -65,6 +65,10 @@ function parse(block) {
 
 // -lic: a login, interactive shell, because that is where people put their
 // exports. The marker fences off anything the profile prints on the way.
+// detached puts the shell in its own session with no controlling terminal. An
+// interactive shell that finds one makes itself the terminal's foreground job
+// and does not give it back, so the app started from `npm run dev` gets
+// suspended with "(tty output)" the next time it writes to the terminal.
 function askShell(shell) {
   return new Promise((resolve) => {
     let out = '';
@@ -74,7 +78,7 @@ function askShell(shell) {
     let child;
     try {
       child = spawn(shell, ['-lic', `echo ${MARK}; command env; echo ${MARK}`],
-        { stdio: ['ignore', 'pipe', 'ignore'] });
+        { stdio: ['ignore', 'pipe', 'ignore'], detached: true });
     } catch {
       return finish(null);
     }
