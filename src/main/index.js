@@ -727,11 +727,9 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   return agent;
 }
 
-// Who a bridge caller is to the lease. Everything over HTTP is one driver.
 const BRIDGE_ACTOR = Object.freeze({ id: 'bridge', label: 'a terminal agent' });
 
-// The one way onto a preview pane. Permission is already settled by the caller;
-// this function never asks.
+// Permission is already settled by the caller; this never asks.
 async function driveTool(tool, args, { cwd, actor }) {
   const l = leaseFor(previewOf(cwd).tab);
   const busy = await l.acquire(tool, actor);
@@ -747,7 +745,6 @@ async function driveTool(tool, args, { cwd, actor }) {
   }
 }
 
-// What a terminal hears when the mode would have asked.
 function refusal(tool, verdict) {
   return `${chosenMode} mode asks before ${tool}${verdict.reason ? ` (${verdict.reason})` : ''}. `
     + 'A terminal has no permission card to answer, so this call was refused. '

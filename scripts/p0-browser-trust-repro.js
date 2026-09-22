@@ -1,8 +1,6 @@
 'use strict';
-// Executable check of P0 browser-trust bugs against the live modules.
-// Expectation once fixed: plan/ask deny browser writes; bridge applies mode+lease;
-// packaged builds refuse /debug/*.
 const path = require('path');
+const fs = require('fs');
 const ROOT = process.env.TANDEM_ROOT || path.join(__dirname, '..');
 
 const { decide } = require(path.join(ROOT, 'src/main/modes.js'));
@@ -30,7 +28,6 @@ async function checkDecide() {
     if (got === want) pass(label);
     else fail(label, `got ${got}`);
   }
-  // Bridge bare names and Codex MCP names must share the door.
   for (const tool of ['navigate', 'mcp__tandem__browser_navigate']) {
     const got = decide('plan', tool, {}).action;
     const label = `decide(plan, ${tool}) => ask`;
@@ -39,9 +36,7 @@ async function checkDecide() {
   }
 }
 
-async function checkLeaseOnBridgePath() {
-  // Simulate what bridge #run does today: runTool with no lease.
-  // Prove that two writers can interleave without lease on that path.
+async function checkLeaseQueuesWriters() {
   const lease = new PaneLease();
   const a = { id: 'claude', label: 'claude', chat: 'a' };
   const b = { id: 'bridge', label: 'bridge', chat: 'b' };
@@ -49,14 +44,7 @@ async function checkLeaseOnBridgePath() {
   if (busyA) fail('lease-acquire-a', busyA);
   else pass('lease-acquire-a');
 
-  // Without going through lease, bridge "succeeds" while A holds the pane.
-  // With lease, B must wait or get a busy error.
-  let bridgeWouldBlock = false;
-  const waitPromise = lease.acquire('click', b).then((busy) => {
-    bridgeWouldBlock = !!busy || true; // acquire either waits then takes, or times out with message
-    return busy;
-  });
-  // Give it a tick: B should be queued, not free to act.
+  const waitPromise = lease.acquire('click', b);
   await new Promise((r) => setTimeout(r, 50));
   if (lease.holder?.id === 'claude' && lease.queue.length >= 1) {
     pass('lease-queues-second-writer');
@@ -71,8 +59,9 @@ async function checkLeaseOnBridgePath() {
 async function checkDebugRoutes() {
   let decideHit = false;
   let askHit = false;
+  // debug defaults false (packaged shape). Handlers present must still 404.
   const bridge = new Bridge({
-    getPane: () => null,
+    run: async () => { throw new Error('tool path unused'); },
     decide: (d) => { decideHit = true; return { ok: true, decision: d }; },
     ask: async (t) => { askHit = true; return { ok: true, text: t }; },
     command: () => ({ ok: true }),
@@ -90,24 +79,13 @@ async function checkDebugRoutes() {
   }
 
   const decideRes = await hit('/debug/decide?decision=allow');
-  if (decideRes.status === 200 && decideHit) {
-    fail('debug-decide-reachable-with-token', 'packaged builds must not expose this; today it works whenever wired');
-  } else if (decideRes.status === 404) {
-    pass('debug-decide-gated');
-  } else {
-    fail('debug-decide-reachable-with-token', JSON.stringify(decideRes));
-  }
+  if (decideRes.status === 404 && !decideHit) pass('debug-decide-gated');
+  else fail('debug-decide-gated', JSON.stringify({ ...decideRes, decideHit }));
 
   const askRes = await hit('/debug/ask?text=hi');
-  if (askRes.status === 200 && askHit) {
-    fail('debug-ask-reachable-with-token', 'token approved a prompt inject');
-  } else if (askRes.status === 404) {
-    pass('debug-ask-gated');
-  } else {
-    fail('debug-ask-reachable-with-token', JSON.stringify(askRes));
-  }
+  if (askRes.status === 404 && !askHit) pass('debug-ask-gated');
+  else fail('debug-ask-gated', JSON.stringify({ ...askRes, askHit }));
 
-  // Tool routes must remain.
   const tools = await hit('/tools');
   if (tools.status === 200) pass('tool-routes-still-open');
   else fail('tool-routes-still-open', JSON.stringify(tools));
@@ -115,38 +93,32 @@ async function checkDebugRoutes() {
   bridge.stop();
 }
 
-async function checkBridgeRunSkipsMode() {
-  // Today's Bridge.#run calls runTool directly. Prove by inspecting source.
-  const fs = require('fs');
-  const src = fs.readFileSync(path.join(ROOT, 'src/main/bridge.js'), 'utf8');
-  const hasDirectRunTool = /async #run\([\s\S]*?return runTool\(/.test(src);
-  const hasRunCallback = /this\.runFn|this\.run\b/.test(src) && /constructor\(\{[^}]*run/.test(src);
-  if (hasDirectRunTool && !hasRunCallback) {
-    fail('bridge-run-goes-through-mode-lease-door', 'Bridge.#run still calls runTool directly with no mode/lease callback');
-  } else if (hasRunCallback) {
-    pass('bridge-run-goes-through-mode-lease-door');
+async function checkDoorWiring() {
+  const bridgeSrc = fs.readFileSync(path.join(ROOT, 'src/main/bridge.js'), 'utf8');
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
+
+  if (/require\('\.\/tools'\)/.test(bridgeSrc) && !/runTool/.test(bridgeSrc)) {
+    pass('bridge-has-no-runTool');
   } else {
-    fail('bridge-run-goes-through-mode-lease-door', 'could not classify bridge #run');
+    fail('bridge-has-no-runTool', 'bridge.js still imports or names runTool');
   }
 
-  // Index wires lease only on Claude invoke.
-  const index = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
-  const invokeHasLease = /invoke:[\s\S]*?l\.acquire\(tool/.test(index);
-  const bridgeCtor = index.match(/new Bridge\(\{[\s\S]*?\}\)/)?.[0] || '';
-  const bridgeHasRun = /\brun\s*:/.test(bridgeCtor);
-  if (invokeHasLease) pass('claude-invoke-has-lease');
-  else fail('claude-invoke-has-lease', 'invoke missing lease');
-  if (bridgeHasRun) pass('bridge-wired-with-run-callback');
-  else fail('bridge-wired-with-run-callback', 'Bridge constructed without run callback');
+  if (/async function driveTool\(/.test(indexSrc)
+    && /invoke:[\s\S]*?driveTool\(tool/.test(indexSrc)
+    && /run:\s*\(tool,\s*args,\s*from\)\s*=>/.test(indexSrc)) {
+    pass('driveTool-is-the-door');
+  } else {
+    fail('driveTool-is-the-door', 'invoke or bridge run missing driveTool wiring');
+  }
 }
 
 (async () => {
   console.log('=== P0 browser-trust gate ===');
   console.log('READS:', [...READS].join(', '));
   await checkDecide();
-  await checkLeaseOnBridgePath();
+  await checkLeaseQueuesWriters();
   await checkDebugRoutes();
-  await checkBridgeRunSkipsMode();
+  await checkDoorWiring();
   console.log(failures.length ? `\n${failures.length} FAIL(s)` : '\nALL PASS');
   process.exit(failures.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

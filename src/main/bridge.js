@@ -27,8 +27,6 @@ const callerCwd = (req, url) => {
 };
 
 class Bridge {
-  // `run` is the only path onto a tool. `debug` serves /debug/* and stays off
-  // unless the window opts in (packaged builds leave it false).
   constructor({ run, debug, captureWindow, command, ask, decide, cwd, cwds, focusWindow }) {
     this.run = run || (() => { throw new Error('no window'); });
     this.debug = debug === true;

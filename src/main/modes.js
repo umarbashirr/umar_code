@@ -3,13 +3,12 @@ const { TOOLS } = require('./tools');
 const { READS } = require('./pane-lease');
 const { BRIDGE_TOOL } = require('../shared/browser-tools');
 
-// Tandem's own MCP servers, and only those. Another server's browser_* tool is
-// not ours and keeps asking like any MCP tool.
-const OWN = /^(?:mcp__(?:preview|tandem)__)?(browser_\w+)$/;
+// Matches bare browser_* names and mcp__(preview|tandem)__browser_* only.
+const TANDEM_BROWSER_MCP = /^(?:mcp__(?:preview|tandem)__)?(browser_\w+)$/;
 
 function browserTool(tool) {
   if (Object.hasOwn(TOOLS, tool)) return tool;
-  const m = OWN.exec(tool);
+  const m = TANDEM_BROWSER_MCP.exec(tool);
   return (m && BRIDGE_TOOL.get(m[1])) || null;
 }
 
@@ -101,9 +100,6 @@ function decide(mode, tool, input) {
   // The one mode where nothing is waved through, reads included.
   if (mode === 'always') return ask('this mode asks before every tool');
 
-  // The preview browser is this app driving its own window. Looking at a pane
-  // the human is already watching asks nobody. Changing what is on it is a
-  // write like any other and takes the mode's answer below.
   const browser = browserTool(tool);
   if (browser && READS.has(browser)) return ALLOW;
   if (READ_ONLY.has(tool)) return ALLOW;
