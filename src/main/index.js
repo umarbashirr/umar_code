@@ -1517,8 +1517,8 @@ app.whenReady().then(async () => {
   }
 
   // One GitHub call and one npm call, after the window is up, and only if the
-  // person left the launch check on. The answer is cached for six hours, so
-  // opening several windows in an afternoon costs one round trip.
+  // person left the launch check on. Opening Updates or clicking Check fetches
+  // again rather than serving the last tag_name.
   if (settings.get('startup').checkUpdates) {
     updates.check()
       .then((snap) => send('updates:changed', snap))

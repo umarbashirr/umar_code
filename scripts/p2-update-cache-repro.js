@@ -74,6 +74,10 @@ function installHttps(handler) {
         req.emit('error', e);
         return;
       }
+      if (out.connectError) {
+        req.emit('error', out.connectError);
+        return;
+      }
       const res = new EventEmitter();
       res.statusCode = out.statusCode;
       res.headers = out.headers || {};
@@ -82,10 +86,6 @@ function installHttps(handler) {
       cb(res);
       if (out.statusCode >= 300 && out.statusCode < 400) return;
       queueMicrotask(() => {
-        if (out.error) {
-          res.emit('error', out.error);
-          return;
-        }
         if (out.body != null) {
           res.emit('data', typeof out.body === 'string' ? out.body : JSON.stringify(out.body));
         }
@@ -167,7 +167,7 @@ async function checkRateLimitSurfaces() {
 async function checkOfflineSurfaces() {
   seedCache();
   const mock = installHttps((href) => {
-    if (GITHUB_LATEST.test(href)) return { statusCode: 200, error: new Error('getaddrinfo ENOTFOUND api.github.com') };
+    if (GITHUB_LATEST.test(href)) return { connectError: new Error('getaddrinfo ENOTFOUND api.github.com') };
     if (NPM_LATEST.test(href)) return jsonRes(200, { version: '1.0.0' });
     return jsonRes(404, { message: `unexpected ${href}` });
   });

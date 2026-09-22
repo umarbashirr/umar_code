@@ -623,7 +623,7 @@ function Updates({ settings, set, updates }) {
           </Row>
         )}
 
-        <Row label="Check on launch" hint="One request to GitHub, cached for six hours.">
+        <Row label="Check on launch" hint="Asks GitHub when the app starts.">
           <Switch
             checked={settings.startup.checkUpdates}
             onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />
