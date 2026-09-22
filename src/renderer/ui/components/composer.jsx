@@ -124,7 +124,8 @@ function ModelItems({ rows, current, onPick }) {
 
 const chooseModels = () => window.tandemChat?.settings('cursor-models');
 
-const capitalized = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const EFFORT_LABEL = { xhigh: 'Extra high' };
+const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);
 
 /* One button for the model and the two settings that ride on it, how hard it
    thinks and how long a window it gets. Effort was never passed to the CLI
@@ -174,7 +175,7 @@ function ModelPicker({ agent, hidden }) {
   const row = agent.models.find((m) => m.value === agent.model);
   const label = [
     row ? cleanModelName(row) : agent.model || 'Pick a model',
-    agent.effort && capitalized(agent.effort),
+    agent.effort && effortLabel(agent.effort),
     capable && (long ? '1M' : '200K'),
   ].filter(Boolean).join(' · ');
 
@@ -257,7 +258,7 @@ function ModelPicker({ agent, hidden }) {
             <DropdownMenuSubTrigger>
               Effort
               <span className="ml-auto pl-4 text-muted-foreground text-xs">
-                {agent.effort ? capitalized(agent.effort) : 'Default'}
+                {agent.effort ? effortLabel(agent.effort) : 'Default'}
               </span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-36">
@@ -266,7 +267,7 @@ function ModelPicker({ agent, hidden }) {
                 onValueChange={(v) => { if (v !== (agent.effort || 'default')) agent.changeEffort(v === 'default' ? '' : v); }}>
                 <DropdownMenuRadioItem value="default">Default effort</DropdownMenuRadioItem>
                 {agent.efforts.map((level) => (
-                  <DropdownMenuRadioItem key={level} value={level}>{capitalized(level)}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem key={level} value={level}>{effortLabel(level)}</DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuSubContent>
@@ -744,7 +745,7 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
           the branch ended up half cut off and the chat pane grew a horizontal
           scrollbar under everything. A second line costs 24px and is the whole
           row rather than most of it. */}
-      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-0.5 gap-y-1 px-1 text-muted-foreground/60 text-[11px]">
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-muted-foreground/60 text-[11px]">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Pill className="h-6 max-w-full px-1.5 text-[11px]">
@@ -791,7 +792,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {project.branch && <span aria-hidden="true">·</span>}
         {project.branch && (
           <Pill
             tabIndex={-1}
@@ -802,7 +802,6 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
           </Pill>
         )}
 
-        <span aria-hidden="true">·</span>
         <Pill
           className="h-6 px-1.5 text-[11px]"
           onClick={() => setShowCatalog(true)}
