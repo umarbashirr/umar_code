@@ -746,9 +746,13 @@ async function driveTool(tool, args, { cwd, actor }) {
 }
 
 function refusal(tool, verdict) {
-  return `${chosenMode} mode asks before ${tool}${verdict.reason ? ` (${verdict.reason})` : ''}. `
+  const err = new Error(
+    `${chosenMode} mode asks before ${tool}${verdict.reason ? ` (${verdict.reason})` : ''}. `
     + 'A terminal has no permission card to answer, so this call was refused. '
-    + 'Do it from the chat panel, or set the mode to bypass.';
+    + 'Do it from the chat panel, or set the mode to bypass.',
+  );
+  err.code = 'PERMISSION_DENIED';
+  return err;
 }
 
 // Ask the running session what it ended up with, fold it into the cached
