@@ -1,10 +1,11 @@
-; Two things the packaged installer does not do on its own: put the tandem CLI
-; where a shell can find it, and offer a folder to Tandem from Explorer.
-;
 ; The PATH edit goes through PowerShell rather than raw registry writes. The
 ; user PATH is REG_EXPAND_SZ, it has a length limit worth respecting, and
 ; SetEnvironmentVariable broadcasts the change so a shell opened afterwards
 ; sees it. Hand-rolling that in NSIS is a well known way to eat somebody's PATH.
+;
+; PATH gets $INSTDIR\bin, not $INSTDIR. tandem.exe and tandem.cmd cannot share
+; a PATH directory: default PATHEXT puts .EXE before .CMD, so bare `tandem`
+; would launch the GUI.
 
 !macro tandemRunPS Script
   InitPluginsDir
@@ -16,10 +17,10 @@
 !macroend
 
 !macro customInstall
-  ; `tandem .` from PowerShell or cmd, the way the .deb puts it on PATH.
-  !insertmacro tandemRunPS "$$dir = '$INSTDIR'; $$p = [Environment]::GetEnvironmentVariable('Path','User'); if ($$null -eq $$p) { $$p = '' }; if (-not (($$p -split ';') -contains $$dir)) { [Environment]::SetEnvironmentVariable('Path', ($$p.TrimEnd(';') + ';' + $$dir).TrimStart(';'), 'User') }"
+  Delete "$INSTDIR\tandem.cmd"
 
-  ; Right-click a folder, or the background of one you are inside, and open it.
+  !insertmacro tandemRunPS "$$dir = '$INSTDIR'; $$bin = '$INSTDIR\bin'; $$p = [Environment]::GetEnvironmentVariable('Path','User'); if ($$null -eq $$p) { $$p = '' }; $$kept = @($$p -split ';' | Where-Object { $$_ -and $$_ -ne $$dir -and $$_ -ne $$bin }); $$kept += $$bin; [Environment]::SetEnvironmentVariable('Path', ($$kept -join ';'), 'User')"
+
   ; %V is the folder in both cases; %1 is not, for the background verb.
   WriteRegStr HKCU "Software\Classes\Directory\shell\Tandem" "" "Open with Tandem"
   WriteRegStr HKCU "Software\Classes\Directory\shell\Tandem" "Icon" "$INSTDIR\tandem.exe"
@@ -30,7 +31,7 @@
 !macroend
 
 !macro customUnInstall
-  !insertmacro tandemRunPS "$$dir = '$INSTDIR'; $$p = [Environment]::GetEnvironmentVariable('Path','User'); if ($$p) { $$kept = ($$p -split ';' | Where-Object { $$_ -and $$_ -ne $$dir }) -join ';'; [Environment]::SetEnvironmentVariable('Path', $$kept, 'User') }"
+  !insertmacro tandemRunPS "$$dir = '$INSTDIR'; $$bin = '$INSTDIR\bin'; $$p = [Environment]::GetEnvironmentVariable('Path','User'); if ($$p) { $$kept = ($$p -split ';' | Where-Object { $$_ -and $$_ -ne $$dir -and $$_ -ne $$bin }) -join ';'; [Environment]::SetEnvironmentVariable('Path', $$kept, 'User') }"
   DeleteRegKey HKCU "Software\Classes\Directory\shell\Tandem"
   DeleteRegKey HKCU "Software\Classes\Directory\Background\shell\Tandem"
 !macroend

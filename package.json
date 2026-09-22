@@ -144,7 +144,7 @@
       "extraFiles": [
         {
           "from": "build/tandem.cmd",
-          "to": "tandem.cmd"
+          "to": "bin/tandem.cmd"
         }
       ]
     },
