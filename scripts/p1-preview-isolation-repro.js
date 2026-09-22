@@ -2,21 +2,15 @@
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const electron = require('electron');
 const ROOT = process.env.TANDEM_ROOT || path.join(__dirname, '..');
+const { normalizeUrl, isAllowedUrl } = require(path.join(ROOT, 'src/main/url.js'));
 
 const failures = [];
 const pass = (name) => console.log(`PASS ${name}`);
 const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failures.push(name); };
 
 function checkSchemeAllowlist() {
-  let normalizeUrl;
-  let isAllowedUrl;
-  try {
-    ({ normalizeUrl, isAllowedUrl } = require(path.join(ROOT, 'src/main/url.js')));
-  } catch (e) {
-    fail('url-module', e.message);
-    return;
-  }
   if (typeof isAllowedUrl !== 'function') {
     fail('isAllowedUrl-exported', 'isAllowedUrl missing from url.js');
   } else {
@@ -105,7 +99,6 @@ function runCookieIsolation() {
       fail('cookie-probe-script', 'missing scripts/_p1-preview-cookie-probe.js');
       return resolve();
     }
-    const electron = require('electron');
     const child = spawn(electron, [probe], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -123,12 +116,9 @@ function runCookieIsolation() {
       clearTimeout(timer);
       process.stdout.write(out);
       if (err.trim()) process.stderr.write(err);
-      if (code === 0 && /PASS cookie-partitions-isolated/.test(out)) {
-        // already printed by probe
-      } else if (code === 0) {
+      if (code !== 0) fail('cookie-isolation-runtime', `exit ${code}`);
+      else if (!/PASS cookie-partitions-isolated/.test(out)) {
         fail('cookie-isolation-runtime', 'probe exited 0 without PASS line');
-      } else {
-        fail('cookie-isolation-runtime', `exit ${code}`);
       }
       resolve();
     });

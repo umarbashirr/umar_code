@@ -1,21 +1,12 @@
 'use strict';
-// Electron probe: two BrowserPanes for different projects must not share cookies.
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
 const ROOT = path.join(__dirname, '..');
+const { BrowserPane } = require(path.join(ROOT, 'src/main/browser.js'));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 800, height: 600 });
-  let BrowserPane;
-  try {
-    ({ BrowserPane } = require(path.join(ROOT, 'src/main/browser.js')));
-  } catch (e) {
-    console.log(`FAIL cookie-probe-load: ${e.message}`);
-    app.exit(1);
-    return;
-  }
-
   const projectA = '/tmp/tandem-iso-a';
   const projectB = '/tmp/tandem-iso-b';
   let paneA;
@@ -29,11 +20,7 @@ app.whenReady().then(async () => {
     return;
   }
 
-  const partA = paneA.wc.session.getStoragePath?.() || paneA.wc.session.storagePath;
-  const partB = paneB.wc.session.getStoragePath?.() || paneB.wc.session.storagePath;
-  // Distinct partitions → distinct session objects / storage paths.
-  const sameSession = paneA.wc.session === paneB.wc.session;
-  if (sameSession) {
+  if (paneA.wc.session === paneB.wc.session) {
     console.log('FAIL cookie-partitions-isolated: panes share session object');
     app.exit(1);
     return;
@@ -55,7 +42,7 @@ app.whenReady().then(async () => {
     return;
   }
   if (fromB.length) {
-    console.log(`FAIL cookie-partitions-isolated: B saw A's cookie (${JSON.stringify(fromB)}) storageA=${partA} storageB=${partB}`);
+    console.log(`FAIL cookie-partitions-isolated: B saw A's cookie (${JSON.stringify(fromB)})`);
     app.exit(1);
     return;
   }

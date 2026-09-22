@@ -1,6 +1,5 @@
 'use strict';
 // Turn whatever the human or the agent typed into something loadable.
-// Only http(s) and about:blank may leave this boundary.
 const ALLOWED = new Set(['http:', 'https:']);
 
 function schemeOf(url) {
