@@ -224,6 +224,12 @@ const liveSessions = () => [...sessions.values()].filter((a) => !a.closed);
 // session can answer, and the cache answers when none is up.
 const anySession = () => liveSessions()[0] || null;
 
+// Catalog toggles write the focused folder's config, then poke running sessions
+// so an open turn picks the change up. Only Claude sessions rooted at that
+// folder: Codex stubs always error, and a chat in another project must keep its
+// own servers.
+const catalogSessions = (dir) => liveSessions().filter((a) => a instanceof AgentSession && a.cwd === dir);
+
 function stopChat(chat) {
   const a = sessions.get(chat);
   if (!a) return false;
@@ -1168,27 +1174,30 @@ function registerIpc() {
   });
   ipcMain.handle('catalog:connectors', async (_e, { enabled }) => {
     if (provider === 'codex') return codexCatalog.setConnectors(focusedCwd());
-    const next = catalog.setConnectors(focusedCwd(), enabled);
+    const dir = focusedCwd();
+    const next = catalog.setConnectors(dir, enabled);
     // The setting is read when a session starts, so a running one is told
     // separately; either way the next chat starts the way the switch says.
-    await Promise.all(liveSessions().map((a) => a.setConnectors(enabled, catalog.offAtRuntime(focusedCwd()))));
+    await Promise.all(catalogSessions(dir).map((a) => a.setConnectors(enabled, catalog.offAtRuntime(dir))));
     return next;
   });
   ipcMain.handle('catalog:skill', async (_e, { name, enabled }) => {
     // codex writes the switch to its own config, which takes a round trip.
-    const next = await cat().setSkill(focusedCwd(), name, enabled);
+    const dir = focusedCwd();
+    const next = await cat().setSkill(dir, name, enabled);
     if (provider === 'codex') return next;
-    const overrides = catalog.sessionSettings(focusedCwd()).skillOverrides || {};
-    await Promise.all(liveSessions().map((a) => a.setSkillOverrides(overrides)));
+    const overrides = catalog.sessionSettings(dir).skillOverrides || {};
+    await Promise.all(catalogSessions(dir).map((a) => a.setSkillOverrides(overrides)));
     return next;
   });
   ipcMain.handle('catalog:mcpToggle', async (_e, { name, enabled }) => {
-    const runtime = cat().runtimeName(focusedCwd(), name);
-    const next = await cat().setMcp(focusedCwd(), name, enabled);
+    const dir = focusedCwd();
+    const runtime = cat().runtimeName(dir, name);
+    const next = await cat().setMcp(dir, name, enabled);
     // codex was told through config.toml and a reload, so its live session has
     // nothing to be asked and would only answer that it cannot help.
     if (provider === 'codex') return next;
-    const done = await Promise.all(liveSessions().map((a) => a.toggleMcp(runtime, enabled)));
+    const done = await Promise.all(catalogSessions(dir).map((a) => a.toggleMcp(runtime, enabled)));
     return { ...next, error: done.find((r) => r?.error)?.error || null };
   });
   // An HTTP or SSE server behind OAuth cannot be authenticated from inside a
@@ -1206,35 +1215,38 @@ function registerIpc() {
   });
 
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
-    const agent = anySession();
+    const dir = focusedCwd();
+    const agent = catalogSessions(dir)[0] || null;
     const res = agent
-      ? await agent.reconnectMcp(cat().runtimeName(focusedCwd(), name))
+      ? await agent.reconnectMcp(cat().runtimeName(dir, name))
       : { error: 'no chat is running yet' };
     const next = await learnCatalog();
     return { ...next, error: res.error || null };
   });
   ipcMain.handle('catalog:mcpAdd', async (_e, { name, scope, config }) => {
+    const dir = focusedCwd();
     try {
-      await cat().addServer(focusedCwd(), { name, scope, config });
+      await cat().addServer(dir, { name, scope, config });
     } catch (e) {
       return { error: e.message };
     }
-    if (provider === 'codex') return codexCatalog.current(focusedCwd());
-    const done = await Promise.all(liveSessions().map((a) => a.addMcpServer(name, config)));
+    if (provider === 'codex') return codexCatalog.current(dir);
+    const done = await Promise.all(catalogSessions(dir).map((a) => a.addMcpServer(name, config)));
     const res = done.find((r) => r?.error) || {};
-    const next = catalog.current(focusedCwd());
+    const next = catalog.current(dir);
     return { ...next, error: res.error || null };
   });
   ipcMain.handle('catalog:mcpRemove', async (_e, { name, scope }) => {
-    const runtime = cat().runtimeName(focusedCwd(), name);
+    const dir = focusedCwd();
+    const runtime = cat().runtimeName(dir, name);
     try {
-      await cat().removeServer(focusedCwd(), name, scope);
+      await cat().removeServer(dir, name, scope);
     } catch (e) {
       return { error: e.message };
     }
-    if (provider === 'codex') return codexCatalog.current(focusedCwd());
-    await Promise.all(liveSessions().map((a) => a.removeMcpServer(runtime)));
-    return catalog.current(focusedCwd());
+    if (provider === 'codex') return codexCatalog.current(dir);
+    await Promise.all(catalogSessions(dir).map((a) => a.removeMcpServer(runtime)));
+    return catalog.current(dir);
   });
 
   // --- agent history ---
