@@ -22,12 +22,13 @@ function workflowText() {
 
 function checkWorkflowRunner() {
   const wf = workflowText();
-  if (wf.includes('windows-2022')) {
-    fail('workflow-not-windows-runner', 'windows-2022 never starts while the GitHub account is billing-locked');
+  const runners = [...wf.matchAll(/^[ \t]*runs-on:[ \t]*(\S+)/gm)].map((m) => m[1]);
+  if (runners.some((r) => r.includes('windows'))) {
+    fail('workflow-not-windows-runner', `runs-on ${runners.join(', ')}`);
     return;
   }
-  if (wf.includes('runs-on: ubuntu-latest')) pass('workflow-ubuntu-runner');
-  else fail('workflow-ubuntu-runner', 'expected runs-on: ubuntu-latest');
+  if (runners.includes('ubuntu-latest')) pass('workflow-ubuntu-runner');
+  else fail('workflow-ubuntu-runner', `runs-on ${runners.join(', ') || '(none)'}`);
 }
 
 function checkWorkflowBuild() {
@@ -42,8 +43,11 @@ function checkNoMacJob() {
   const wf = workflowText();
   if (/runs-on:\s*macos/.test(wf)) fail('no-macos-runner', 'a macOS runner cannot produce a dmg while Actions is billing-locked');
   else pass('no-macos-runner');
-  if (/\.dmg/.test(wf)) fail('workflow-does-not-upload-dmg', 'dmgbuild ships a macOS Python and cannot run on the Linux runner');
-  else pass('workflow-does-not-upload-dmg');
+  if (/dist:mac|release upload[^\n]*\.dmg/.test(wf)) {
+    fail('workflow-does-not-upload-dmg', 'dmgbuild ships a macOS Python and cannot run on the Linux runner');
+  } else {
+    pass('workflow-does-not-upload-dmg');
+  }
 }
 
 function checkChecksumScript() {

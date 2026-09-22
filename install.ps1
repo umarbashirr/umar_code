@@ -119,7 +119,7 @@ function Install-Tandem {
     if ($have.Count -eq 0) {
       throw "release v$latest has no files attached yet"
     }
-    throw "release v$latest has no Windows installer for $arch. Attached: $($have -join ', '). The .exe is built on Windows and has to be uploaded to the release; it cannot be cross-built from Linux."
+    throw "release v$latest has no Windows installer for $arch. Attached: $($have -join ', ')."
   }
 
   Say "Tandem $latest, $($asset.name)"
@@ -167,9 +167,43 @@ terminal, the panel works.
 '@
 }
 
+# The one-liner always fetches this file from main. The bytes it installs belong
+# to a release. Run that release's copy so the script and the binary are the
+# same tag. A tag from before this pin has no such check and just installs.
+function Invoke-PinnedInstall {
+  if ($env:TANDEM_INSTALL_FROM_TAG) { return $false }
+  $api = if ($Version) {
+    "https://api.github.com/repos/$repo/releases/tags/v$($Version.TrimStart('v'))"
+  } else {
+    "https://api.github.com/repos/$repo/releases/latest"
+  }
+  try {
+    $release = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'tandem-install' }
+  } catch {
+    return $false
+  }
+  $tag = ([string]$release.tag_name).Trim()
+  if (-not $tag) { return $false }
+  $raw = "https://raw.githubusercontent.com/$repo/$tag/install.ps1"
+  $file = Join-Path ([IO.Path]::GetTempPath()) "tandem-install-$tag.ps1"
+  try {
+    Invoke-WebRequest -Uri $raw -OutFile $file -UseBasicParsing
+  } catch {
+    return $false
+  }
+  $env:TANDEM_INSTALL_FROM_TAG = $tag
+  $bound = @{}
+  if ($Version) { $bound.Version = $Version }
+  if ($Force) { $bound.Force = $true }
+  if ($Silent) { $bound.Silent = $true }
+  & $file @bound
+  return $true
+}
+
 # Nothing here calls exit: this script is meant to be piped into iex, and an
 # exit there closes the window the person was about to read the error in.
 try {
+  if (-not $Uninstall -and (Invoke-PinnedInstall)) { return }
   if ($Uninstall) { Remove-Tandem } else { Install-Tandem }
 } catch {
   Write-Host "tandem: $($_.Exception.Message)" -ForegroundColor Red
