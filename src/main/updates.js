@@ -19,6 +19,8 @@ const { execFile } = require('child_process');
 const { DIR } = require('./projects');
 const { compareVersions, probeVersion, claudeBinary } = require('./driver');
 const { probeVersion: probeCodexVersion, codexBinary } = require('./codex-driver');
+const { cursorBinary, probeVersion: probeCursorVersion } = require('./providers/cursor');
+const { grokBinary, probeVersion: probeGrokVersion } = require('./providers/grok');
 
 const CACHE = path.join(DIR, 'update-check.json');
 const REQUEST_TIMEOUT_MS = 15000;
@@ -189,6 +191,8 @@ class Updates extends EventEmitter {
       app: this.cache.app || { current: currentVersion(), latest: null, behind: false },
       claude: this.claudeFor(),
       codex: this.codexFor(),
+      cursor: this.cursorFor(),
+      grok: this.grokFor(),
       kind: installKind(),
       checkedAt: this.cache.checkedAt || null,
       error: this.cache.error || null,
@@ -203,13 +207,18 @@ class Updates extends EventEmitter {
   }
 
   async #check() {
-    const [app, claude, codex] = await Promise.all([this.#checkApp(), this.#checkClaude(), this.#checkCodex()]);
+    const [app, claude, codex, cursor, grok] = await Promise.all([
+      this.#checkApp(), this.#checkClaude(), this.#checkCodex(),
+      this.#checkCursor(), this.#checkGrok(),
+    ]);
     this.cache = writeCache({
       app: app.value,
       claude: claude.value,
       codex: codex.value,
+      cursor: cursor.value,
+      grok: grok.value,
       checkedAt: Date.now(),
-      error: app.error || claude.error || codex.error || null,
+      error: app.error || claude.error || codex.error || cursor.error || grok.error || null,
     });
     const snap = this.snapshot();
     this.emit('changed', snap);
@@ -282,6 +291,18 @@ class Updates extends EventEmitter {
     return { value: { path: bin, version, latest }, error: null };
   }
 
+  async #checkCursor() {
+    const bin = cursorBinary();
+    const version = bin ? await probeCursorVersion(bin) : null;
+    return { value: { path: bin, version, latest: null }, error: null };
+  }
+
+  async #checkGrok() {
+    const bin = grokBinary();
+    const version = bin ? await probeGrokVersion(bin) : null;
+    return { value: { path: bin, version, latest: null }, error: null };
+  }
+
   // What the settings page and the launch toast read. `missing` is the one that
   // matters: no claude means no chat, and the app has nothing to fall back on.
   claudeFor() {
@@ -293,6 +314,14 @@ class Updates extends EventEmitter {
   // person has not installed rather than one that has gone.
   codexFor() {
     return cliFor(this.cache.codex);
+  }
+
+  cursorFor() {
+    return cliFor(this.cache.cursor);
+  }
+
+  grokFor() {
+    return cliFor(this.cache.grok);
   }
 
   // Streams the asset into the downloads folder, reporting progress as it goes.

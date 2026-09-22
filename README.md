@@ -110,6 +110,18 @@ have, so if `claude --version` answers in your terminal the panel works. If it d
 picker stays empty and says so. Install it with `npm install -g @anthropic-ai/claude-code`, or point
 Tandem at an unusual location under Settings, Agent.
 
+Cursor and Grok work the same way, through their own CLIs. Tandem does not ship those either.
+
+- **Cursor:** install the [Cursor CLI](https://cursor.com/cli) (`agent` or `cursor-agent` on PATH),
+  then `agent login`. The picker offers Auto, Composer, GPT-5.4, Claude, and Grok names the CLI
+  advertises.
+- **Grok:** install the [Grok CLI](https://x.ai/cli), then `grok login`.
+
+If a CLI is missing, its row in the model picker is empty and disabled. After login, a chat on that
+provider streams like Claude. Which CLI a chat uses is stored per chat, the same way model and mode
+already are: switching the picker on a chat that has messages forks it rather than rewriting the
+thread. Point Tandem at an unusual binary under Settings, Agent.
+
 ## Opening a project
 
 The installer puts `tandem` on PATH, so a folder opens the way you would open one in an editor:
@@ -159,9 +171,10 @@ browser, wired in already: no MCP config, no restart, no setup step.
 - **Earlier sessions** are in the rail, one section per open folder. `Ctrl+Shift+S` shows or hides it.
   Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
   a conversation you started in the terminal shows up in the rail, and a chat you started here shows
-  up in `claude --resume`. Codex chats appear in that rail too. Pick one and the thread replays, tool
-  calls and screenshots included, and that chat is live again for the next thing you type. Switching
-  chats does not stop one that is still running.
+  up in `claude --resume`. Codex chats appear in that rail too. Cursor and Grok chats live in this
+  window for the session; Tandem does not read those CLIs' on-disk transcripts yet. Pick one and the
+  thread replays, tool calls and screenshots included, and that chat is live again for the next thing
+  you type. Switching chats does not stop one that is still running.
 - **Tool calls** collapse to one line each. Click one to see its input and result, including
   screenshots inline.
 
