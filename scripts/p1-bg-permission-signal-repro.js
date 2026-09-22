@@ -8,31 +8,31 @@ const pass = (name) => console.log(`PASS ${name}`);
 const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failures.push(name); };
 
 function checkAttentionModule() {
-  let chatWaiting;
+  let hasUndecidedPerm;
   let railBadge;
   let keepRailOpen;
   try {
-    ({ chatWaiting, railBadge, keepRailOpen } = require(path.join(ROOT, 'src/renderer/ui/shell/chat-attention.js')));
+    ({ hasUndecidedPerm, railBadge, keepRailOpen } = require(path.join(ROOT, 'src/renderer/ui/shell/chat-attention.js')));
   } catch (e) {
     fail('chat-attention-module', e.message);
     return;
   }
   pass('chat-attention-module');
 
-  if (chatWaiting([{ kind: 'perm', decided: null }]) === true) pass('undecided-perm-waits');
+  if (hasUndecidedPerm([{ kind: 'perm', decided: null }]) === true) pass('undecided-perm-waits');
   else fail('undecided-perm-waits', 'expected true');
 
-  if (chatWaiting([{ kind: 'perm', decided: 'allow' }]) === false) pass('decided-perm-clears');
+  if (hasUndecidedPerm([{ kind: 'perm', decided: 'allow' }]) === false) pass('decided-perm-clears');
   else fail('decided-perm-clears', 'expected false');
 
-  if (chatWaiting([{ kind: 'tool' }, { kind: 'perm', decided: undefined }]) === true) {
+  if (hasUndecidedPerm([{ kind: 'tool' }, { kind: 'perm', decided: undefined }]) === true) {
     pass('mixed-items-detects-perm');
   } else {
     fail('mixed-items-detects-perm', 'expected true');
   }
 
-  if (chatWaiting([{ kind: 'agent', waiting: true }]) === false) pass('agent-waiting-is-not-chat-waiting');
-  else fail('agent-waiting-is-not-chat-waiting', 'subagent waiting must not count as chat waiting');
+  if (hasUndecidedPerm([{ kind: 'agent', waiting: true }]) === false) pass('agent-waiting-is-not-perm');
+  else fail('agent-waiting-is-not-perm', 'subagent waiting must not count as undecided perm');
 
   const needs = railBadge({ busy: true, agents: 2, waiting: true });
   if (needs && needs.label === 'needs you' && needs.tone === 'wait') pass('badge-prefers-needs-you');
@@ -58,7 +58,7 @@ function checkAttentionModule() {
 
 function checkUseAgentWiresWaiting() {
   const src = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/useAgent.js'), 'utf8');
-  if (!/chatWaiting|chat-attention/.test(src)) {
+  if (!/hasUndecidedPerm|chat-attention/.test(src)) {
     fail('useAgent-imports-attention', 'useAgent.js does not use chat-attention');
   } else {
     pass('useAgent-imports-attention');

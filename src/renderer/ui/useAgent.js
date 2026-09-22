@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { blankUsage, totals, withRequest, withResult } from '@/lib/usage';
-import { chatWaiting } from './shell/chat-attention.js';
+import { hasUndecidedPerm } from './shell/chat-attention.js';
 
 const tandem = () => window.tandem;
 
@@ -621,12 +621,6 @@ export function useAgent() {
     tandem().agent.active?.(activeKey, active?.session || null);
   }, [activeKey, active?.session]);
 
-  // The rail is the only view of a chat that is not on screen, so it gets the
-  // whole set: the ones claude has not written to disk yet, which one you are
-  // looking at, which are mid-turn, how many agents are under each, and whether
-  // an undecided permission card is waiting. It used to get a single "pending"
-  // chat and a list of busy ids, and a second new chat, or clicking away from a
-  // new one, dropped the first one's row until its transcript reached disk.
   useEffect(() => {
     window.tandemRail?.sync?.({
       active: activeKey,
@@ -637,7 +631,7 @@ export function useAgent() {
         session: c.session,
         title: c.title,
         busy: c.busy,
-        waiting: chatWaiting(c.items),
+        waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
       })),
     });
