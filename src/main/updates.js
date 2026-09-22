@@ -179,8 +179,6 @@ class Updates extends EventEmitter {
     this.downloading = null;
   }
 
-  // What the settings page draws on open: the last answer, straight away. A
-  // refresh re-hits GitHub behind the caller.
   current({ refresh = true } = {}) {
     if (refresh) this.check().catch(() => {});
     return this.snapshot();

@@ -1137,7 +1137,6 @@ function registerIpc() {
     return next;
   });
 
-  // --- updates ---
   ipcMain.handle('updates:info', () => updates.current());
   ipcMain.handle('updates:check', () => updates.check());
   ipcMain.handle('updates:download', async () => {
@@ -1516,8 +1515,6 @@ app.whenReady().then(async () => {
     console.log(`[tandem] debug token for /debug/*: ${bridge.debugToken}`);
   }
 
-  // One GitHub call and one npm call, after the window is up, and only if the
-  // person left the launch check on.
   if (settings.get('startup').checkUpdates) {
     updates.check()
       .then((snap) => send('updates:changed', snap))

@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 'use strict';
-// P2.12: GitHub releases/latest must be fetched when Updates refreshes, not
-// served from a 6h update-check.json cache.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

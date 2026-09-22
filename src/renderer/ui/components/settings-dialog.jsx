@@ -715,8 +715,6 @@ export function SettingsDialog({ open, onOpenChange, section = 'appearance', set
     return () => parkPreview(false);
   }, [open]);
 
-  // Opening the page is the moment to find out, so a stale answer is not what
-  // someone sees after clicking Updates.
   useEffect(() => { if (open) updates.check(); }, [open]);
 
   if (!settings) return null;
