@@ -19,7 +19,7 @@ time.
 │ [#go chip]   │               │              │
 │ > fix the …  │               │              │
 └──────────────┴───────────────┴──────────────┘
-   ^⇧A            always there    ^⇧B
+                    Ctrl+`          ^⇧B
 ```
 
 The preview pane starts hidden. It appears when you press `Ctrl+Shift+B`, when you run `tandem go 3000`,
@@ -115,13 +115,18 @@ tandem .                  # open this folder
 tandem ~/code/shop        # open that one
 ```
 
-Each folder gets its own window, its own agent, and its own browser. Run `tandem .` again on a folder
-that is already open and the existing window comes forward instead of a second one appearing. The
-window title carries the folder name so a taskbar full of them stays readable.
+A window holds up to eight folders. **Open Folder** adds a folder to this window. **Open Folder in
+New Window** starts another window. Each folder keeps its own chats, shells, and preview tabs. The
+folder on screen is the one whose shells and right column you see. Chats in the other folders keep
+running.
 
-Every window advertises its bridge under `~/.tandem/projects/`, keyed by folder,
-so `tandem go 3000` in a shell always reaches the window that owns that project rather than whichever
-one happened to start last. It walks up from your working directory, so subfolders resolve too.
+Run `tandem .` again on a folder that is already open and that window comes forward, with that folder
+focused. A folder that is not open yet starts a new window. The window title is the focused folder's
+name.
+
+Every open folder is advertised under `~/.tandem/projects/`. The files for one window share its
+bridge, so `tandem go 3000` in a shell reaches the window that has that folder open. The lookup walks
+up from your working directory, so a subfolder resolves too.
 
 Running an AppImage you downloaded yourself, rather than one the installer unpacked? Point
 `TANDEM_APP` at it and `tandem .` will use that:
@@ -135,12 +140,24 @@ export TANDEM_APP=~/Apps/tandem-0.7.1-x86_64.AppImage
 Type what you want changed and press Enter. The agent has the usual file and shell tools plus the
 browser, wired in already: no MCP config, no restart, no setup step.
 
-- **Permission modes** in the header: ask, accept edits, plan, yolo. Read-only tools never prompt, and neither does looking at the preview (snapshot, text, screenshot, console, network). Changing the page asks like any other write, and you can allow once, always, or deny. A terminal agent driving the preview through `tandem` or the MCP server follows the same mode. It can look in every mode but always, and it can change the page only in bypass, because a terminal has no permission card to answer.
+- **Permission modes** on the composer, in the order Shift+Tab walks them: Plan, Ask, Debug, Auto,
+  Accept edits, Ask confirmation always, Full bypass. Plan stops before it touches anything. Ask asks
+  before a file write or a command. Debug asks the same way, and the turn starts by reproducing the
+  failure. Auto runs edits and ordinary commands, and stops on a destructive command. Accept edits
+  runs file edits without asking, and still asks before a command. In Ask confirmation always, every
+  tool asks, reads included. Full bypass asks for nothing and checks nothing. Looking at the preview
+  does not ask, except in Ask confirmation always. That covers snapshot, text, screenshot, console,
+  and network. Changing the page asks the same way a write does. The card offers **Allow**, **Always**,
+  or **Deny**. A terminal agent driving the preview through `tandem` or the MCP server follows the
+  same mode. It can look in every mode except Ask confirmation always, and it can change the page
+  only in Full bypass, because a terminal has no permission card to answer.
 - **Stop** interrupts mid-turn.
-- **Earlier sessions** are behind the list button in the panel header. Sessions are read straight out
-  of `~/.claude/projects/`, the same transcripts `claude --resume` uses, so a conversation you started
-  in the terminal shows up in the panel and vice versa. Pick one and the thread replays, tool calls and
-  screenshots included, with the session live again for the next thing you type.
+- **Earlier sessions** are in the rail, one section per open folder. `Ctrl+Shift+S` shows or hides it.
+  Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
+  a conversation you started in the terminal shows up in the rail, and a chat you started here shows
+  up in `claude --resume`. Codex chats appear in that rail too. Pick one and the thread replays, tool
+  calls and screenshots included, and that chat is live again for the next thing you type. Switching
+  chats does not stop one that is still running.
 - **Tool calls** collapse to one line each. Click one to see its input and result, including
   screenshots inline.
 
@@ -255,15 +272,14 @@ Screenshots come back as images, so the model sees the layout instead of a descr
 
 ## Keys
 
-App shortcuts are all `Ctrl+Shift`, and the terminal never sees them. Plain `Ctrl+B`, `Ctrl+L` and the
-rest go to your shell, so tmux keeps working.
+The chords below belong to the app. In the terminal, plain `Ctrl+B`, `Ctrl+L` and the rest still go
+to your shell, so tmux keeps working.
 
 | | |
 |---|---|
-| `Ctrl+Shift+A` | show or hide the agent |
 | `Ctrl+\`` | show or hide the terminal panel |
 | `Ctrl+Shift+S` | show or hide the session rail |
-| `Shift+Tab` | plan mode on or off, from the prompt |
+| `Shift+Tab` | cycle the permission modes, from the prompt |
 | `Ctrl+Shift+B` | show or hide the preview |
 | `Ctrl+Shift+E` | pick an element |
 | `Ctrl+Shift+T` | new terminal tab |
@@ -286,7 +302,10 @@ outside those terminals can reach the tool routes without that token.
 
 ## Limits worth knowing
 
-- One window, one preview pane, one agent session. Tools act on the focused window.
+- A window holds up to eight folders. Each folder has its own chats, shells, and preview tabs, and
+  more than one chat can run at the same time. The right column shows one tab of the focused folder.
+  A shell command reaches the window that has that folder open, including when another folder is the
+  one on screen.
 - Anything running in the app's terminal holds the tool token (`TANDEM_TOKEN`), enough to drive the
   preview. `/debug/*` needs a separate debug token that never lands in the terminal env or
   `~/.tandem`; unpackaged builds log it on the main-process console once.
