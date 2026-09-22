@@ -233,3 +233,12 @@
   --sidebar-border: hsl(var(--border));
   --sidebar-ring: hsl(var(--ring));
 }
+
+/* A fence with no language, or a prose one, is mostly text the model set
+   apart: a prompt to copy, a quoted message, a terminal line. Numbered and
+   unwrapped like code, it scrolled sideways inside the transcript. */
+:is([data-language=""], [data-language="text"], [data-language="txt"], [data-language="plaintext"],
+  [data-language="markdown"], [data-language="md"])[data-streamdown="code-block"] {
+  & pre, & code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  & code > span::before { display: none; }
+}
