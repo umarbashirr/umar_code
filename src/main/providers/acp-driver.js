@@ -5,6 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
 const { CLIENT } = require('./acp-session');
+const { modelsFrom } = require('./acp-models');
 const shellEnv = require('../shell-env');
 
 const PROBE_TIMEOUT_MS = 20000;
@@ -33,16 +34,6 @@ function probeVersion(bin, args = ['--version']) {
     child.on('error', () => { clearTimeout(timer); finish(null); });
     child.on('close', () => { clearTimeout(timer); finish(parseVersion(out)); });
   });
-}
-
-function modelsFrom(res) {
-  const rows = res?.models?.availableModels || [];
-  return rows
-    .filter((m) => m && (m.modelId || m.id || m.value))
-    .map((m) => ({
-      value: m.modelId || m.id || m.value,
-      displayName: m.name || m.displayName || m.modelId || m.id || m.value,
-    }));
 }
 
 function isAuth(err) {

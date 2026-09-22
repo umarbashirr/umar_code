@@ -1,4 +1,5 @@
 'use strict';
+const { modelsFrom } = require('./acp-models');
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
@@ -160,7 +161,7 @@ class AcpSession extends EventEmitter {
       sessionId: this.sessionId,
       model: this.model,
       mode: this.mode,
-      models: this.#modelsFrom(res),
+      models: modelsFrom(res),
     });
     return this;
   }
@@ -174,13 +175,6 @@ class AcpSession extends EventEmitter {
       args: this.mcp.args || [],
       env: mcpEnv(env),
     }];
-  }
-
-  #modelsFrom(res) {
-    const rows = res?.models?.availableModels || [];
-    return rows
-      .filter((m) => m && (m.modelId || m.id))
-      .map((m) => ({ value: m.modelId || m.id, displayName: m.name || m.modelId || m.id }));
   }
 
   send(textIn, images = []) {
