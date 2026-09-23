@@ -30,6 +30,7 @@ import {
   SearchIcon,
   SparklesIcon,
   TriangleAlertIcon,
+  WrapTextIcon,
   XIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -59,7 +60,9 @@ import {
   subscribeFiles,
   toggleDir,
   toggleHidden,
+  toggleWrap,
   visibleRows,
+  wrapsLines,
 } from './files-store';
 import { useLayout } from './Shell';
 import { activeKind, subscribeTabs } from './tabs-store';
@@ -363,7 +366,12 @@ function FileBody() {
      HTML and its line numbers, tab size and dark-theme colours are all rules
      hanging off this id. */
   return (
-    <ScrollArea id="file-view" className="min-h-0 flex-1" viewportRef={setFileBody}>
+    <ScrollArea
+      id="file-view"
+      className="min-h-0 flex-1"
+      viewportRef={setFileBody}
+      data-wrap={wrapsLines() ? '' : undefined}
+      horizontal={!wrapsLines()}>
       {d.kind === 'image' && <Picture src={d.dataUrl} alt={d.name} />}
 
       {d.kind !== 'image' && (
@@ -392,12 +400,28 @@ function FileHead() {
         <ArrowLeftIcon />
       </Button>
 
+      {/* The name keeps its room longest in a narrow pane: the size, line count
+          and language give way first, and the full path is in the tooltip. */}
       <div className="flex min-w-0 flex-1 items-baseline gap-2">
-        <span className="truncate font-mono text-xs" title={s.view.path}>{s.view.path}</span>
+        <span className="max-w-[70%] shrink-0 truncate font-mono text-xs" title={s.view.path}>
+          {s.view.path.split('/').pop()}
+        </span>
         {bits.length > 0 && (
-          <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">{bits.join(' · ')}</span>
+          <span className="min-w-0 truncate font-mono text-[10.5px] text-muted-foreground">
+            {bits.join(' · ')}
+          </span>
         )}
       </div>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        data-armed={wrapsLines() ? '' : undefined}
+        className={`${ICON_BUTTON} ${ARMED}`}
+        title={wrapsLines() ? 'Stop wrapping long lines' : 'Wrap long lines'}
+        onClick={toggleWrap}>
+        <WrapTextIcon />
+      </Button>
 
       <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Copy the path" onClick={copyPath}>
         <CopyIcon />

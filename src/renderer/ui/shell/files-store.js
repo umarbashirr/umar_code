@@ -150,6 +150,18 @@ export function toggleDir(rel) {
   syncWatch(st);
 }
 
+/* Long lines wrap unless asked not to. A narrow pane cutting the end off every
+   long line hides the part of the file you were looking for. Remembered across
+   launches, since it is a way of reading rather than a fact about one file. */
+let wrapLines = (() => { try { return localStorage.getItem('tandem.files.wrap') !== 'off'; } catch { return true; } })();
+export const wrapsLines = () => wrapLines;
+
+export function toggleWrap() {
+  wrapLines = !wrapLines;
+  try { localStorage.setItem('tandem.files.wrap', wrapLines ? 'on' : 'off'); } catch {}
+  changed();
+}
+
 export function toggleHidden() {
   showHidden = !showHidden;
   changed();

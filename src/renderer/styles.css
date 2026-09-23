@@ -913,6 +913,13 @@ kbd {
   text-align: right; color: var(--fg-faint); user-select: none;
 }
 #file-view .shiki .line:hover { background: var(--bg-3); }
+/* Wrapped, a long line continues under its own text rather than under the
+   line number: the padding makes room for the number and the negative indent
+   pulls the first row back over it. */
+#file-view[data-wrap] .shiki .line {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  padding-left: calc(4ch + 16px); text-indent: calc(-4ch - 16px);
+}
 /* Shiki writes both themes into the markup: colour attributes for light and a
    --shiki-dark custom property alongside. Picking one here means switching
    theme costs nothing, where re-highlighting a long file would stutter. */

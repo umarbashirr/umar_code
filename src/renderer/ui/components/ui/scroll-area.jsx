@@ -11,6 +11,8 @@ function ScrollArea({
   // Added locally: a log that appends at the bottom has to be scrolled there,
   // and the viewport is the element that scrolls.
   viewportRef,
+  // Also added locally: content wider than the pane gets a bar to reach it.
+  horizontal = false,
   ...props
 }) {
   return (
@@ -22,6 +24,7 @@ function ScrollArea({
         {children}
       </ScrollAreaPrimitive.Viewport>
       <ScrollBar />
+      {horizontal && <ScrollBar orientation="horizontal" />}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   );
