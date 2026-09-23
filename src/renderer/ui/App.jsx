@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { SquareIcon } from 'lucide-react';
+import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -424,12 +424,12 @@ export default function App() {
             or never seen is not the only place the news was. */}
         {updates.app.behind && (
           <Button
-            variant="ghost"
             size="xs"
-            className="ml-auto shrink-0 text-muted-foreground"
+            className="ml-auto shrink-0 rounded-full"
+            title={`You are on ${updates.app.current}`}
             onClick={() => customize('updates')}>
-            <span className="size-1.5 rounded-full bg-primary" />
-            Tandem {updates.app.latest} is out
+            <ArrowUpCircleIcon />
+            Update to {updates.app.latest}
           </Button>
         )}
       </div>
