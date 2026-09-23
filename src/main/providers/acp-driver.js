@@ -44,10 +44,13 @@ async function probeModels(bin, spec) {
   if (typeof spec.discoverModels === 'function') {
     return spec.discoverModels(bin);
   }
+  // An empty folder, not the home directory: cursor-agent indexes and syncs
+  // whatever folder a session opens in, and this session only lists models.
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-probe-'));
   const rpc = new AcpRpc({
     bin,
     argv: spec.argv || ['acp'],
-    cwd: os.homedir(),
+    cwd,
     env: spec.env ? spec.env() : undefined,
   });
   try {
@@ -57,7 +60,7 @@ async function probeModels(bin, spec) {
       clientInfo: CLIENT,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     }, HANDSHAKE_MS);
-    const ses = await rpc.request('session/new', { cwd: os.homedir(), mcpServers: [] }, PROBE_TIMEOUT_MS);
+    const ses = await rpc.request('session/new', { cwd, mcpServers: [] }, PROBE_TIMEOUT_MS);
     const listed = modelsFrom(ses);
     return listed.length ? listed : null;
   } catch (e) {
@@ -65,6 +68,7 @@ async function probeModels(bin, spec) {
     return null;
   } finally {
     rpc.close();
+    fs.rm(cwd, { recursive: true, force: true }, () => {});
   }
 }
 
