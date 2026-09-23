@@ -37,7 +37,9 @@ function read() {
 function write(servers) {
   fs.mkdirSync(DIR, { recursive: true });
   const tmp = `${FILE}.${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify({ mcpServers: servers }, null, 2) + '\n');
+  // Only this user can read it, since a server's headers can hold a token. The
+  // rename carries the mode over a file an older version left readable.
+  fs.writeFileSync(tmp, JSON.stringify({ mcpServers: servers }, null, 2) + '\n', { mode: 0o600 });
   fs.renameSync(tmp, FILE);
 }
 
