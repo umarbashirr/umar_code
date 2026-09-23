@@ -21,6 +21,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const mcpRegistry = require('./mcp-registry');
 
 const HOME = os.homedir();
 const CLAUDE_DIR = path.join(HOME, '.claude');
@@ -313,7 +314,7 @@ function scanMcp(dir) {
 // it does not line up with the files: plugin servers are prefixed, the claude.ai
 // connectors are not in any file here, and `preview` is this app's own browser
 // tools. Match on the bare name, then append whatever is left over.
-const EDITABLE = new Set(['project', 'user', 'local']);
+const EDITABLE = new Set(['project', 'user', 'local', 'tandem']);
 const bare = (name) => name.replace(/^plugin:[^:]+:/, '');
 
 function mergeServers(configured, reported, off, live) {
@@ -340,7 +341,7 @@ function mergeServers(configured, reported, off, live) {
     enabled: !off.has(s.name),
     // Anything but this app's own browser tools can be switched off for the
     // session; only what is written in a config file here can be removed.
-    editable: s.name !== 'preview',
+    editable: s.name !== 'preview' && s.scope !== 'tandem',
     removable: EDITABLE.has(s.scope),
     // A configured server the session never mentioned is not connecting, it is
     // absent: the CLI read its files at startup and this one was not among them.
@@ -472,7 +473,7 @@ class Catalog {
       // Listed, not switchable: no settings key turns an agent off, and a
       // toggle that quietly does nothing is worse than no toggle.
       agents,
-      mcp: mergeServers(mcp, live?.mcp || [], offMcp, !!live),
+      mcp: mergeServers(mcpRegistry.listed(mcp), live?.mcp || [], offMcp, !!live),
     };
   }
 

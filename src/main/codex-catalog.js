@@ -25,6 +25,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const mcpRegistry = require('./mcp-registry');
 const { EventEmitter } = require('events');
 const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
@@ -273,7 +274,7 @@ class CodexCatalog extends EventEmitter {
       // codex has no subagent definitions to list, the way .claude/agents is a
       // list. An empty tab beats a tab of things it will never run.
       agents: [],
-      mcp: this.#servers(dir),
+      mcp: mcpRegistry.listed(this.#servers(dir)),
       error: snap?.error || null,
     };
   }

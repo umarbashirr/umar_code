@@ -99,7 +99,7 @@ function Skills({ catalog }) {
   );
 }
 
-const BLANK = { name: '', scope: 'project', type: 'stdio', command: '', url: '', env: '' };
+const BLANK = { name: '', scope: 'tandem', type: 'stdio', command: '', url: '', env: '' };
 
 function parsePairs(text) {
   const out = {};
@@ -155,6 +155,7 @@ function AddServer({ catalog, onDone }) {
           <SelectTrigger size="sm"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectGroup>
+              <SelectItem value="tandem">Tandem, every agent</SelectItem>
               <SelectItem value="project">.mcp.json</SelectItem>
               <SelectItem value="user">yours</SelectItem>
               <SelectItem value="local">this folder</SelectItem>
@@ -180,7 +181,8 @@ function AddServer({ catalog, onDone }) {
         <Button type="submit" size="sm" variant="outline" className="h-7" disabled={!ready}>Add</Button>
         <Button type="button" size="sm" variant="ghost" className="h-7" onClick={onDone}>Cancel</Button>
         <span className="ml-auto text-muted-foreground text-xs">
-          {form.scope === 'project' ? 'written to .mcp.json, shared with the repo'
+          {form.scope === 'tandem' ? 'every agent Tandem runs; a Claude chat gets it now, others on the next chat'
+            : form.scope === 'project' ? 'written to .mcp.json, shared with the repo'
             : form.scope === 'user' ? 'written to ~/.claude.json, every folder'
               : 'written to ~/.claude.json, this folder only'}
         </span>
@@ -240,7 +242,8 @@ function Servers({ catalog }) {
               <Checkbox
                 checked={s.enabled}
                 disabled={!s.editable}
-                title={!s.editable ? 'The browser tools this app provides'
+                title={s.scope === 'tandem' ? 'Tandem starts every chat with this server'
+                  : !s.editable ? 'The browser tools this app provides'
                   : s.enabled ? 'Stop using this server' : 'Use this server again'}
                 onCheckedChange={(enabled) => catalog.toggleMcp(s.name, enabled === true)} />
               <span className={cn('size-2 shrink-0 rounded-full', dot)} title={s.error || label} />
@@ -259,7 +262,10 @@ function Servers({ catalog }) {
               </div>
 
               <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                {s.status === 'needs-auth' && (
+                {/* Tandem's remote servers run behind a local proxy, so the
+                    session reports them as plain processes and never says
+                    they need a sign-in. The button is always there for them. */}
+                {(s.status === 'needs-auth' || (s.scope === 'tandem' && s.type !== 'stdio')) && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -302,7 +308,7 @@ function Servers({ catalog }) {
       </div>
 
       <p className="border-t px-1 pt-2 text-muted-foreground text-xs">
-        Servers come from .mcp.json here, from ~/.claude.json, and from the plugins you have on. A server
+        Servers come from Tandem's own list, from .mcp.json here, from ~/.claude.json, and from the plugins you have on. A server
         added mid-chat joins that chat straight away. Sign-in runs the Claude CLI in a shell here, because
         the browser step needs somewhere to happen; the token it saves is the one the next chat reads.
       </p>

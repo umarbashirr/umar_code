@@ -2,6 +2,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const mcpRegistry = require('../mcp-registry');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
@@ -316,13 +317,13 @@ class AcpCatalog extends EventEmitter {
       connectors: true,
       skills: snap?.skills || [],
       agents: [],
-      mcp: (snap?.mcp || []).map((s) => ({
+      mcp: mcpRegistry.listed((snap?.mcp || []).map((s) => ({
         ...s,
         runtime: s.name,
         enabled: s.status !== 'disabled',
         editable: true,
         removable: false,
-      })),
+      }))),
       error: snap?.error || null,
     };
   }
