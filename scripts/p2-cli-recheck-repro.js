@@ -56,18 +56,22 @@ function shim(dir, name) {
 
 function checkWiring() {
   const idx = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
-  if (/function recheckAgents/.test(idx) && /ipcMain\.handle\('agent:recheck'/.test(idx)) pass('index-recheck-wired');
-  else fail('index-recheck-wired', 'recheckAgents() or the agent:recheck handler is missing');
+  if (/function recheckAgents\(\{ force = false \} = \{\}\)/.test(idx) && /ipcMain\.handle\('agent:recheck'/.test(idx)) {
+    pass('index-recheck-wired');
+  } else fail('index-recheck-wired', 'recheckAgents({ force }) or the agent:recheck handler is missing');
   if (/win\.on\('focus'/.test(idx)) pass('index-focus-recheck-wired');
   else fail('index-focus-recheck-wired', "no win.on('focus', ...) re-check");
+  if (/!force && !row\.driver\.stale/.test(idx)) pass('index-recheck-gated-on-stale');
+  else fail('index-recheck-gated-on-stale', 'the automatic path no longer skips drivers that are not stale');
 
   const preload = fs.readFileSync(path.join(ROOT, 'src/preload/index.js'), 'utf8');
-  if (/recheck:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('agent:recheck'\)/.test(preload)) pass('preload-recheck-wired');
-  else fail('preload-recheck-wired', 'preload does not expose agent.recheck');
+  if (/recheck:\s*\(force\)\s*=>\s*ipcRenderer\.invoke\('agent:recheck',\s*\{\s*force:/.test(preload)) {
+    pass('preload-recheck-wired');
+  } else fail('preload-recheck-wired', 'preload does not forward force to agent:recheck');
 
   const panel = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/components/settings-panel.jsx'), 'utf8');
-  if (/agent\.recheck/.test(panel) && /Re-check/.test(panel)) pass('settings-recheck-button-wired');
-  else fail('settings-recheck-button-wired', 'the per-CLI Settings page has no Re-check button');
+  if (/agent\.recheck\(true\)/.test(panel) && /Re-check/.test(panel)) pass('settings-recheck-button-wired');
+  else fail('settings-recheck-button-wired', 'the per-CLI Settings page has no button forcing a Re-check');
 }
 
 (async () => {
@@ -96,9 +100,10 @@ function checkWiring() {
     if (codexBinary() === null) pass('new-dir-not-found-by-stale-ready');
     else fail('new-dir-not-found-by-stale-ready', 'ready() alone re-read PATH; this case no longer isolates the bug');
 
+    let driver = null;
     try {
       await shellEnv.reask();
-      const driver = new CodexDriver({ cacheDir: tmp });
+      driver = new CodexDriver({ cacheDir: tmp });
       const snap = await driver.refresh();
       if (snap.installed && snap.binaryPath === fs.realpathSync(newBin)) {
         pass('recheck-finds-cli-installed-after-launch');
@@ -107,6 +112,34 @@ function checkWiring() {
       }
     } catch (e) {
       fail('recheck-finds-cli-installed-after-launch', `shellEnv.reask() ${e.message}`);
+    }
+
+    // An automatic re-check (window focus, a page opening) must not re-spawn
+    // a CLI whose binary has not moved: that is the whole point of gating on
+    // `stale` instead of always refreshing. Counted through a file because the
+    // count lives in the mock's own process, not this one.
+    if (driver) {
+      const countFile = path.join(tmp, 'probe-count');
+      fs.writeFileSync(countFile, '');
+      process.env.MOCK_CODEX_COUNT_FILE = countFile;
+      try {
+        if (!driver.stale) {
+          // Mirrors recheckAgents()'s automatic branch in src/main/index.js:
+          // `if (!force && !row.driver.stale) continue;`
+        } else {
+          await driver.refresh();
+        }
+        const quietCount = fs.readFileSync(countFile, 'utf8').length;
+        if (quietCount === 0) pass('quiet-recheck-does-not-reprobe-unchanged-driver');
+        else fail('quiet-recheck-does-not-reprobe-unchanged-driver', `mock ran ${quietCount / 2} time(s) with nothing stale`);
+
+        await driver.refresh(); // the force path: unconditional, same as the button
+        const forcedCount = fs.readFileSync(countFile, 'utf8').length;
+        if (forcedCount > quietCount) pass('forced-recheck-reprobes-unchanged-driver');
+        else fail('forced-recheck-reprobes-unchanged-driver', `count stayed at ${forcedCount} after an unconditional refresh()`);
+      } finally {
+        delete process.env.MOCK_CODEX_COUNT_FILE;
+      }
     }
   } catch (e) {
     fail('probe-threw', e.stack || e.message);

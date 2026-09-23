@@ -1036,12 +1036,13 @@ export function useAgent() {
       : c)));
   }, []);
 
-  // A CLI installed or logged into after Tandem started. The new state arrives
-  // through the same 'agent:driver' push a normal refresh sends; this call
-  // just forces one and tracks it for the button's spinner.
-  const recheck = useCallback(async () => {
+  // A CLI installed or logged into after Tandem started. The new state
+  // arrives through the same 'agent:driver' push a normal refresh sends.
+  // force is the button, a full re-probe; the quiet call a page's own mount
+  // makes only re-probes a driver whose binary actually moved.
+  const recheck = useCallback(async (force = false) => {
     setChecking(true);
-    try { await tandem().agent.recheck?.(); } finally { setChecking(false); }
+    try { await tandem().agent.recheck?.(force); } finally { setChecking(false); }
   }, []);
 
   const changeMode = useCallback(async (value) => {

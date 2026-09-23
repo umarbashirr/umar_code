@@ -372,8 +372,9 @@ function AgentPage({ provider, settings, set, agent, updates }) {
 
   // The one CLI installed while Tandem was already open, and nothing since
   // launch had reason to look again. Opening this page is when someone is
-  // most likely checking on exactly that.
-  useEffect(() => { agent.recheck?.(); }, []);
+  // most likely checking on exactly that. Quiet: only a driver whose binary
+  // actually moved gets re-probed, not every installed CLI on every visit.
+  useEffect(() => { agent.recheck?.(false); }, []);
 
   const inTerminal = (command) => runCommand('runInTerminal', command);
   const updateHint = cli.behind
@@ -393,7 +394,7 @@ function AgentPage({ provider, settings, set, agent, updates }) {
         <Row
           label="Re-check"
           hint="Re-reads your shell's PATH and re-probes every CLI, so one installed or updated while Tandem was open shows up here and in the model picker without a restart.">
-          <Button variant="outline" disabled={agent.checking} onClick={agent.recheck}>
+          <Button variant="outline" disabled={agent.checking} onClick={() => agent.recheck(true)}>
             <RefreshCwIcon className={cn('size-4', agent.checking && 'animate-spin')} />
             {agent.checking ? 'Checking…' : 'Re-check'}
           </Button>

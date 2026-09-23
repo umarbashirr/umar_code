@@ -3,7 +3,15 @@
 // Stand-in for `codex`: enough of `--version` and `app-server` to let
 // codex-driver.js's probe finish, for tests that need a real installed-CLI
 // answer rather than a stubbed one.
+const fs = require('fs');
 const readline = require('readline');
+
+// A probe spawns this twice, once per arm of #probe()'s Promise.all: once for
+// --version, once for app-server. A counter file is the only way a test
+// running in a different process can see how many times either one ran.
+if (process.env.MOCK_CODEX_COUNT_FILE) {
+  try { fs.appendFileSync(process.env.MOCK_CODEX_COUNT_FILE, 'x'); } catch {}
+}
 
 if (process.argv.includes('--version')) {
   process.stdout.write('mock-codex 0.0.1\n');

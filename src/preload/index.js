@@ -122,9 +122,10 @@ contextBridge.exposeInMainWorld('tandem', {
     // than a setting on it, so this swaps the name.
     setLongContext: (chat, on) => ipcRenderer.invoke('agent:setLongContext', { chat, on }),
     forgetModel: (model) => ipcRenderer.invoke('agent:forgetModel', { model }),
-    // Re-reads the shell's PATH and re-probes every CLI, so one installed or
-    // logged into while Tandem was open shows up without a restart.
-    recheck: () => ipcRenderer.invoke('agent:recheck'),
+    // Re-reads the shell's PATH. force re-probes every CLI regardless (the
+    // button); left off, only a driver whose binary moved or went missing is
+    // re-probed (opening a CLI's page, the window regaining focus).
+    recheck: (force) => ipcRenderer.invoke('agent:recheck', { force: !!force }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
