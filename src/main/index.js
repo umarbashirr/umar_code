@@ -24,6 +24,8 @@ const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
 const { ensurePrivateDir } = require('./private-dir');
 const { createUsageLedger } = require('./usage-ledger');
+const { createUsageHistory } = require('./usage-history');
+const planLimits = require('./plan-limits');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
@@ -75,6 +77,8 @@ let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get(
 const chatPrefs = createChatPrefs();
 let ledger = null;
 const usageLedger = () => (ledger ||= createUsageLedger(app.getPath('userData')));
+let history = null;
+const usageHistory = () => (history ||= createUsageHistory(app.getPath('userData')));
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
@@ -1092,9 +1096,11 @@ function registerIpc() {
     const [context, plan] = await Promise.all([a.contextUsage(), a.planUsage()]);
     return { context, plan };
   });
-  // The Usage page. Spend is whatever the chats have recorded; plan limits are
-  // only known to a live session, so each CLI answers through any one of its
-  // chats that is still running, and says nothing when none is.
+  // The Usage page. Claude and Codex spend comes from their own transcripts, so
+  // it goes back further than Tandem does; the other CLIs keep none Tandem can
+  // read, so theirs is what Tandem's chats recorded. Plan limits come from a
+  // running chat when there is one, and otherwise from an idle Claude session
+  // (no turn, no tokens) or the limits Codex last wrote to disk.
   ipcMain.handle('usage:record', (_e, { chat, provider: on, models } = {}) => {
     usageLedger().record(chat, on || chatPrefs.providerOf(chat, provider), models);
   });
@@ -1104,14 +1110,24 @@ function registerIpc() {
       const on = chatPrefs.providerOf(chat, provider);
       if (!a.closed && !one.has(on)) one.set(on, a);
     }
-    const asked = await Promise.all([...one].map(async ([on, a]) => {
-      const plan = await Promise.race([
-        a.planUsage().catch(() => null),
-        new Promise((r) => { setTimeout(() => r(null), 5000); }),
-      ]);
-      return [on, plan && !plan.error ? plan : null];
-    }));
-    return { ...usageLedger().summary(), plans: Object.fromEntries(asked) };
+    const within = (p, ms) => Promise.race([p.catch(() => null), new Promise((r) => { setTimeout(() => r(null), ms); })]);
+    const live = (on) => (one.has(on) ? within(one.get(on).planUsage(), 5000) : Promise.resolve(null));
+    const [history, claudeLive, codexLive] = await Promise.all([usageHistory().summary(), live('claude'), live('codex')]);
+    const claudePlan = claudeLive && !claudeLive.error ? claudeLive : await within(planLimits.claudeIdleProbe(), 16000);
+    const recorded = usageLedger().summary();
+    const out = {};
+    for (const row of registry?.all() || []) {
+      const read = history[row.id];
+      out[row.id] = {
+        source: read ? 'transcripts' : 'tandem',
+        byDay: (read || recorded[row.id])?.byDay || {},
+        byProject: (read || recorded[row.id])?.byProject || {},
+        plan: row.id === 'claude' ? planLimits.fromClaude(claudePlan)
+          : row.id === 'codex' ? planLimits.fromCodex(codexLive && !codexLive.error ? codexLive : read?.limits)
+          : null,
+      };
+    }
+    return { providers: out };
   });
   // Closing one chat, not the window. Whatever else is running stays running.
   ipcMain.handle('agent:reset', (_e, { chat } = {}) => ({ ok: stopChat(chat) }));

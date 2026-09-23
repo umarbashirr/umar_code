@@ -5,6 +5,7 @@
 // Totals across chats are summed when read, not kept.
 const fs = require('fs');
 const path = require('path');
+const { dayOf } = require('./usage-history');
 
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 const COUNTS = ['inputTokens', 'outputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'costUSD'];
@@ -42,20 +43,19 @@ function createUsageLedger(dir) {
     save();
   }
 
-  // provider -> model -> summed counts, plus how many chats fed each model.
+  // provider -> { byDay: {day: {model: counts}} }, the shape the transcripts
+  // give the Usage page, so a CLI with no transcripts of its own draws the same.
+  // A chat is filed under the day it last spent anything.
   function summary() {
     const providers = {};
-    let since = 0;
     for (const e of Object.values(chats)) {
-      since = since ? Math.min(since, e.at) : e.at;
-      const byModel = (providers[e.provider] ||= {});
+      const day = (providers[e.provider] ||= { byDay: {}, byProject: {} }).byDay[dayOf(e.at)] ||= {};
       for (const [model, m] of Object.entries(e.models)) {
-        const into = (byModel[model] ||= { ...Object.fromEntries(COUNTS.map((k) => [k, 0])), chats: 0 });
+        const into = (day[model] ||= Object.fromEntries(COUNTS.map((k) => [k, 0])));
         for (const k of COUNTS) into[k] += m[k] || 0;
-        into.chats += 1;
       }
     }
-    return { providers, since, chats: Object.keys(chats).length };
+    return providers;
   }
 
   return { record, summary, flush };
