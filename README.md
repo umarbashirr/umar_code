@@ -193,7 +193,7 @@ just that element:
   css: #go
   element: button "Create account"
   ref: e4   size: 129x39 at 48,261
-  screenshot: /tmp/tandem-shots/pick-1787310022.png
+  screenshot: /tmp/tandem-shots-1000/pick-1787310022.png
 ```
 
 Then you finish the sentence: "make this the same height as the input". The agent gets a selector and
