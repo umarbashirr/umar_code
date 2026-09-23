@@ -1376,7 +1376,13 @@ app.whenReady().then(async () => {
   // Every idle CLI, so the picker has Cursor, Grok and OpenCode the first time it opens.
   // A missing binary is cheap: no spawn, just a write.
   for (const row of registry.all()) {
-    if (row.id !== provider) row.driver.refresh().catch(() => {});
+    if (row.id === provider) continue;
+    row.driver.refresh()
+      .then(() => send('agent:driver', {
+        ...activeDriver().current({ refresh: false }),
+        provider, providers: providerStates(), models: allModels(), current: settleModel(),
+      }))
+      .catch(() => {});
   }
   driverReady = activeDriver().refresh()
     .then((d) => {
