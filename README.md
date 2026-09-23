@@ -162,7 +162,10 @@ browser, wired in already: no MCP config, no restart, no setup step.
 - **Permission modes** on the composer, in the order Shift+Tab walks them: Plan, Ask, Debug, Auto,
   Accept edits, Ask confirmation always, Full bypass. Plan stops before it touches anything. Ask asks
   before a file write or a command. Debug asks the same way, and the turn starts by reproducing the
-  failure. Auto runs edits and ordinary commands, and stops on a destructive command. Accept edits
+  failure. Auto runs edits and ordinary commands without asking, and stops on a short list of
+  known-dangerous commands (a forced `rm`, `sudo`, a git history rewrite, and the like). That list
+  is a convenience, not a sandbox. It cannot catch everything a command could do, so anyone who
+  needs real isolation should run the CLI inside an OS-level sandbox instead. Accept edits
   runs file edits without asking, and still asks before a command. In Ask confirmation always, every
   tool asks, reads included. Full bypass asks for nothing and checks nothing. Looking at the preview
   does not ask, except in Ask confirmation always. That covers snapshot, text, screenshot, console,
@@ -190,7 +193,7 @@ just that element:
   css: #go
   element: button "Create account"
   ref: e4   size: 129x39 at 48,261
-  screenshot: /tmp/tandem-shots/pick-1787310022.png
+  screenshot: /tmp/tandem-shots-1000/pick-1787310022.png
 ```
 
 Then you finish the sentence: "make this the same height as the input". The agent gets a selector and

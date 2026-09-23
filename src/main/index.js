@@ -22,6 +22,7 @@ const projects = require('./projects');
 const completed = require('./completed');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
+const { ensurePrivateDir } = require('./private-dir');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
@@ -1446,9 +1447,9 @@ app.whenReady().then(async () => {
       captureWindow: async () => {
         if (!win) return { error: 'no window' };
         const img = await win.webContents.capturePage();
-        const file = path.join(require('os').tmpdir(), 'tandem-shots', `window-${Date.now()}.png`);
-        require('fs').mkdirSync(path.dirname(file), { recursive: true });
-        require('fs').writeFileSync(file, img.toPNG());
+        const dir = ensurePrivateDir('tandem-shots');
+        const file = path.join(dir, `window-${Date.now()}.png`);
+        fs.writeFileSync(file, img.toPNG(), { mode: 0o600 });
         return { path: file, ...img.getSize() };
       },
     } : {}),

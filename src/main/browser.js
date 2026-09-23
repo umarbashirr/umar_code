@@ -4,9 +4,9 @@ const { EventEmitter } = require('events');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { normalizeUrl, isAllowedUrl } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
+const { ensurePrivateDir } = require('./private-dir');
 
 function partitionFor(project) {
   const key = crypto.createHash('sha256').update(String(project || '')).digest('hex').slice(0, 16);
@@ -44,8 +44,7 @@ class BrowserPane extends EventEmitter {
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
     this.favicon = '';
-    this.shotDir = path.join(os.tmpdir(), 'tandem-shots');
-    fs.mkdirSync(this.shotDir, { recursive: true });
+    this.shotDir = ensurePrivateDir('tandem-shots');
     this.#pruneShots();
 
     this.view = new WebContentsView({
@@ -359,8 +358,7 @@ class BrowserPane extends EventEmitter {
   }
 
   async evaluate(code) {
-    const wrapped = `(async () => { ${/return|=>|;/.test(code) ? code : `return (${code})`} })()`;
-    const value = await this.wc.executeJavaScript(wrapped, true);
+    const value = await this.wc.executeJavaScript(wrapEvaluate(code), true);
     return value === undefined ? null : value;
   }
 
@@ -405,7 +403,7 @@ class BrowserPane extends EventEmitter {
       image = await this.wc.capturePage();
     }
     const file = screenshotFilePath(this.shotDir, name);
-    fs.writeFileSync(file, image.toPNG());
+    fs.writeFileSync(file, image.toPNG(), { mode: 0o600 });
     this.#pruneShots();
     const size = image.getSize();
     return { path: file, width: size.width, height: size.height };
@@ -479,10 +477,31 @@ class BrowserPane extends EventEmitter {
   }
 }
 
+// Whether code is a single expression can't be guessed from its shape (an
+// arrow function has a `=>` but is still one expression; `const x = 1` has
+// neither `return` nor `=>` but is a statement). Ask a real parser instead:
+// `new Function` throws a SyntaxError for the expression form without running
+// anything, so the wrong guess never reaches the page. Code that already uses
+// `return` keeps working: wrapping it as an expression is itself a syntax
+// error, which is exactly what sends it down the statement path.
+//
+// The closing wrapper always goes on its own line: code ending in a `//`
+// comment (`document.title // x`) would otherwise swallow whatever came next
+// on the same line, `) })()` included, into the comment.
+function wrapEvaluate(code) {
+  const asExpression = `(async () => { return (${code}\n) })()`;
+  try {
+    new Function(`return ${asExpression}`); // eslint-disable-line no-new-func
+    return asExpression;
+  } catch {
+    return `(async () => { ${code}\n})()`;
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settle = (wc) => new Promise((res) => {
   const t = setTimeout(res, 8000);
   wc.once('did-stop-loading', () => { clearTimeout(t); res(); });
 });
 
-module.exports = { BrowserPane, normalizeUrl, isAllowedUrl, partitionFor };
+module.exports = { BrowserPane, normalizeUrl, isAllowedUrl, partitionFor, wrapEvaluate };

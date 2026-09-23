@@ -60,6 +60,10 @@ const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'NotebookRead', 'TodoWrite', 
 
 // Shell that can lose work, reach outside the project, or be seen by someone
 // else. Auto mode runs everything else without asking and stops on these.
+// A regex list can never name every dangerous command, so this does not try:
+// it is a convenience that catches the common ones, not a sandbox. Whoever
+// needs a real boundary around what a command can touch should run under an
+// OS-level sandbox instead.
 const RISKY = [
   [/(^|[\s;&|(])sudo\s/, 'runs as root'],
   [/(^|[\s;&|(])rm\s[^|;&]*-[a-z]*[rf]/, 'deletes recursively or by force'],
@@ -74,6 +78,9 @@ const RISKY = [
   [/\bkubectl\s+delete\b/, 'deletes cluster resources'],
   [/\bdrop\s+(table|database|schema)\b/i, 'drops a database object'],
   [/(^|[\s;&|(])>{1,2}\s*\/(dev|etc|usr|bin|boot|var)\//, 'writes outside the project'],
+  [/\bfind\s[^|;&]*-delete\b/, 'deletes every file it finds'],
+  [/(^|[\s;&|(])shred\s/, 'destroys a file beyond recovery'],
+  [/\btruncate\s[^|;&]*-s\s*0\b/, 'empties a file in place'],
 ];
 
 // The reason to stop, or null when the command reads as ordinary work.
