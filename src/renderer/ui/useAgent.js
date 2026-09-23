@@ -131,7 +131,7 @@ function carriedHistory(items) {
   ].join('\n');
 }
 
-const blankChat = (project = null, provider = 'claude') => ({
+const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   key: uid('c'),
   // Which CLI this chat runs on. Fixed once it sends: a thread belongs to the
   // binary that made it and no switch can carry it across. See changeModel.
@@ -149,7 +149,7 @@ const blankChat = (project = null, provider = 'claude') => ({
   // not hand the other one's clock to this one.
   startedAt: 0,
   queued: [],
-  mode: 'ask',
+  mode,
   effort: '',
   // task id -> Agent tool_use id. The live-task feed talks in task ids and
   // everything else talks in tool_use ids.
@@ -167,6 +167,13 @@ export function useAgent() {
   // the IPC listeners are registered once and would otherwise close over the
   // project that was focused on the first render.
   const focusedProject = useRef(null);
+  // The mode a new chat starts on: the one chosen in Settings, not whatever the
+  // last chat was switched to. Read up front so the composer shows it before a
+  // session has started and said which mode it is in.
+  const startMode = useRef(tandem().settings.snapshot()?.agent?.mode || 'ask');
+  useEffect(() => tandem().settings.onChanged((next) => {
+    if (next?.agent?.mode) startMode.current = next.agent.mode;
+  }), []);
   // The folder main runs chats with no project in. It is never one of the open
   // projects, so it has to be named to survive the sweep below.
   const chatsDir = useRef(null);
@@ -206,7 +213,7 @@ export function useAgent() {
       streams.current.delete(k);
     }
 
-    const next = keep.length ? keep : [blankChat(fallback)];
+    const next = keep.length ? keep : [blankChat(fallback, undefined, startMode.current)];
     chatsRef.current = next;
     setChats(next);
     if (!next.some((c) => c.key === activeRef.current)) {
@@ -216,7 +223,7 @@ export function useAgent() {
   };
 
   const first = useRef(null);
-  if (!first.current) first.current = blankChat();
+  if (!first.current) first.current = blankChat(null, undefined, startMode.current);
   const [chats, setChats] = useState(() => [first.current]);
   const [activeKey, setActiveKey] = useState(first.current.key);
   const [models, setModels] = useState([]);
@@ -857,7 +864,7 @@ export function useAgent() {
     const dir = project || focusedProject.current;
     const cur = chatsRef.current.find((c) => c.key === activeRef.current);
     if (cur && !cur.items.length && !cur.session && (cur.project || dir) === dir) return;
-    const next = blankChat(dir, providerRef.current);
+    const next = blankChat(dir, providerRef.current, startMode.current);
     setChats((all) => [...all, next]);
     switchTo(next.key);
   }, [switchTo]);
@@ -880,7 +887,7 @@ export function useAgent() {
   const clear = useCallback(() => {
     for (const st of streams.current.values()) if (st.raf) cancelAnimationFrame(st.raf);
     streams.current.clear();
-    const next = blankChat(focusedProject.current, providerRef.current);
+    const next = blankChat(focusedProject.current, providerRef.current, startMode.current);
     setChats([next]);
     activeRef.current = next.key;
     setActiveKey(next.key);
@@ -919,7 +926,7 @@ export function useAgent() {
       const rest = all.filter((c) => c.key !== key);
       // Deleting the last chat leaves the pane on a blank one rather than on
       // nothing at all.
-      const next = rest.length ? rest : [blankChat(focusedProject.current, providerRef.current)];
+      const next = rest.length ? rest : [blankChat(focusedProject.current, providerRef.current, startMode.current)];
       chatsRef.current = next;
       setChats(next);
       if (activeRef.current === key) {
@@ -950,7 +957,7 @@ export function useAgent() {
     if (known) return switchTo(known.key);
 
     const chat = {
-      ...blankChat(s.project || focusedProject.current, s.provider || providerRef.current),
+      ...blankChat(s.project || focusedProject.current, s.provider || providerRef.current, startMode.current),
       session: s.id,
       title: s.title.slice(0, 80),
     };
@@ -1034,7 +1041,7 @@ export function useAgent() {
     const crossing = want && chat?.provider && want !== chat.provider;
 
     if (crossing && chat.items.length) {
-      const next = { ...blankChat(chat.project, want), title: chat.title };
+      const next = { ...blankChat(chat.project, want, chat.mode), title: chat.title };
       setChats((all) => [...all, next]);
       switchTo(next.key);
       setModel(value);

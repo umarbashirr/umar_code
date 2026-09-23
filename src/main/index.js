@@ -772,7 +772,7 @@ function refusal(tool, verdict) {
   const err = new Error(
     `${chosenMode} mode asks before ${tool}${verdict.reason ? ` (${verdict.reason})` : ''}. `
     + 'A terminal has no permission card to answer, so this call was refused. '
-    + 'Do it from the chat panel, or set the mode to bypass.',
+    + 'Do it from the chat panel, or set the default mode to bypass in Settings.',
   );
   err.code = 'PERMISSION_DENIED';
   return err;
@@ -985,13 +985,10 @@ function registerIpc() {
     return { holder: leaseFor(key).current(), tab: key, project: panes.get(key)?.project || focused };
   });
   ipcMain.handle('agent:mode', async (_e, { chat, mode }) => {
-    // The last mode picked is what the next new chat starts on, and it outlives
-    // the window: settings owns the same value the composer is showing.
-    if (isMode(mode)) {
-      chatPrefs.setMode(chat, mode);
-      chosenMode = mode;
-      settings.patch({ agent: { mode } });
-    }
+    // A mode picked in the composer is for that chat only. New chats start on
+    // the one chosen in Settings, so switching one chat to bypass never makes
+    // every chat after it run without asking.
+    if (isMode(mode)) chatPrefs.setMode(chat, mode);
     const live = sessions.get(chat);
     if (live) return { mode: await live.setMode(mode) };
     return { mode: chatPrefs.modeOf(chat, chosenMode) };
