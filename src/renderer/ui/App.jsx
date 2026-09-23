@@ -12,6 +12,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
+import { UsagePage } from '@/components/usage-page';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
 
@@ -178,6 +179,15 @@ export default function App() {
     leaveFullPage();
     setCustomizeAt(null);
   }, []);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const openUsage = useCallback(() => {
+    enterFullPage();
+    setUsageOpen(true);
+  }, []);
+  const closeUsage = useCallback(() => {
+    leaveFullPage();
+    setUsageOpen(false);
+  }, []);
   // A half-typed message belongs to the chat it was typed in, so drafts are
   // kept per chat rather than following you around the rail.
   const [drafts, setDrafts] = useState({});
@@ -231,9 +241,10 @@ export default function App() {
       },
       settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
       customize: (at) => customize(typeof at === 'string' ? at : 'skills'),
+      usage: openUsage,
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize, openUsage]);
 
   // News, once. A version the person has already been shown and ignored is not
   // worth a second interruption, so the version each toast named is written to
@@ -291,6 +302,8 @@ export default function App() {
   // A gap the transcript is not already explaining, once it has lasted long
   // enough to be a gap rather than the wire.
   const thinkingSince = useSettled(agent.busy && stalled(agent.items), 400);
+
+  if (usageOpen) return <UsagePage providers={agent.providers} onClose={closeUsage} />;
 
   if (customizeAt !== null) {
     return (

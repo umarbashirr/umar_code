@@ -255,7 +255,7 @@ function ModelRow({ agent }) {
 /* The CLIs the panel can drive. None of them ship with Tandem, so for each one
    this is the name, where to get it, how to sign in and update it, and what
    the box on its page should suggest when someone has it somewhere odd. */
-const PROVIDERS = {
+export const PROVIDERS = {
   claude: {
     label: 'Claude',
     cli: 'claude',
