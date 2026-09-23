@@ -11,7 +11,7 @@ const shellEnv = require('../shell-env');
 const PROBE_TIMEOUT_MS = 20000;
 const TTL_MS = 6 * 60 * 60 * 1000;
 
-const parseVersion = (out) => out.match(/\b(\d+\.\d+\.\d+[\w.-]*)\b/)?.[1] || null;
+const parseVersion = (out) => out.match(/(?:\bv|\b)(\d+\.\d+\.\d+[\w.-]*)\b/)?.[1] || null;
 
 function probeVersion(bin, args = ['--version']) {
   return new Promise((resolve) => {

@@ -116,8 +116,8 @@ Cursor, Grok and OpenCode work the same way, through their own CLIs. Tandem does
   then `agent login`. The picker offers Auto, Composer, GPT-5.4, Claude, and Grok names the CLI
   advertises.
 - **Grok:** install the [Grok CLI](https://x.ai/cli), then `grok login`.
-- **OpenCode:** install [OpenCode](https://opencode.ai) with `npm install -g opencode-ai`. Its free
-  Zen models work without a login; `opencode auth login` adds your other providers. Tandem runs it
+- **OpenCode:** install [OpenCode](https://opencode.ai) with its install script or
+  `npm install -g opencode-ai`. Its free Zen models work without a login; `opencode auth login` adds your other providers. Tandem runs it
   with every edit, command and fetch set to ask, so the mode you pick decides what goes through.
 
 If a CLI is missing, its row in the model picker is empty and disabled. After login, a chat on that

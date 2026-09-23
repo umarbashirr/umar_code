@@ -170,6 +170,25 @@ function opencodeServers(out) {
   return servers;
 }
 
+// JSONC as OpenCode writes it: comments and trailing commas, with strings
+// left alone so a URL's // survives.
+function readJsonc(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  const bare = text
+    .replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m, str) => str || '')
+    .replace(/("(?:\\.|[^"\\])*")|,(\s*[}\]])/g, (m, str, close) => str || close);
+  try { return JSON.parse(bare); } catch { return null; }
+}
+
+// OpenCode 1.x keeps servers directly under `mcp`; 2.x moved them to
+// `mcp.servers`.
+function opencodeMcp(base) {
+  const conf = readJsonc(path.join(base, 'opencode.jsonc')) || readJsonc(path.join(base, 'opencode.json'));
+  const mcp = conf?.mcp || {};
+  return mcp.servers && typeof mcp.servers === 'object' ? mcp.servers : mcp;
+}
+
 const SOURCES = {
   grok: {
     entry: grokEntry,
@@ -226,22 +245,26 @@ const SOURCES = {
     entry: opencodeEntry,
     done: (h) => !!h.commands,
     async servers(bin, dir) {
+      const found = new Map();
+      for (const [scope, base] of [['project', dir], ['user', path.join(os.homedir(), '.config', 'opencode')]]) {
+        for (const [name, s] of Object.entries(opencodeMcp(base))) {
+          if (found.has(name)) continue;
+          const target = s.url || [].concat(s.command || []).join(' ');
+          const off = s.enabled === false;
+          found.set(name, { name, scope, type: s.url ? 'http' : 'stdio', target, status: off ? 'disabled' : 'configured', error: null, tools: null });
+        }
+      }
       const { out } = await run(bin, ['mcp', 'list'], dir);
-      const project = path.join(dir, 'opencode.json');
-      const local = new Set(Object.keys(readJson(project)?.mcp || {}));
-      return opencodeServers(out).map(({ name, word, detail }) => {
+      for (const { name, word, detail } of opencodeServers(out)) {
         const status = cursorStatus(word);
         const target = detail[detail.length - 1] || '';
-        return {
-          name,
-          scope: local.has(name) ? 'project' : 'user',
-          type: /^https?:/.test(target) ? 'http' : 'stdio',
-          target,
+        found.set(name, {
+          ...(found.get(name) || { name, scope: 'user', type: /^https?:/.test(target) ? 'http' : 'stdio', target, tools: null }),
           status,
           error: status === 'failed' && detail.length > 1 ? detail[0] : null,
-          tools: null,
-        };
-      });
+        });
+      }
+      return [...found.values()];
     },
     toggle: null,
     login: (name) => ['mcp', 'auth', name],
@@ -365,4 +388,4 @@ class AcpCatalog extends EventEmitter {
   runtimeName(_dir, name) { return name; }
 }
 
-module.exports = { AcpCatalog, grokEntry, cursorEntry, opencodeEntry, opencodeServers, grokStatus, cursorStatus };
+module.exports = { AcpCatalog, grokEntry, cursorEntry, opencodeEntry, opencodeServers, opencodeMcp, grokStatus, cursorStatus };

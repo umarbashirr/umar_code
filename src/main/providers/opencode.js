@@ -21,7 +21,7 @@ const spec = {
   argv: ['acp'],
   env: () => ({ OPENCODE_CONFIG_CONTENT: ASK }),
   login: 'opencode auth login',
-  missing: 'No opencode on your PATH. Install it with npm install -g opencode-ai, run opencode auth login, then restart Tandem.',
+  missing: 'No opencode on your PATH. Install it from opencode.ai, run opencode auth login, then restart Tandem.',
   catalog: CATALOG,
   binary: () => locate.current(),
   updatesProbe: (bin) => probeVersion(bin),
