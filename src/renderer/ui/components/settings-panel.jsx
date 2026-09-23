@@ -739,10 +739,10 @@ function Updates({ settings, set, updates }) {
 
       <CliSection
         title="OpenCode CLI"
-        note="Only needed if you drive OpenCode. Tandem reads the version and compares it with npm."
+        note="Only needed if you drive OpenCode. Tandem reads the version; npm lags the install script, so there is no latest to compare."
         state={opencode}
         update={OPENCODE_UPDATE}
-        absent="No opencode on your PATH. Install it with npm install -g opencode-ai if you want OpenCode chats." />
+        absent="No opencode on your PATH. Install it from opencode.ai if you want OpenCode chats." />
 
       {updates.error && (
         <Alert variant="destructive">

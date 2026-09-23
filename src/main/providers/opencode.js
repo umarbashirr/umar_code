@@ -50,7 +50,7 @@ function create({ cacheDir, settings }) {
     login: 'opencode auth login',
     update: 'opencode upgrade',
     missing: spec.missing,
-    npmPackage: 'opencode-ai',
+    npmPackage: null,
   };
 }
 

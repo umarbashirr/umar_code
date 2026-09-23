@@ -27,7 +27,6 @@ const CACHE = path.join(DIR, 'update-check.json');
 const REQUEST_TIMEOUT_MS = 15000;
 const CLAUDE_PACKAGE = '@anthropic-ai/claude-code';
 const CODEX_PACKAGE = '@openai/codex';
-const OPENCODE_PACKAGE = 'opencode-ai';
 
 // GitHub sends the release JSON from api.github.com and the asset bytes from a
 // signed URL on another host, so every request here has to be prepared to be
@@ -309,13 +308,8 @@ class Updates extends EventEmitter {
 
   async #checkOpencode() {
     const bin = opencodeBinary();
-    const [version, latest] = await Promise.all([
-      bin ? probeOpencodeVersion(bin) : null,
-      fetchJson(`https://registry.npmjs.org/${OPENCODE_PACKAGE}/latest`)
-        .then((j) => j.version || null)
-        .catch(() => null),
-    ]);
-    return { value: { path: bin, version, latest }, error: null };
+    const version = bin ? await probeOpencodeVersion(bin) : null;
+    return { value: { path: bin, version, latest: null }, error: null };
   }
 
   // What the settings page and the launch toast read. `missing` is the one that
