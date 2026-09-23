@@ -69,16 +69,24 @@ const headerVar = (key) => `TANDEM_MCP_HEADER_${key.toUpperCase().replace(/-/g, 
 const headerArg = (key) => `${key}:\${${headerVar(key)}}`;
 
 // The token a CLI you are signed in to hands out, or null when it is missing or
-// signed out. gh is the only one so far.
+// signed out. gh is the only one so far. The answer is kept for half a minute:
+// the listing and every chat start ask, and each ask blocks this process while
+// gh reads its keyring.
+const CLI_TOKEN_TTL = 30 * 1000;
+const cliTokens = new Map();
+
 function cliToken(cli) {
+  const kept = cliTokens.get(cli);
+  if (kept && Date.now() - kept.at < CLI_TOKEN_TTL) return kept.token;
+  let token = null;
   try {
     const out = execFileSync(cli, ['auth', 'token'], {
       env: shellEnv.env(), encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
     });
-    return out.trim() || null;
-  } catch {
-    return null;
-  }
+    token = out.trim() || null;
+  } catch {}
+  cliTokens.set(cli, { at: Date.now(), token });
+  return token;
 }
 
 // A server added with tokenFrom stores no token. It sends the CLI's current
