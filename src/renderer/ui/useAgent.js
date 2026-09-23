@@ -1114,6 +1114,7 @@ export function useAgent() {
     // The folder the chat on screen runs in, which is not always the focused
     // one: you can read a chat in another project without moving the window.
     project: active.project || null,
+    folderless: !!active.project && active.project === chatsDir.current,
     title: active.title,
     mode: active.mode,
     queued: active.queued,

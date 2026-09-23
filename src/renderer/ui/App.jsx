@@ -437,7 +437,9 @@ export default function App() {
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
         <ConversationContent className="mx-auto w-full max-w-3xl gap-3">
           {empty ? (
-            <h1 className="py-6 text-center font-medium text-2xl tracking-tight">What should change?</h1>
+            <h1 className="py-6 text-center font-medium text-2xl tracking-tight">
+              {agent.folderless ? 'What is on your mind?' : 'What should change?'}
+            </h1>
           ) : (
             <Transcript key={agent.activeKey} items={agent.items} agent={agent} />
           )}

@@ -443,8 +443,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
   // The folder this chat runs in, which is the one the message about to be typed
   // will land in. Not always the focused folder: reading a chat from another
   // project leaves the window where it was until you click into it.
-  const folderless = !!agent.project && agent.project === window_.chats;
-  const project = folderless
+  const project = agent.folderless
     ? { dir: agent.project, name: 'No folder' }
     : window_.projects?.find((p) => p.dir === agent.project) || window_;
   const [previewing, setPreviewing] = useState(null);
@@ -660,7 +659,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
               aria-activedescendant={menu ? `mention-${cursor}` : undefined}
               placeholder={agent.busy
                 ? 'Working. Enter parks this, Enter again sends it into this turn'
-                : 'Plan, build, or ask about this project'}
+                : agent.folderless ? 'Ask anything' : 'Plan, build, or ask about this project'}
               className={cn('min-h-[76px] px-4 pb-2 text-[13.5px]', attachments.length > 0 ? 'pt-2' : 'pt-3.5')} />
           </PromptInputBody>
 
@@ -733,14 +732,14 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Pill className="h-6 max-w-full px-1.5 text-[11px]">
-              {folderless ? <MessageSquareIcon className="size-3 shrink-0" /> : <FolderIcon className="size-3 shrink-0" />}
+              {agent.folderless ? <MessageSquareIcon className="size-3 shrink-0" /> : <FolderIcon className="size-3 shrink-0" />}
               <span className="truncate">{project.name || 'no folder'}</span>
               <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
             </Pill>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="max-w-[380px]">
             <DropdownMenuLabel className="font-normal text-muted-foreground text-xs">
-              {folderless ? 'This chat has no project folder' : shortPath(project.dir, window_.home)}
+              {agent.folderless ? 'This chat has no project folder' : shortPath(project.dir, window_.home)}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => window.tandem.project.open({})}>Open folder…</DropdownMenuItem>
@@ -758,7 +757,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
               <DropdownMenuItem onSelect={() => agent.setProject?.(window_.chats)}>
                 <MessageSquareIcon className="size-3.5 text-muted-foreground" />
                 <span className="truncate">No folder</span>
-                {folderless && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
+                {agent.folderless && <CheckIcon className="ml-auto size-3.5 opacity-60" />}
               </DropdownMenuItem>
             )}
             {window_.projects?.map((p) => (
