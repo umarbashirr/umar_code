@@ -28,6 +28,11 @@ class AcpRpc extends EventEmitter {
       env: { ...shellEnv.env(), ...(this.env || {}) },
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: viaShell,
+      // cursor-agent starts a worker-server that outlives it, and that worker
+      // starts language servers of its own. Its own process group lets close()
+      // take the whole tree down. Windows has no groups, and detached there
+      // would open a console window.
+      detached: process.platform !== 'win32',
     });
 
     this.child.stdout.on('data', (d) => this.#read(d));
@@ -151,15 +156,23 @@ class AcpRpc extends EventEmitter {
     this.emit('closed', why);
   }
 
+  #kill() {
+    if (!this.child) return;
+    try {
+      if (process.platform === 'win32') this.child.kill();
+      else process.kill(-this.child.pid, 'SIGTERM');
+    } catch {}
+  }
+
   close() {
     if (this.closed) {
-      try { this.child?.kill(); } catch {}
+      this.#kill();
       return;
     }
     this.closed = true;
     for (const [, entry] of this.pending) clearTimeout(entry.timer);
     this.pending.clear();
-    try { this.child?.kill(); } catch {}
+    this.#kill();
   }
 }
 
