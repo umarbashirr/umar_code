@@ -1494,4 +1494,4 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { stopAllChats(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });
+app.on('before-quit', () => { ledger?.flush(); stopAllChats(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });

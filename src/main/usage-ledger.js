@@ -15,15 +15,19 @@ function createUsageLedger(dir) {
   try { chats = JSON.parse(fs.readFileSync(file, 'utf8')).chats || {}; } catch {}
 
   let timer = null;
+  function flush() {
+    if (!timer) return;
+    clearTimeout(timer);
+    timer = null;
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(`${file}.tmp`, JSON.stringify({ chats }));
+      fs.renameSync(`${file}.tmp`, file);
+    } catch {}
+  }
   const save = () => {
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      try {
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(`${file}.tmp`, JSON.stringify({ chats }));
-        fs.renameSync(`${file}.tmp`, file);
-      } catch {}
-    }, 500);
+    timer = setTimeout(flush, 500);
   };
 
   function record(chat, provider, models) {
@@ -54,7 +58,7 @@ function createUsageLedger(dir) {
     return { providers, since, chats: Object.keys(chats).length };
   }
 
-  return { record, summary };
+  return { record, summary, flush };
 }
 
 module.exports = { createUsageLedger };
