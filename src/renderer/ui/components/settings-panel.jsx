@@ -370,6 +370,11 @@ function AgentPage({ provider, settings, set, agent, updates }) {
   // Either way a stale path would be written back on the next blur.
   useEffect(() => { setDraft(saved); }, [saved]);
 
+  // The one CLI installed while Tandem was already open, and nothing since
+  // launch had reason to look again. Opening this page is when someone is
+  // most likely checking on exactly that.
+  useEffect(() => { agent.recheck?.(); }, []);
+
   const inTerminal = (command) => runCommand('runInTerminal', command);
   const updateHint = cli.behind
     ? `You have ${version}. ${p.update ? `Update runs ${p.update} in a terminal.` : `Get it at ${p.site}.`}`
@@ -385,6 +390,14 @@ function AgentPage({ provider, settings, set, agent, updates }) {
         title={p.label}
         icon={<ProviderLogo id={provider} className="size-4" />}
         note={`Tandem runs the ${p.cli} you installed, with the login you already have. A chat already running keeps the one it started with.`}>
+        <Row
+          label="Re-check"
+          hint="Re-reads your shell's PATH and re-probes every CLI, so one installed or updated while Tandem was open shows up here and in the model picker without a restart.">
+          <Button variant="outline" disabled={agent.checking} onClick={agent.recheck}>
+            <RefreshCwIcon className={cn('size-4', agent.checking && 'animate-spin')} />
+            {agent.checking ? 'Checking…' : 'Re-check'}
+          </Button>
+        </Row>
         <Row label={installed ? 'Installed' : 'Not installed'} hint={installed ? path : p.missing}>
           {installed
             ? <Mono>{version || '—'}</Mono>
