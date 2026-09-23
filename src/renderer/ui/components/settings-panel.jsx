@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
-  InfoIcon, ListFilterIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
+  InfoIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
   RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
@@ -21,6 +21,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { sizeLabel } from '@/lib/attachments';
 import { DEFAULT_SCHEME, SCHEMES } from '@/lib/themes';
 import { VISIBILITY } from '@/lib/model-visibility';
+import { ProviderLogo } from '@/components/provider-logo';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
 import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
@@ -28,8 +29,8 @@ import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
 export const SETTINGS_SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
-  ['cursor-models', 'Cursor models', ListFilterIcon],
-  ['opencode-models', 'OpenCode models', ListFilterIcon],
+  ['cursor-models', 'Cursor models', (p) => <ProviderLogo id="cursor" {...p} />],
+  ['opencode-models', 'OpenCode models', (p) => <ProviderLogo id="opencode" {...p} />],
   ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
   ['updates', 'Updates', DownloadIcon],
@@ -66,10 +67,10 @@ function Row({ label, hint, children }) {
   );
 }
 
-function Section({ title, note, children }) {
+function Section({ title, icon, note, children }) {
   return (
     <div className="mb-9">
-      <h3 className="font-medium text-base">{title}</h3>
+      <h3 className="flex items-center gap-2 font-medium text-base">{icon}{title}</h3>
       {note && <p className="mt-1.5 text-[13px] text-muted-foreground leading-relaxed">{note}</p>}
       <FieldGroup className="mt-2 gap-0 divide-y divide-border/60">{children}</FieldGroup>
     </div>
@@ -340,7 +341,7 @@ function Agent({ settings, set, agent, updates }) {
             <SelectContent>
               <SelectGroup>
                 {Object.entries(PROVIDERS).map(([id, v]) => (
-                  <SelectItem key={id} value={id}>{v.label}</SelectItem>
+                  <SelectItem key={id} value={id}><ProviderLogo id={id} />{v.label}</SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
@@ -412,6 +413,7 @@ function ModelsPage({ provider, settings, set, agent }) {
   return (
     <Section
       title={`${label} models`}
+      icon={<ProviderLogo id={provider} className="size-4" />}
       note={`Which of ${label}'s models the model picker shows. ${shownCount} of ${rows.length} shown. ${vis.note}`}>
       <div className="flex items-center gap-2 py-4">
         <Input
@@ -599,10 +601,10 @@ function Downloading({ received, total }) {
 
 // Both CLIs answer the same three questions, so they get the same row: which
 // version is running, whether a newer one is out, and what to type for it.
-function CliSection({ title, note, state, update, absent }) {
+function CliSection({ provider, title, note, state, update, absent }) {
   const cli = state || {};
   return (
-    <Section title={title} note={note}>
+    <Section title={title} icon={<ProviderLogo id={provider} className="size-4" />} note={note}>
       <Row
         label={cli.missing ? 'Not found' : cli.behind ? `${cli.latest} is out` : 'Up to date'}
         hint={cli.missing
@@ -704,6 +706,7 @@ function Updates({ settings, set, updates }) {
       </Section>
 
       <CliSection
+        provider="claude"
         title="Claude CLI"
         note="Yours to update. Tandem only reads the version, so it never replaces the binary under you."
         state={claude}
@@ -711,6 +714,7 @@ function Updates({ settings, set, updates }) {
         absent="No claude on your PATH, so Claude chats cannot start. See the Agent tab." />
 
       <CliSection
+        provider="codex"
         title="Codex CLI"
         note="Only needed if you drive Codex. Same deal: Tandem reads the version and nothing else."
         state={codex}
@@ -718,6 +722,7 @@ function Updates({ settings, set, updates }) {
         absent="No codex on your PATH. Install it if you want to drive Codex from the Agent tab." />
 
       <CliSection
+        provider="cursor"
         title="Cursor CLI"
         note="Only needed if you drive Cursor. Tandem reads the version; there is no npm latest to compare."
         state={cursor}
@@ -725,6 +730,7 @@ function Updates({ settings, set, updates }) {
         absent="No Cursor CLI (agent) on your PATH. Install it from cursor.com/cli if you want Cursor chats." />
 
       <CliSection
+        provider="grok"
         title="Grok CLI"
         note="Only needed if you drive Grok. Tandem reads the version; there is no npm latest to compare."
         state={grok}
@@ -732,6 +738,7 @@ function Updates({ settings, set, updates }) {
         absent="No grok on your PATH. Install it from x.ai/cli if you want Grok chats." />
 
       <CliSection
+        provider="opencode"
         title="OpenCode CLI"
         note="Only needed if you drive OpenCode. Tandem reads the version; npm lags the install script, so there is no latest to compare."
         state={opencode}

@@ -14,6 +14,7 @@ import {
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { isHidden, VISIBILITY } from '@/lib/model-visibility';
+import { ProviderLogo } from '@/components/provider-logo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +63,13 @@ function oncePerModel(rows) {
    groups of models, so the vendor name is the accurate word anyway, and it
    reads level with ChatGPT rather than naming one CLI and one company. */
 const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
+
+const ProviderName = ({ id }) => (
+  <span className="flex items-center gap-2">
+    <ProviderLogo id={id} />
+    {PROVIDER_LABEL[id] || id}
+  </span>
+);
 
 // Where to get each one, for the row that says it is missing.
 const INSTALL = {
@@ -178,6 +186,7 @@ function ModelPicker({ agent, settings }) {
       <DropdownMenuTrigger asChild>
         <Pill
           className="ml-auto shrink rounded-md px-2 font-medium text-foreground/80 text-xs hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
+          <ProviderLogo id={row?.provider || agent.provider} />
           <span className="min-w-0 truncate">{label}</span>
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Pill>
@@ -195,7 +204,7 @@ function ModelPicker({ agent, settings }) {
                 // readable without hovering as well as in the tooltip.
                 title={`${g.missing?.message || 'Not found on your PATH.'} Install it with: ${INSTALL[g.id] || ''}`}
                 className="justify-between gap-6">
-                {PROVIDER_LABEL[g.id] || g.id}
+                <ProviderName id={g.id} />
                 <span className="text-muted-foreground text-xs">not installed</span>
               </DropdownMenuItem>
             );
@@ -203,7 +212,7 @@ function ModelPicker({ agent, settings }) {
           if (!g.rows.length && g.hiddenCount) {
             return (
               <DropdownMenuItem key={g.id} onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
-                {PROVIDER_LABEL[g.id] || g.id}
+                <ProviderName id={g.id} />
                 <span className="text-muted-foreground text-xs">all hidden</span>
               </DropdownMenuItem>
             );
@@ -215,7 +224,7 @@ function ModelPicker({ agent, settings }) {
                 disabled
                 title={g.missing?.message || 'Installed, but not logged in.'}
                 className="justify-between gap-6">
-                {PROVIDER_LABEL[g.id] || g.id}
+                <ProviderName id={g.id} />
                 <span className="text-muted-foreground text-xs">not logged in</span>
               </DropdownMenuItem>
             );
@@ -225,7 +234,7 @@ function ModelPicker({ agent, settings }) {
           }
           return (
             <DropdownMenuSub key={g.id}>
-              <DropdownMenuSubTrigger>{PROVIDER_LABEL[g.id] || g.id}</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <ModelItems rows={g.rows} current={agent.model} onPick={agent.changeModel} />
                 {VISIBILITY[g.id] && (
