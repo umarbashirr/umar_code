@@ -615,6 +615,28 @@ function hideRight() {
   requestAnimationFrame(resizeActive);
 }
 
+/* Customize takes the whole window: the rail and the right column go while
+   it is up and come back as they were when it closes. A terminal it opened in
+   the meantime, to sign in or update, is one you are watching, so it stays. */
+let beforeFullPage = null;
+
+export function enterFullPage() {
+  if (beforeFullPage) return;
+  beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen };
+  setPreviewFull(false);
+  setLayout({ railOpen: false, rightOpen: false });
+  syncRight();
+}
+
+export function leaveFullPage() {
+  const was = beforeFullPage;
+  if (!was) return;
+  beforeFullPage = null;
+  setLayout({ railOpen: was.railOpen, rightOpen: was.rightOpen || state.rightOpen });
+  syncRight();
+  requestAnimationFrame(() => { syncBounds(); resizeActive(); });
+}
+
 function openPreview(focusUrl = false) {
   showRight('browser');
   if (!focusUrl) return;
