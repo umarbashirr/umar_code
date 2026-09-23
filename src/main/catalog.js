@@ -253,6 +253,7 @@ function agentsIn(root, source, prefix = '') {
       description: meta.description || '',
       model: meta.model || 'inherit',
       tools: meta.tools || '',
+      color: meta.color || '',
       source,
       path: file,
     });
