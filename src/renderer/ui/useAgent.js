@@ -11,9 +11,9 @@ const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 
 // Drop the [preview element] / [attached …] preamble the composer adds, and
-// leave what the human actually typed. Exported because the composer shows the
-// same thing on a queued message.
-export const spoken = (t) => String(t).replace(/^(\[(?:preview element|attached [a-z]+)\][\s\S]*?\n\n)+/, '');
+// leave what the human typed in the box. Only the chat title wants this: the
+// bubble draws the preamble as badges, with the note written against each.
+const spoken = (t) => String(t).replace(/^(\[(?:preview element|attached [a-z]+)\][\s\S]*?\n\n)+/, '');
 
 // Stored messages back into items. Used for a whole chat and again for one
 // subagent's transcript, where `parent` is the Agent row they belong under.
@@ -641,18 +641,16 @@ export function useAgent() {
   const sendTo = useCallback(async (key, text, images = []) => {
     if (!text.trim()) return;
     const chat = chatsRef.current.find((c) => c.key === key);
-    // The bubble and the chat title show what was typed. The attachment
-    // preamble is for the agent, and repeating it back at the human turns every
-    // message with a picture on it into a wall of paths.
-    const said = spoken(text);
+    // The bubble parses the attachment preamble into badges, so it keeps the
+    // whole text. A note typed against an element lives in that preamble.
     edit(key, (c) => ({
       ...c,
       // A message handed to a turn already running joins that turn's clock.
       // Only a turn starting from idle resets it.
       startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
-      title: c.title === 'New chat' ? chatTitle(said).slice(0, 80) : c.title,
-      items: [...c.items, { id: uid('u'), kind: 'user', text: said, images }],
+      title: c.title === 'New chat' ? chatTitle(spoken(text)).slice(0, 80) : c.title,
+      items: [...c.items, { id: uid('u'), kind: 'user', text, images }],
     }));
     try {
       const res = await tandem().agent.send(

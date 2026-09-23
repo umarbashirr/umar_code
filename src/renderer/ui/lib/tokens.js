@@ -47,6 +47,9 @@ export function parse(input) {
       raw: m[0],
       label: attachedLabel(m[1], m[2], m[3]),
       title: m[0].trim(),
+      // What the person wrote against it. Often the whole point of the
+      // message, so it is drawn beside the badge rather than hidden in it.
+      note: /\n {2}note: ([^\n]+)/.exec(m[3])?.[1],
     });
     rest = rest.slice(m[0].length);
   }
