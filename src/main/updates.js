@@ -155,6 +155,46 @@ const currentVersion = () => {
   try { return require('../../package.json').version; } catch { return '0.0.0'; }
 };
 
+// Whether the running process is stale, named after the shape the renderer
+// needs to decide it: what this process is (`running`), what is on disk now
+// (`installed`), how this copy got here (`kind`), and whether disk has pulled
+// ahead (`ready`). `ready` is the only field a caller should branch on;
+// `installed` can be null (nothing to compare) without it being an error.
+function restartInfoFor(kind, installed, running) {
+  const ready = !!(installed && compareVersions(installed, running) > 0);
+  return { running, installed, kind, ready };
+}
+
+// install.sh writes .tandem-version into the tree before install() below hands
+// off to it, so a --user or system tree update leaves a marker this process
+// can read with no privilege. Read fresh each call: the whole point is to see
+// past what this process was launched with.
+function readTreeVersion(root) {
+  try { return fs.readFileSync(path.join(root, '.tandem-version'), 'utf8').trim() || null; } catch { return null; }
+}
+
+// dpkg answers the same question for a .deb, whether apt got there through
+// Tandem's own Install button or a `sudo apt upgrade` run in a terminal while
+// Tandem was already open.
+function dpkgVersion(pkg) {
+  return new Promise((resolve) => {
+    execFile('dpkg-query', ['-W', '-f=${Version}', pkg], (err, stdout) => {
+      resolve(err ? null : (String(stdout || '').trim() || null));
+    });
+  });
+}
+
+// AppImage and dev have no marker to poll: swapping an AppImage is the person
+// launching a different file (already a fresh process with the new version,
+// no restart prompt needed), and a dev checkout is not "installed" anywhere.
+// Restart detection only applies to the two kinds an update can land under a
+// process that is still running.
+async function installedVersion(kind) {
+  if (kind === 'tree' || kind === 'tree-user') return readTreeVersion(path.dirname(process.execPath));
+  if (kind === 'deb') return dpkgVersion('tandem');
+  return null;
+}
+
 // One cached CLI, read the way the settings page wants it. Both CLIs answer the
 // same three questions, so they get the same four fields and the tab does not
 // have to know which one it is drawing.
@@ -180,6 +220,7 @@ class Updates extends EventEmitter {
     super();
     this.cache = readCache() || {};
     this.downloading = null;
+    this.restart = restartInfoFor(installKind(), null, currentVersion());
   }
 
   current({ refresh = true } = {}) {
@@ -199,7 +240,24 @@ class Updates extends EventEmitter {
       checkedAt: this.cache.checkedAt || null,
       error: this.cache.error || null,
       downloading: this.downloading,
+      restart: this.restart,
     };
+  }
+
+  // Re-reads the on-disk marker for this install kind and compares it against
+  // what this process is running. Called after a hand-off this process drove
+  // (where the marker is written synchronously before install() returns) and
+  // on window focus (to catch an update that landed some other way). Emits
+  // 'changed' only when the answer actually moves, so a caller polling this on
+  // every focus does not re-render on every no-op check.
+  async checkRestart() {
+    const kind = installKind();
+    const installed = await installedVersion(kind);
+    const next = restartInfoFor(kind, installed, currentVersion());
+    const moved = next.ready !== this.restart.ready || next.installed !== this.restart.installed;
+    this.restart = next;
+    if (moved) this.emit('changed', this.snapshot());
+    return next;
   }
 
   async check() {
@@ -415,10 +473,12 @@ class Updates extends EventEmitter {
         const res = await runAsRoot(plan.argv);
         if (res.code === 126) return { error: 'The password prompt was dismissed, so nothing was installed.' };
         if (res.code !== 0) return { error: lastSaid(res) };
+        await this.checkRestart();
         return { ok: true, action: 'installed' };
       }
       const res = await runAsUser(plan.argv);
       if (res.code !== 0) return { error: lastSaid(res) };
+      await this.checkRestart();
       return { ok: true, action: 'installed' };
     }
 
@@ -431,6 +491,7 @@ class Updates extends EventEmitter {
     if (res.code === 127) return handOff();
     if (res.code === 126) return { error: 'The password prompt was dismissed, so nothing was installed.' };
     if (res.code !== 0) return { error: aptError(res) };
+    await this.checkRestart();
     return { ok: true, action: 'installed' };
   }
 }
@@ -526,4 +587,6 @@ module.exports = {
   repoSlug,
   pickAsset,
   currentVersion,
+  installedVersion,
+  restartInfoFor,
 };

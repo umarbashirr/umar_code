@@ -41,6 +41,7 @@ const NO_UPDATES = {
   kind: 'dev',
   checkedAt: null,
   error: null,
+  restart: { running: '', installed: null, kind: 'dev', ready: false },
 };
 
 export function useUpdates() {
@@ -115,5 +116,6 @@ export function useUpdates() {
     download,
     install,
     openPage: () => tandem().updates.openPage(),
+    relaunch: () => tandem().updates.relaunch(),
   };
 }

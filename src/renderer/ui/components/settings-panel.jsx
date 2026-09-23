@@ -674,6 +674,16 @@ function Updates({ settings, set, updates }) {
 
   return (
     <>
+      {updates.restart?.ready && (
+        <Alert>
+          <RefreshCwIcon />
+          <AlertDescription className="flex w-full flex-wrap items-center justify-between gap-3">
+            <span>Tandem {updates.restart.installed} is installed. Restart to use it.</span>
+            <Button size="sm" onClick={updates.relaunch}>Restart now</Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Section title="Tandem">
         <Row
           label={behind ? `${app.latest} is out` : `You are on ${app.current}`}
@@ -834,9 +844,11 @@ function About({ updates, reset }) {
 }
 
 // An update nobody has looked at yet is the reason the Updates section exists,
-// so the nav marks it.
+// so the nav marks it. An installed-but-not-restarted Tandem counts too: it is
+// the same "something is waiting on you here" as an update nobody downloaded.
 export const updatesBehind = (updates) => !!(updates.app.behind || updates.claude?.behind
-  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind);
+  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind
+  || updates.restart?.ready);
 
 export function SettingsPanel({ section, ...props }) {
   if (!props.settings) return null;

@@ -817,6 +817,11 @@ async function createWindow() {
     lastFocusRecheck = now;
     recheckAgents().catch(() => {});
   });
+  // The system installer runs outside this process, so coming back to the
+  // window is the moment an update finished outside Tandem's own Install
+  // button (a terminal `apt upgrade`, or install.sh run by hand) is most
+  // likely to be caught.
+  win.on('focus', () => updates?.checkRestart().catch(() => {}));
 
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
@@ -1178,6 +1183,15 @@ function registerIpc() {
     const page = updates.snapshot().app?.page;
     if (page) shell.openExternal(page);
     return { ok: !!page };
+  });
+  // Same shape as a normal quit: chats are resumable transcripts on disk
+  // already, not state this process is the only holder of. relaunch() re-execs
+  // process.execPath with this process's argv, which for a tree or .deb install
+  // is the same path the update just replaced, so the next process is the new
+  // build with no path of its own to work out.
+  ipcMain.handle('updates:relaunch', () => {
+    app.relaunch();
+    app.exit(0);
   });
 
   // --- attachments ---
