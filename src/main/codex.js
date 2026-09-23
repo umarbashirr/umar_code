@@ -19,10 +19,12 @@
  * servers from config, and Tandem already ships one that reaches the pane over
  * the bridge, so the tools arrive the ordinary way. See mcp/server.js.
  */
+const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
+const { configuredServers } = require('./codex-catalog');
 const { INSTRUCTIONS } = require('../shared/browser-tools');
 const { CODEX_MODE, DEFAULT_MODE, isMode, decideCodex, DEBUG_PREFACE } = require('./modes');
 const shellEnv = require('./shell-env');
@@ -212,7 +214,13 @@ class CodexSession extends EventEmitter {
     for (const [k, v] of Object.entries(env)) {
       if (v != null) out.push(`mcp_servers.tandem.env.${k}=${JSON.stringify(String(v))}`);
     }
-    for (const s of this.shared) {
+    // A -c override merges into a table config.toml already has rather than
+    // replacing it, so a Tandem server named like one of codex's own would give
+    // codex a url and a command at once, and it refuses to start. Codex's own
+    // server keeps the name.
+    const home = shellEnv.env().CODEX_HOME || path.join(os.homedir(), '.codex');
+    const own = configuredServers(home);
+    for (const s of this.shared.filter((x) => !own.has(x.name))) {
       out.push(`mcp_servers.${s.name}.command=${JSON.stringify(s.command)}`);
       out.push(`mcp_servers.${s.name}.args=${JSON.stringify(s.args)}`);
       for (const [k, v] of Object.entries(s.env)) out.push(`mcp_servers.${s.name}.env.${k}=${JSON.stringify(String(v))}`);

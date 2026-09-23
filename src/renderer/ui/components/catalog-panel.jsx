@@ -309,8 +309,8 @@ function Servers({ catalog }) {
 
       <p className="border-t px-1 pt-2 text-muted-foreground text-xs">
         Servers come from Tandem's own list, from .mcp.json here, from ~/.claude.json, and from the plugins you have on. A server
-        added mid-chat joins that chat straight away. Sign-in runs the Claude CLI in a shell here, because
-        the browser step needs somewhere to happen; the token it saves is the one the next chat reads.
+        added mid-chat joins that chat straight away. Sign-in runs in a shell here, because the browser
+        step needs somewhere to happen; the token it saves is the one the next chat reads.
       </p>
     </>
   );
