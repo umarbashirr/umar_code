@@ -845,6 +845,19 @@ const windowState = () => ({
   fullScreen: !!win && !win.isDestroyed() && win.isFullScreen(),
 });
 
+// Hands one of Tandem's servers to the live claude chats in a folder. One that
+// is still waiting on a sign-in is not in the launch list, so it joins once
+// Authenticate has run; a chat that already has it reconnects to pick up the
+// new token.
+function shareLive(dir, name) {
+  const spec = mcpRegistry.launchList(nodeBin()).find((s) => s.name === name);
+  if (!spec) return Promise.resolve([]);
+  const { name: runtime, ...launch } = spec;
+  return Promise.all(catalogSessions(dir).map((a) => (a.dynamic[runtime]
+    ? a.reconnectMcp(runtime)
+    : a.addMcpServer(runtime, { type: 'stdio', ...launch }))));
+}
+
 function registerIpc() {
   ipcMain.handle('bridge:info', () => ({
     url: bridge.url,
@@ -1282,7 +1295,7 @@ function registerIpc() {
     const dir = focusedCwd();
     if (res.error) return { ...cat().current(dir), error: res.error };
     if (!claudeCatalog()) return cat().current(dir);
-    await Promise.all(catalogSessions(dir).map((a) => a.reconnectMcp(name)));
+    await shareLive(dir, name);
     return learnCatalog();
   });
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
@@ -1297,18 +1310,16 @@ function registerIpc() {
   ipcMain.handle('catalog:mcpAdd', async (_e, { name, scope, config }) => {
     const dir = focusedCwd();
     if (scope === 'tandem') {
-      let spec;
+      let added;
       try {
-        const added = mcpRegistry.add(name, config);
-        spec = mcpRegistry.launchList(nodeBin()).find((s) => s.name === added);
+        added = mcpRegistry.add(name, config);
       } catch (e) {
         return { error: e.message };
       }
       // Only a claude session can take a server mid-chat. The other CLIs are
       // handed the list when a chat starts, so they pick it up on the next one.
       if (!claudeCatalog()) return cat().current(dir);
-      const { name: runtime, ...launch } = spec;
-      const done = await Promise.all(catalogSessions(dir).map((a) => a.addMcpServer(runtime, { type: 'stdio', ...launch })));
+      const done = await shareLive(dir, added);
       return { ...cat().current(dir), error: done.find((r) => r?.error)?.error || null };
     }
     try {

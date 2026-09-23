@@ -285,7 +285,7 @@ export default function App() {
         return res;
       },
       settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
-      customize: (at) => customize(typeof at === 'string' ? at : 'skills'),
+      customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };

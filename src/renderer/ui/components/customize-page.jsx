@@ -57,7 +57,7 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
             on={catalogSection}
             icon={StoreIcon}
             label="Marketplace"
-            onClick={() => catalogSection || onSection(CATALOG_SECTIONS[0])} />
+            onClick={() => catalogSection || onSection('mcp')} />
 
           <Label>Settings</Label>
           {SETTINGS_SECTIONS.map(([id, label, icon]) => (

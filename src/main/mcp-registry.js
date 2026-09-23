@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { DIR } = require('./projects');
+const { MCP_GALLERY } = require('../shared/mcp-gallery');
 
 const FILE = path.join(DIR, 'mcp.json');
 // mcp-remote keeps its OAuth tokens here, keyed by a hash of the server URL.
@@ -71,8 +72,13 @@ function remoteArgs(config) {
 // Every server as a stdio process, the one shape every CLI accepts at session
 // start. A remote server runs behind mcp-remote, which is what lets them share
 // one token cache instead of each CLI signing in on its own.
+//
+// A server that signs in with OAuth is left out until it has a token. Without
+// one its proxy opens the browser the moment a chat starts, and codex gives a
+// server ten seconds to come up, far too short to finish a sign-in. The
+// Authenticate button is where that happens instead.
 function launchList(node) {
-  return Object.entries(read()).map(([name, config]) => (typeOf(config) === 'stdio'
+  return Object.entries(read()).filter(([name]) => !awaitingSignIn(name)).map(([name, config]) => (typeOf(config) === 'stdio'
     ? { name, command: config.command, args: config.args || [], env: config.env || {} }
     : {
       name,
@@ -95,6 +101,15 @@ function tokensFile(config) {
   if (Object.keys(headers).length) parts.push(JSON.stringify(headers, Object.keys(headers).sort()));
   const hash = crypto.createHash('md5').update(parts.join('|')).digest('hex');
   return path.join(AUTH_DIR, 'mcp-remote-v1', `${hash}_tokens.json`);
+}
+
+// Only the marketplace's servers are known to sign in with OAuth. One added by
+// hand could go either way, so it is started as before.
+const OAUTH_URLS = new Set(MCP_GALLERY.filter((g) => g.auth === 'oauth').map((g) => g.url));
+
+function awaitingSignIn(name) {
+  const config = read()[name];
+  return !!config && OAUTH_URLS.has(config.url) && !signedIn(name);
 }
 
 function signedIn(name) {
