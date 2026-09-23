@@ -277,6 +277,13 @@ const PROVIDERS = {
     where: '/usr/local/bin/grok',
     missing: 'Nothing named grok on your PATH. Install the Grok CLI from x.ai/cli, run grok login, then restart Tandem.',
   },
+  opencode: {
+    label: 'OpenCode',
+    cli: 'opencode',
+    install: 'npm install -g opencode-ai',
+    where: '/usr/local/bin/opencode',
+    missing: 'Nothing named opencode on your PATH. Install it with npm install -g opencode-ai, run opencode auth login for any provider past the free models, then restart Tandem.',
+  },
   codex: {
     label: 'Codex',
     cli: 'codex',
@@ -291,6 +298,7 @@ const PROVIDERS = {
 const CLAUDE_UPDATE = 'claude update';
 const CURSOR_UPDATE = 'agent update';
 const GROK_UPDATE = 'See https://x.ai/cli';
+const OPENCODE_UPDATE = 'opencode upgrade';
 // codex has a `codex update`, but it only works for the native install and
 // refuses on an npm one, which is how most people have it.
 const CODEX_UPDATE = 'npm install -g @openai/codex';
@@ -617,7 +625,7 @@ function CliSection({ title, note, state, update, absent }) {
 }
 
 function Updates({ settings, set, updates }) {
-  const { app, claude, codex, cursor, grok, kind, progress, file, checking } = updates;
+  const { app, claude, codex, cursor, grok, opencode, kind, progress, file, checking } = updates;
   const behind = app.behind;
 
   return (
@@ -729,6 +737,13 @@ function Updates({ settings, set, updates }) {
         update={GROK_UPDATE}
         absent="No grok on your PATH. Install it from x.ai/cli if you want Grok chats." />
 
+      <CliSection
+        title="OpenCode CLI"
+        note="Only needed if you drive OpenCode. Tandem reads the version and compares it with npm."
+        state={opencode}
+        update={OPENCODE_UPDATE}
+        absent="No opencode on your PATH. Install it with npm install -g opencode-ai if you want OpenCode chats." />
+
       {updates.error && (
         <Alert variant="destructive">
           <CircleAlertIcon />
@@ -792,7 +807,7 @@ function About({ updates, reset }) {
 // An update nobody has looked at yet is the reason the Updates section exists,
 // so the nav marks it.
 export const updatesBehind = (updates) => !!(updates.app.behind || updates.claude?.behind
-  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind);
+  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind);
 
 export function SettingsPanel({ section, ...props }) {
   if (!props.settings) return null;

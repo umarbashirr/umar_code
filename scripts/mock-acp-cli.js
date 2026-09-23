@@ -10,6 +10,9 @@ if (process.argv.includes('--version')) {
 
 const AUTH = process.env.MOCK_ACP_AUTH === '1';
 const ASK = process.env.MOCK_ACP_ASK === '1';
+// Answer the way OpenCode does: model and mode as session config options.
+const CONFIG = process.env.MOCK_ACP_CONFIG === '1';
+const chosen = { model: 'mock-1', mode: 'build' };
 let seq = 0;
 let promptId = null;
 let cancelled = false;
@@ -97,8 +100,11 @@ async function handlePrompt(id, params) {
     toolDone(sessionId, 't1', 'hi\n', false);
   }
 
-  chunk(sessionId, 'hello ');
-  chunk(sessionId, 'from mock');
+  if (CONFIG) chunk(sessionId, `model=${chosen.model} mode=${chosen.mode}`);
+  else {
+    chunk(sessionId, 'hello ');
+    chunk(sessionId, 'from mock');
+  }
   if (cancelled) {
     result(id, { stopReason: 'cancelled' });
   } else {
@@ -142,6 +148,21 @@ function onMessage(msg) {
   if (method === 'session/new' || method === 'session/load') {
     if (AUTH) return fail(id, 'not authenticated; run login');
     const servers = params?.mcpServers || [];
+    if (CONFIG) {
+      return result(id, {
+        sessionId: params?.sessionId || 's1',
+        configOptions: [
+          { id: 'model', category: 'model', type: 'select', currentValue: chosen.model, options: [
+            { value: 'mock-1', name: 'Zen/Mock One' },
+            { value: 'mock-2', name: 'Zen/Mock Two' },
+          ] },
+          { id: 'mode', category: 'mode', type: 'select', currentValue: chosen.mode, options: [
+            { value: 'build', name: 'build' },
+            { value: 'plan', name: 'plan' },
+          ] },
+        ],
+      });
+    }
     return result(id, {
       sessionId: params?.sessionId || 's1',
       mcpServers: servers.map((s) => s.name),
@@ -164,6 +185,11 @@ function onMessage(msg) {
   }
 
   if (method === 'session/prompt') return handlePrompt(id, params || {});
+  if (method === 'session/set_config_option') {
+    chosen[params.configId] = params.value;
+    return result(id, {});
+  }
+  if (CONFIG && /^session\/set_(model|mode)$/.test(method)) return fail(id, `${method} is not how this agent is configured`);
   if (method === 'session/set_model') return result(id, {});
   if (method === 'session/set_mode') return result(id, {});
   if (method === 'session/close') return result(id, {});

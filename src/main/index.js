@@ -62,6 +62,7 @@ const chosenModels = {
   codex: settings.get('agent').codexModel || null,
   cursor: settings.get('agent').cursorModel || null,
   grok: settings.get('agent').grokModel || null,
+  opencode: settings.get('agent').opencodeModel || null,
 };
 if (chosenModels.claude === 'default') chosenModels.claude = null;
 let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
@@ -1043,6 +1044,7 @@ function registerIpc() {
     claude: claudeBinary(),
     cursor: rowOf('cursor')?.binary?.() || null,
     grok: rowOf('grok')?.binary?.() || null,
+    opencode: rowOf('opencode')?.binary?.() || null,
     codex: rowOf('codex')?.binary?.() || null,
   }));
   ipcMain.handle('settings:reveal', () => {
@@ -1060,7 +1062,8 @@ function registerIpc() {
     if (partial?.agent?.codexModel !== undefined) chosenModels.codex = partial.agent.codexModel || null;
     if (partial?.agent?.cursorModel !== undefined) chosenModels.cursor = partial.agent.cursorModel || null;
     if (partial?.agent?.grokModel !== undefined) chosenModels.grok = partial.agent.grokModel || null;
-    const binaryTouched = ['claude', 'codex', 'cursor', 'grok'].some((id) => partial?.[id]?.binary !== undefined);
+    if (partial?.agent?.opencodeModel !== undefined) chosenModels.opencode = partial.agent.opencodeModel || null;
+    const binaryTouched = ['claude', 'codex', 'cursor', 'grok', 'opencode'].some((id) => partial?.[id]?.binary !== undefined);
     if (binaryTouched) {
       await applyBinaries();
     }
@@ -1370,7 +1373,7 @@ app.whenReady().then(async () => {
   }
   updates = new Updates();
   updates.on('changed', (snap) => send('updates:changed', snap));
-  // Every idle CLI, so the picker has Cursor and Grok the first time it opens.
+  // Every idle CLI, so the picker has Cursor, Grok and OpenCode the first time it opens.
   // A missing binary is cheap: no spawn, just a write.
   for (const row of registry.all()) {
     if (row.id !== provider) row.driver.refresh().catch(() => {});

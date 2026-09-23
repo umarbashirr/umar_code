@@ -61,13 +61,14 @@ function oncePerModel(rows) {
    allow "Claude Code" as a name inside someone else's product. These head two
    groups of models, so the vendor name is the accurate word anyway, and it
    reads level with ChatGPT rather than naming one CLI and one company. */
-const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', codex: 'ChatGPT' };
+const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
 
 // Where to get each one, for the row that says it is missing.
 const INSTALL = {
   claude: 'npm install -g @anthropic-ai/claude-code',
   cursor: 'curl https://cursor.com/install -fsS | bash',
   grok: 'See https://x.ai/cli',
+  opencode: 'npm install -g opencode-ai',
   codex: 'npm install -g @openai/codex',
 };
 

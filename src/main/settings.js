@@ -38,13 +38,14 @@ const DEFAULTS = {
     effort: '',
     // Which CLI the panel drives. Both are the person's own install; neither
     // ships with Tandem. See driver.js and codex-driver.js.
-    provider: 'claude',     // claude | cursor | grok | codex
+    provider: 'claude',     // claude | cursor | grok | opencode | codex
     // The model each one is set to. Kept apart because a name from one is
     // meaningless to the other, and switching provider should not lose the
     // choice you made on the one you switched away from.
     codexModel: '',
     cursorModel: '',
     grokModel: '',
+    opencodeModel: '',
   },
   startup: {
     reopenProject: true,
@@ -71,6 +72,9 @@ const DEFAULTS = {
     hidden: [],
   },
   grok: {
+    binary: '',
+  },
+  opencode: {
     binary: '',
   },
   // The last version each toast named. A person who ignored the news about

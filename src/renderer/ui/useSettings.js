@@ -37,6 +37,7 @@ const NO_UPDATES = {
   codex: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
   cursor: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
   grok: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
+  opencode: { running: null, path: null, version: null, latest: null, behind: false, missing: false },
   kind: 'dev',
   checkedAt: null,
   error: null,

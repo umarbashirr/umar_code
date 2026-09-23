@@ -23,7 +23,7 @@ const TIMEOUT_MS = 5000;
 // made at all. Anything else the shell exports is left where it is: this
 // process has its own reasons for the environment it was given, and a stale
 // value from an rc file should not get to override them.
-const ADOPT_PREFIX = ['ANTHROPIC_', 'CLAUDE_', 'AWS_', 'GOOGLE_', 'GCLOUD_', 'VERTEX_', 'CURSOR_', 'GROK_', 'XAI_'];
+const ADOPT_PREFIX = ['ANTHROPIC_', 'CLAUDE_', 'AWS_', 'GOOGLE_', 'GCLOUD_', 'VERTEX_', 'CURSOR_', 'GROK_', 'XAI_', 'OPENCODE_'];
 const ADOPT_NAME = new Set([
   'CLOUD_ML_REGION',
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',

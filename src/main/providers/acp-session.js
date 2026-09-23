@@ -1,5 +1,5 @@
 'use strict';
-const { modelsFrom } = require('./acp-models');
+const { modelsFrom, configOption } = require('./acp-models');
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
@@ -29,12 +29,12 @@ const KIND_TOOL = {
 
 const MODE_CANDIDATES = {
   plan: ['plan'],
-  ask: ['ask', 'default', 'normal'],
-  debug: ['ask', 'default', 'normal'],
-  auto: ['auto', 'acceptEdits', 'agent', 'code'],
-  acceptEdits: ['acceptEdits', 'agent', 'auto'],
-  always: ['ask', 'default', 'normal'],
-  bypass: ['bypass', 'danger', 'full'],
+  ask: ['ask', 'default', 'normal', 'build'],
+  debug: ['ask', 'default', 'normal', 'build'],
+  auto: ['auto', 'acceptEdits', 'agent', 'code', 'build'],
+  acceptEdits: ['acceptEdits', 'agent', 'auto', 'build'],
+  always: ['ask', 'default', 'normal', 'build'],
+  bypass: ['bypass', 'danger', 'full', 'build'],
 };
 
 const textOf = (v) => {
@@ -91,6 +91,7 @@ class AcpSession extends EventEmitter {
     this.streaming = false;
     this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
     this.modes = [];
+    this.config = [];
     this.startedAt = 0;
     this.prompting = null;
   }
@@ -146,15 +147,17 @@ class AcpSession extends EventEmitter {
     }
 
     this.sessionId = res?.sessionId || this.resume || null;
-    this.modes = res?.modes?.availableModes || [];
-    const advertised = res?.models?.currentModelId;
+    this.config = res?.configOptions || [];
+    this.modes = res?.modes?.availableModes
+      || (configOption(res, 'mode')?.options || []).map((o) => ({ id: o.value }));
+    const advertised = res?.models?.currentModelId || configOption(res, 'model')?.currentValue;
     if (advertised && !this.model) this.model = advertised;
     if (this.model) {
-      try { await this.rpc.request('session/set_model', { sessionId: this.sessionId, modelId: this.model }); } catch {}
+      try { await this.#set('model', this.model); } catch {}
     }
     const acpMode = pickMode(this.mode, this.modes);
     if (acpMode) {
-      try { await this.rpc.request('session/set_mode', { sessionId: this.sessionId, modeId: acpMode }); } catch {}
+      try { await this.#set('mode', acpMode); } catch {}
     }
 
     this.emit('ready', {
@@ -223,7 +226,7 @@ class AcpSession extends EventEmitter {
   async setModel(model) {
     this.model = model || null;
     if (this.sessionId && this.model) {
-      try { await this.rpc.request('session/set_model', { sessionId: this.sessionId, modelId: this.model }); } catch (e) {
+      try { await this.#set('model', this.model); } catch (e) {
         this.emit('error', `could not switch to ${model}: ${e?.message || e}`);
       }
     }
@@ -238,10 +241,18 @@ class AcpSession extends EventEmitter {
     if (mode !== 'debug') this.preface = this.preface === DEBUG_PREFACE ? null : this.preface;
     const acpMode = pickMode(mode, this.modes);
     if (acpMode && this.sessionId) {
-      try { await this.rpc.request('session/set_mode', { sessionId: this.sessionId, modeId: acpMode }); } catch {}
+      try { await this.#set('mode', acpMode); } catch {}
     }
     this.emit('mode', { mode });
     return this.mode;
+  }
+
+  #set(category, value) {
+    const option = this.config.find((o) => o?.category === category);
+    if (option) return this.rpc.request('session/set_config_option', { sessionId: this.sessionId, configId: option.id, value });
+    return category === 'model'
+      ? this.rpc.request('session/set_model', { sessionId: this.sessionId, modelId: value })
+      : this.rpc.request('session/set_mode', { sessionId: this.sessionId, modeId: value });
   }
 
   decide(id, decision, input) {
