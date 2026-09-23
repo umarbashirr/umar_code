@@ -98,7 +98,7 @@ function askShell(shell) {
 
 let captured = null;      // what the login shell printed, or {} if it said nothing
 let resolvedPath = null;  // that shell's PATH, merged in front of ours
-let inflight = null;
+let inflight = null;      // the one capture() running right now, if any
 
 async function capture() {
   const current = (process.env.PATH || '').split(path.delimiter);
@@ -118,12 +118,24 @@ async function capture() {
   return resolvedPath;
 }
 
+function run() {
+  if (!inflight) inflight = capture().finally(() => { inflight = null; });
+  return inflight;
+}
+
 // Runs the shell once per app launch and remembers the answer. Everyone who
 // needs the environment awaits this rather than racing it.
 function ready() {
-  if (captured) return Promise.resolve(resolvedPath);
-  if (!inflight) inflight = capture().finally(() => { inflight = null; });
-  return inflight;
+  if (captured && !inflight) return Promise.resolve(resolvedPath);
+  return run();
+}
+
+// An installer can add a PATH entry to an rc file after the login shell was
+// last asked, and nothing short of a restart used to see it. This forces a
+// fresh ask; callers who land while one is already running share its answer
+// rather than starting a second shell.
+function reask() {
+  return run();
 }
 
 const cached = () => resolvedPath || process.env.PATH || '';
@@ -145,4 +157,4 @@ function env() {
 const baseUrl = () => (env().ANTHROPIC_BASE_URL || '').trim().replace(/\/+$/, '');
 const authToken = () => env().ANTHROPIC_AUTH_TOKEN || env().ANTHROPIC_API_KEY || '';
 
-module.exports = { ready, cached, env, merge, baseUrl, authToken };
+module.exports = { ready, reask, cached, env, merge, baseUrl, authToken };

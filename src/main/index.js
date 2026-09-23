@@ -432,6 +432,44 @@ async function applyBinaries() {
   return d;
 }
 
+/* The button in Settings, and the two moments nobody presses it: opening an
+   agent's page and bringing the window back into focus. All three push the
+   same shape 'agent:driver' already sends after every other refresh, so the
+   picker and the provider rows update themselves without a special case.
+   Overlapping callers share one run rather than asking the login shell twice.
+
+   force is the button: every driver is re-probed, spawn and all, because
+   someone asked on purpose. The automatic callers do not force it, since
+   alt-tabbing back or opening a CLI's page happens far more often than a
+   CLI actually changes underneath the app. Each driver's own `stale` getter
+   already says whether its binary moved or went missing, so the quiet path
+   only pays for a spawn where that is true; a version bump behind the same
+   path is still caught the next time the six-hour TTL makes it stale. */
+let recheckInflight = null;
+function recheckAgents({ force = false } = {}) {
+  if (!recheckInflight) {
+    recheckInflight = (async () => {
+      await shellEnv.reask();
+      let changed = false;
+      if (registry) {
+        for (const row of registry.all()) {
+          if (!force && !row.driver.stale) continue;
+          await row.driver.refresh().catch(() => null);
+          changed = true;
+        }
+      }
+      if (!changed) return null;
+      const payload = {
+        ...(activeDriver()?.current({ refresh: false }) || {}),
+        provider, providers: providerStates(), models: allModels(), current: settleModel(),
+      };
+      send('agent:driver', payload);
+      return payload;
+    })().finally(() => { recheckInflight = null; });
+  }
+  return recheckInflight;
+}
+
 async function applyProvider(next) {
   if (!isProviderId(next)) return provider;
   if (next === provider) return provider;
@@ -769,6 +807,16 @@ async function createWindow() {
     win.on(ev, () => send('win:state', windowState()));
   }
 
+  // Coming back to the window is when someone who just installed or updated a
+  // CLI in another terminal is most likely to look at Tandem again. Throttled
+  // so alt-tabbing back and forth does not spawn a login shell every time.
+  let lastFocusRecheck = 0;
+  win.on('focus', () => {
+    const now = Date.now();
+    if (now - lastFocusRecheck < 30000) return;
+    lastFocusRecheck = now;
+    recheckAgents().catch(() => {});
+  });
 
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
@@ -951,6 +999,11 @@ function registerIpc() {
       binaryPath: d.binaryPath || null,
     };
   });
+  // The Settings re-check button (force: true, every driver) and the quiet
+  // call an agent's page makes on mount (force left off, stale drivers only).
+  // Resolves with what it sent on 'agent:driver', so the button's spinner has
+  // something to await.
+  ipcMain.handle('agent:recheck', (_e, { force } = {}) => recheckAgents({ force: !!force }));
 
   /* Effort has no live setter: the SDK takes it when a session starts and there
      is no equivalent of setModel for it. So this chat's idle session is stopped

@@ -216,6 +216,9 @@ export function useAgent() {
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
   const [driver, setDriver] = useState(null);
+  // The Settings re-check button's spinner. The result itself arrives on
+  // 'agent:driver' like every other refresh; this only tracks the round trip.
+  const [checking, setChecking] = useState(false);
   // Which CLI the panel is driving. Kept beside the model list because the two
   // move together: switching provider replaces the list under the picker.
   const [provider, setProvider] = useState('claude');
@@ -1046,6 +1049,15 @@ export function useAgent() {
       : c)));
   }, []);
 
+  // A CLI installed or logged into after Tandem started. The new state
+  // arrives through the same 'agent:driver' push a normal refresh sends.
+  // force is the button, a full re-probe; the quiet call a page's own mount
+  // makes only re-probes a driver whose binary actually moved.
+  const recheck = useCallback(async (force = false) => {
+    setChecking(true);
+    try { await tandem().agent.recheck?.(force); } finally { setChecking(false); }
+  }, []);
+
   const changeMode = useCallback(async (value) => {
     const key = activeRef.current;
     edit(key, (c) => ({ ...c, mode: value }));
@@ -1066,10 +1078,10 @@ export function useAgent() {
     queued: active.queued,
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
-    chats, activeKey,
+    chats, activeKey, checking,
     send, enqueue, unqueue, flushQueue,
     decide, interrupt, reset, setProject, clear, open, removeChat, switchTo, changeModel, forgetModel,
-    changeProvider, changeMode,
+    changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
     stopAgent, backgroundAgent, openAgent,
   };
