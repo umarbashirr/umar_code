@@ -10,10 +10,6 @@ const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 
 const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 
-// Drop the [preview element] / [attached …] preamble the composer adds, and
-// leave what the human typed in the box. Only the chat title wants this: the
-// bubble draws the preamble as badges, with the note written against each.
-const spoken = (t) => String(t).replace(/^(\[(?:preview element|attached [a-z]+)\][\s\S]*?\n\n)+/, '');
 
 // Stored messages back into items. Used for a whole chat and again for one
 // subagent's transcript, where `parent` is the Agent row they belong under.
@@ -357,24 +353,30 @@ export function useAgent() {
         edit(chat, (c) => ({
           ...c,
           tasks: { ...c.tasks, [msg.task_id]: id },
-          items: c.items.map((it) => (it.id === id ? {
-            ...it,
-            kind: 'agent',
-            taskId: msg.task_id,
-            agentType: msg.subagent_type || it.agentType || 'agent',
-            // Only what it was asked to do, which does not change. Progress
-            // messages carry a live "Running <whatever>" line instead, and
-            // letting that win makes the row rename itself every few seconds.
-            description: msg.subtype === 'task_started'
-              ? (msg.description || it.description)
-              : it.description,
-            status: 'running',
-            background: msg.subtype === 'task_started' ? !!msg.is_backgrounded : it.background,
-            depth: msg.spawn_depth || it.depth || 1,
-            tools: msg.usage?.tool_uses ?? it.tools ?? 0,
-            ms: msg.usage?.duration_ms ?? it.ms ?? 0,
-            lastTool: msg.last_tool_name || it.lastTool || null,
-          } : it)),
+          items: c.items.map((it) => {
+            if (it.id !== id) return it;
+            // A shell started with run_in_background reports as a task too.
+            // It is still a command, so it keeps its Bash row and gets the
+            // task id it can be stopped by.
+            if (it.kind !== 'agent') return { ...it, taskId: msg.task_id, status: 'running', background: true };
+            return {
+              ...it,
+              taskId: msg.task_id,
+              agentType: msg.subagent_type || it.agentType || 'agent',
+              // Only what it was asked to do, which does not change. Progress
+              // messages carry a live "Running <whatever>" line instead, and
+              // letting that win makes the row rename itself every few seconds.
+              description: msg.subtype === 'task_started'
+                ? (msg.description || it.description)
+                : it.description,
+              status: 'running',
+              background: msg.subtype === 'task_started' ? !!msg.is_backgrounded : it.background,
+              depth: msg.spawn_depth || it.depth || 1,
+              tools: msg.usage?.tool_uses ?? it.tools ?? 0,
+              ms: msg.usage?.duration_ms ?? it.ms ?? 0,
+              lastTool: msg.last_tool_name || it.lastTool || null,
+            };
+          }),
         }));
         return;
       }
@@ -384,7 +386,6 @@ export function useAgent() {
         const id = msg.tool_use_id || chatNow?.tasks[msg.task_id];
         if (!id) return;
         patch(chat, id, {
-          kind: 'agent',
           status: msg.status === 'completed' ? 'done' : msg.status,
           summary: msg.summary || null,
           tools: msg.usage?.tool_uses ?? undefined,
@@ -540,7 +541,7 @@ export function useAgent() {
         startedAt: c.busy ? c.startedAt : Date.now(),
         // Same as a message typed here: the first one names the chat, which is
         // what the rail shows until claude has written a transcript to read.
-        title: c.title === 'New chat' ? chatTitle(spoken(text)).slice(0, 80) : c.title,
+        title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
         items: [...c.items, { id: uid('u'), kind: 'user', text }],
       }));
     }) ?? (() => {}));
@@ -612,8 +613,9 @@ export function useAgent() {
   // Every agent still going, at any depth. The strip above the composer is the
   // only thing that says a background agent exists once the transcript has
   // scrolled past the row that started it.
+  // Background shells count: a dev server left running is still going.
   const running = useMemo(
-    () => active.items.filter((it) => it.kind === 'agent' && it.status === 'running'),
+    () => active.items.filter((it) => (it.kind === 'agent' || it.taskId) && it.status === 'running'),
     [active.items],
   );
 
@@ -649,7 +651,7 @@ export function useAgent() {
       // Only a turn starting from idle resets it.
       startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
-      title: c.title === 'New chat' ? chatTitle(spoken(text)).slice(0, 80) : c.title,
+      title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
       items: [...c.items, { id: uid('u'), kind: 'user', text, images }],
     }));
     try {

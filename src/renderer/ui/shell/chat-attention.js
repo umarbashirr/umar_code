@@ -6,7 +6,7 @@ function hasUndecidedPerm(items) {
 
 function railBadge({ busy, agents, waiting }) {
   if (waiting) return { label: 'needs you', tone: 'wait' };
-  if (busy) return { label: agents ? `${agents} agents` : 'working', tone: 'busy' };
+  if (busy) return { label: agents ? `${agents} ${agents === 1 ? 'agent' : 'agents'}` : 'working', tone: 'busy' };
   return null;
 }
 

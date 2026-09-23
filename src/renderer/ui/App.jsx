@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
+import { SquareIcon } from 'lucide-react';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -328,7 +329,9 @@ export default function App() {
       <FleetStrip
         agents={agent.running}
         onStop={agent.stopAgent}
-        onShow={(a) => showAgent(a.id)} />
+        onShow={(a) => (a.kind === 'agent'
+          ? showAgent(a.id)
+          : document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }))} />
 
       <Composer
         agent={agent}
@@ -525,23 +528,49 @@ function Item({ item, agent }) {
       );
     }
 
+    // A shell left running in the background, a dev server say. It is done as
+    // a call but not as a process, so the row says so and can stop it.
+    const live = item.taskId && (item.status === 'running' || item.status === 'stopping');
     return (
-      <ToolRow name={label} input={item.input} state={item.state} at={item.at} defaultOpen={item.state === 'output-error'}>
-        <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
-        {images.map((b, i) => (
-          <img
-            key={i}
-            alt="screenshot"
-            className="mt-2 max-w-full rounded-md border"
-            loading="lazy"
-            src={imageSrc(b)} />
-        ))}
-        {text && (
-          <Pre className={`mt-2 ${item.state === 'output-error' ? 'text-destructive' : ''}`}>
-            {text.slice(0, 4000)}
-          </Pre>
-        )}
-      </ToolRow>
+      <div id={`row-${item.id}`}>
+        <ToolRow
+          name={label}
+          input={item.input}
+          state={item.state}
+          at={item.at}
+          defaultOpen={item.state === 'output-error'}
+          right={item.taskId && (
+            <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/75">
+              <span>{live ? 'background' : item.status}</span>
+              {live && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title="Stop this command"
+                  onClick={(e) => { e.stopPropagation(); agent.stopAgent(item); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); agent.stopAgent(item); } }}
+                  className="grid size-5 place-items-center rounded hover:bg-secondary hover:text-foreground">
+                  <SquareIcon className="size-3" />
+                </span>
+              )}
+            </span>
+          )}>
+          <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
+          {images.map((b, i) => (
+            <img
+              key={i}
+              alt="screenshot"
+              className="mt-2 max-w-full rounded-md border"
+              loading="lazy"
+              src={imageSrc(b)} />
+          ))}
+          {text && (
+            <Pre className={`mt-2 ${item.state === 'output-error' ? 'text-destructive' : ''}`}>
+              {text.slice(0, 4000)}
+            </Pre>
+          )}
+        </ToolRow>
+      </div>
     );
   }
 
