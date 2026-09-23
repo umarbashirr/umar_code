@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { BotIcon, SquareSlashIcon, ZapIcon } from 'lucide-react';
 
-import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-import { ROW, RowList, SearchBox, TabHeader, matches } from '@/components/catalog-layout';
+import { GlyphTile, HUES } from '@/components/brand-tile';
+import { Empty, Pills, ROW, RowList, SearchBox, TabHeader, matches } from '@/components/catalog-layout';
 import { Servers } from '@/components/mcp-servers';
 
 const SOURCES = [
@@ -14,28 +17,61 @@ const SOURCES = [
   ['builtin', 'Built in'],
 ];
 
-const bySource = (list, query) => SOURCES
-  .map(([source, label]) => [label, list.filter((x) => x.source === source && matches(query, x.name, x.description))])
-  .filter(([, group]) => group.length);
+const SOURCE_HUE = { project: 'green', user: 'blue', synced: 'cyan', builtin: 'slate' };
+// Kept apart from the source hues, so a plugin's items never pass for yours.
+const PLUGIN_HUES = ['purple', 'orange', 'pink', 'teal', 'indigo', 'yellow', 'red'];
 
-function Groups({ groups, empty, row }) {
+// Every item from one plugin shares a hue, and it is the same one on every run.
+function hueOf(item) {
+  if (HUES[item.color]) return item.color;
+  if (item.plugin) {
+    const sum = [...item.plugin].reduce((n, ch) => n + ch.charCodeAt(0), 0);
+    return PLUGIN_HUES[sum % PLUGIN_HUES.length];
+  }
+  return SOURCE_HUE[item.source] || 'slate';
+}
+
+const bare = (item) => (item.plugin ? item.name.slice(item.plugin.length + 1) : item.name);
+
+function titleOf(item) {
+  const words = bare(item).split(/[-_:]+/).filter(Boolean).join(' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// The pills are the sources the list has at all, so they hold still while a
+// search narrows it. Their counts follow the search.
+function useSources(list, query) {
+  const [source, setSource] = useState('all');
+  const found = list.filter((x) => matches(query, x.name, x.description));
+  const pills = [
+    ['all', 'All', found.length],
+    ...SOURCES
+      .filter(([id]) => list.some((x) => x.source === id))
+      .map(([id, label]) => [id, label, found.filter((x) => x.source === id).length]),
+  ];
+  const shown = source === 'all' ? found : found.filter((x) => x.source === source);
+  return { pills, source, setSource, shown };
+}
+
+function Item({ item, icon, slug, dim, children }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      {groups.length === 0 && <p className="px-1 py-6 text-center text-muted-foreground text-sm">{empty}</p>}
-      {groups.map(([label, list]) => (
-        <div key={label} className="mb-4">
-          <div className="px-1 pb-1.5 text-muted-foreground text-xs">
-            {label} <span className="tabular-nums opacity-70">{list.length}</span>
-          </div>
-          <RowList>{list.map(row)}</RowList>
+    <div className={ROW}>
+      <GlyphTile icon={icon} hue={hueOf(item)} className={cn(dim && 'opacity-50')} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className={cn('truncate text-sm', dim && 'opacity-50')}>{titleOf(item)}</span>
+          {slug && <span className="shrink-0 font-mono text-muted-foreground text-xs">/{bare(item)}</span>}
+          {item.plugin && <Badge variant="outline" className="h-4 px-1.5 py-0 font-normal text-[10px] text-muted-foreground">{item.plugin}</Badge>}
         </div>
-      ))}
+        <div className="truncate text-muted-foreground text-xs" title={item.description}>{item.description}</div>
+      </div>
+      {children}
     </div>
   );
 }
 
 function Skills({ catalog, query, setQuery }) {
-  const groups = useMemo(() => bySource(catalog.skills, query), [catalog.skills, query]);
+  const { pills, source, setSource, shown } = useSources(catalog.skills, query);
   const off = catalog.skills.filter((s) => !s.enabled).length;
 
   return (
@@ -43,24 +79,26 @@ function Skills({ catalog, query, setQuery }) {
       <TabHeader
         title="Skills"
         subtitle={`${catalog.skills.length - off} of ${catalog.skills.length} on. Skills and commands the agent can use in this folder.`}>
+        <Pills value={source} onChange={setSource} options={pills} />
         <SearchBox value={query} onChange={setQuery} placeholder="Search skills and commands" />
       </TabHeader>
 
-      <Groups
-        groups={groups}
-        empty="Nothing matches that."
-        row={(s) => (
-          <div key={s.name} className={cn(ROW, 'py-2.5')}>
-            <Checkbox
-              checked={s.enabled}
-              title={s.enabled ? 'Hide this from the agent' : 'Offer this to the agent again'}
-              onCheckedChange={(enabled) => catalog.setSkill(s.name, enabled === true)} />
-            <span className={cn('shrink-0 font-mono text-[13px]', !s.enabled && 'text-muted-foreground line-through')}>
-              /{s.name}
-            </span>
-            <span className="truncate text-muted-foreground text-xs" title={s.description}>{s.description}</span>
-          </div>
-        )} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {shown.length === 0 ? (
+          <Empty>{catalog.skills.length ? 'Nothing matches that.' : 'No skills in this folder or your home directory yet.'}</Empty>
+        ) : (
+          <RowList>
+            {shown.map((s) => (
+              <Item key={s.name} item={s} icon={s.kind === 'command' ? SquareSlashIcon : ZapIcon} slug dim={!s.enabled}>
+                <Switch
+                  checked={s.enabled}
+                  title={s.enabled ? 'Hide this from the agent' : 'Offer this to the agent again'}
+                  onCheckedChange={(enabled) => catalog.setSkill(s.name, enabled)} />
+              </Item>
+            ))}
+          </RowList>
+        )}
+      </div>
 
       <p className="border-t px-1 pt-2 text-muted-foreground text-xs">
         Switching a skill off hides it from the agent in this folder. The files stay where they are, and
@@ -70,31 +108,36 @@ function Skills({ catalog, query, setQuery }) {
   );
 }
 
+const MODELS = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' };
+const modelLabel = (model) => (!model || model === 'inherit' ? "Chat's model" : MODELS[model] || model);
+
 // The subagents this folder can call on. Read only: nothing in the CLI's
 // settings turns an agent off, so this says what is there rather than
 // pretending to a control it does not have.
 function Agents({ catalog, query, setQuery }) {
   const list = catalog.agents || [];
-  const groups = useMemo(() => bySource(list, query), [list, query]);
+  const { pills, source, setSource, shown } = useSources(list, query);
 
   return (
     <>
       <TabHeader title="Agents" subtitle={`${list.length} on disk. Helpers the agent can hand part of a task to.`}>
+        <Pills value={source} onChange={setSource} options={pills} />
         <SearchBox value={query} onChange={setQuery} placeholder="Search agents" />
       </TabHeader>
 
-      <Groups
-        groups={groups}
-        empty={list.length ? 'Nothing matches that.' : 'No agents in this folder or your home directory yet.'}
-        row={(a) => (
-          <div key={a.name} className={cn(ROW, 'py-2.5')}>
-            <span className="shrink-0 font-mono text-[13px]">{a.name}</span>
-            <span className="truncate text-muted-foreground text-xs" title={a.description}>{a.description}</span>
-            <span className="ml-auto shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-              {a.model || 'inherit'}
-            </span>
-          </div>
-        )} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {shown.length === 0 ? (
+          <Empty>{list.length ? 'Nothing matches that.' : 'No agents in this folder or your home directory yet.'}</Empty>
+        ) : (
+          <RowList>
+            {shown.map((a) => (
+              <Item key={a.name} item={a} icon={BotIcon}>
+                <span className="shrink-0 text-muted-foreground text-xs">{modelLabel(a.model)}</span>
+              </Item>
+            ))}
+          </RowList>
+        )}
+      </div>
 
       <p className="border-t px-1 pt-2 text-muted-foreground text-xs">
         Agents come from .claude/agents here, ~/.claude/agents, and the plugins you have on. The agent
