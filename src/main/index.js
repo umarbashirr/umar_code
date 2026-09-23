@@ -61,6 +61,7 @@ const cat = () => rowOf(provider)?.catalog;
 const claudeCatalog = () => rowOf(provider)?.catalogKind === 'claude';
 const settings = new Settings();
 let updates = null;
+const UPDATE_CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 let provider = isProviderId(settings.get('agent').provider) ? settings.get('agent').provider : 'claude';
 const chosenModels = {
   claude: settings.get('agent').model || null,
@@ -1208,6 +1209,9 @@ function registerIpc() {
 
   ipcMain.handle('updates:info', () => updates.current());
   ipcMain.handle('updates:check', () => updates.check());
+  // Offline is not worth an error here: the dialog is asked for again on the
+  // next launch, since nothing was recorded as seen.
+  ipcMain.handle('updates:whatsNew', () => updates.whatsNew(settings.get('notices').whatsNew).catch(() => null));
   ipcMain.handle('updates:download', async () => {
     try {
       const res = await updates.download((p) => send('updates:progress', p));
@@ -1623,11 +1627,13 @@ app.whenReady().then(async () => {
     console.log(`[tandem] debug token for /debug/*: ${bridge.debugToken}`);
   }
 
-  if (settings.get('startup').checkUpdates) {
-    updates.check()
-      .then((snap) => send('updates:changed', snap))
-      .catch(() => {});
-  }
+  // A window can stay open for days, and a release that lands meanwhile should
+  // reach it without a relaunch. check() already tells the window.
+  const checkIfWanted = () => {
+    if (settings.get('startup').checkUpdates) updates.check().catch(() => {});
+  };
+  checkIfWanted();
+  setInterval(checkIfWanted, UPDATE_CHECK_EVERY_MS);
 
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

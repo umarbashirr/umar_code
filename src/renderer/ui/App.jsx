@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { SquareIcon } from 'lucide-react';
+import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
 
 import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -12,6 +12,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
+import { ReleaseNotesText } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
@@ -192,6 +193,32 @@ function RestartDialog({ updates, busy, open, onDismiss }) {
   );
 }
 
+// The first launch on a new version, once. The version is recorded as seen
+// only when this is closed, so a launch that quits before anyone reads it asks
+// again next time.
+function WhatsNewDialog({ release, onDismiss }) {
+  return (
+    <Dialog open={!!release} onOpenChange={(next) => { if (!next) onDismiss(); }}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>What's new in Tandem {release?.version}</DialogTitle>
+          <DialogDescription>
+            {release?.publishedAt
+              ? `You are now on ${release.version}, released ${new Date(release.publishedAt).toLocaleDateString()}.`
+              : `You are now on ${release?.version}.`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-y-auto text-sm">
+          <ReleaseNotesText notes={release?.notes} />
+        </div>
+        <DialogFooter>
+          <Button onClick={onDismiss}>Got it</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
@@ -205,6 +232,12 @@ export default function App() {
     [updates.restart.installed],
   );
   const restartOpen = !!(updates.restart.ready && updates.restart.installed !== restartDismissedFor);
+  const [whatsNew, setWhatsNew] = useState(null);
+  useEffect(() => { window.tandem.updates.whatsNew().then(setWhatsNew).catch(() => {}); }, []);
+  const dismissWhatsNew = useCallback(() => {
+    set({ notices: { whatsNew: whatsNew.version } });
+    setWhatsNew(null);
+  }, [whatsNew, set]);
   // The Customize page, in the chat's place. null when the chat is showing;
   // otherwise the section on screen, so Help → Check for updates lands on
   // updates and the skills chip lands on skills.
@@ -291,19 +324,24 @@ export default function App() {
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize, openUsage, showChat]);
 
-  // News, once. A version the person has already been shown and ignored is not
-  // worth a second interruption, so the version each toast named is written to
-  // the settings file before it goes up.
+  // News, until it is seen. A toast that timed out while nobody was looking
+  // told nobody, so these stay up until a button or the close is used, and only
+  // then is the version written to the settings file. The id keeps a re-run of
+  // this effect from stacking a second copy of a toast that is still up.
   useEffect(() => {
     if (!settings?.startup.checkUpdates) return;
     const told = settings.notices;
 
-    if (updates.app.behind && told.app !== updates.app.latest) {
-      set({ notices: { app: updates.app.latest } });
-      toast(`Tandem ${updates.app.latest} is out`, `You are on ${updates.app.current}`, [
+    const { app } = updates;
+    if (app.behind && told.app !== app.latest) {
+      toast(`Tandem ${app.latest} is out`, `You are on ${app.current}`, [
         { label: 'Update', primary: true, run: () => customize('updates') },
         { label: 'Later' },
-      ]);
+      ], {
+        id: `update-app-${app.latest}`,
+        duration: Infinity,
+        onDismiss: () => set({ notices: { app: app.latest } }),
+      });
     }
 
     // The CLI is theirs to update, so this is news rather than a chore Tandem
@@ -311,11 +349,14 @@ export default function App() {
     // that names the command.
     const c = updates.claude;
     if (c?.behind && told.claude !== c.latest) {
-      set({ notices: { claude: c.latest } });
       toast(`Claude ${c.latest} is out`, `You are running ${c.running?.version}`, [
         { label: 'How', primary: true, run: () => customize('updates') },
         { label: 'Later' },
-      ]);
+      ], {
+        id: `update-claude-${c.latest}`,
+        duration: Infinity,
+        onDismiss: () => set({ notices: { claude: c.latest } }),
+      });
     }
   }, [
     updates.app.behind, updates.app.latest, updates.claude?.behind, updates.claude?.latest,
@@ -357,6 +398,7 @@ export default function App() {
     return (
       <>
         <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+        <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
         <CustomizePage
           section={customizeAt}
           onSection={setCustomizeAt}
@@ -374,9 +416,22 @@ export default function App() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+      <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}
+        {/* Stays for as long as there is a newer Tandem, so a toast waved away
+            or never seen is not the only place the news was. */}
+        {updates.app.behind && (
+          <Button
+            size="xs"
+            className="ml-auto shrink-0 rounded-full"
+            title={`You are on ${updates.app.current}`}
+            onClick={() => customize('updates')}>
+            <ArrowUpCircleIcon />
+            Update to {updates.app.latest}
+          </Button>
+        )}
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>

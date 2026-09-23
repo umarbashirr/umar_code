@@ -84,13 +84,15 @@ const DEFAULTS = {
     // the free ones.
     shown: null,
   },
-  // The last version each toast named. A person who ignored the news about
-  // 0.6.0 should not be told about 0.6.0 again every time they open a window;
-  // 0.6.1 is news again. Kept here rather than in localStorage so it survives a
-  // cleared cache and can be read back from the file.
+  // The last version each notice was dismissed for, the what's new dialog
+  // included. A person who waved away the news about 0.6.0 should not be told
+  // about 0.6.0 again every time they open a window; 0.6.1 is news again. Kept
+  // here rather than in localStorage so it survives a cleared cache and can be
+  // read back from the file.
   notices: {
     app: '',
     claude: '',
+    whatsNew: '',
   },
 };
 
