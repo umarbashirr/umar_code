@@ -126,7 +126,7 @@ contextBridge.exposeInMainWorld('tandem', {
     // button); left off, only a driver whose binary moved or went missing is
     // re-probed (opening a CLI's page, the window regaining focus).
     recheck: (force) => ipcRenderer.invoke('agent:recheck', { force: !!force }),
-    reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
+    reset: (chat, opts = {}) => ipcRenderer.invoke('agent:reset', { chat, idleOnly: !!opts.idleOnly }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
     // One chat's per-model totals, replaced whole, and every chat's summed.
     recordUsage: (chat, provider, models) => ipcRenderer.invoke('usage:record', { chat, provider, models }),
