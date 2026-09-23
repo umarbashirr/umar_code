@@ -9,6 +9,12 @@ const failures = [];
 const pass = (name) => console.log(`PASS ${name}`);
 const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failures.push(name); };
 
+// browser.js's evaluate() before this fix, kept here verbatim so this script
+// can prove the defect even on a checkout that doesn't export wrapEvaluate.
+function mainWrap(code) {
+  return `(async () => { ${/return|=>|;/.test(code) ? code : `return (${code})`} })()`;
+}
+
 async function run(wrapped) {
   // eslint-disable-next-line no-eval
   return eval(wrapped);
@@ -40,21 +46,17 @@ const is = (want) => (got) => got === want;
     ({ wrapEvaluate } = require(path.join(ROOT, 'src/main/browser.js')));
   } catch (e) {
     fail('load-browser', e.message);
-    console.log(`\n${failures.length} FAIL(s)`);
-    process.exit(1);
   }
+  const wrapFn = typeof wrapEvaluate === 'function' ? wrapEvaluate : mainWrap;
+  console.log(wrapFn === mainWrap
+    ? 'src/main/browser.js does not export wrapEvaluate; using the pre-fix wrap verbatim'
+    : 'using src/main/browser.js\'s own wrapEvaluate');
 
-  if (typeof wrapEvaluate !== 'function') {
-    fail('browser-exports-wrapEvaluate', 'src/main/browser.js does not export wrapEvaluate; falling back to its inline evaluate() behavior via oldWrap');
-    console.log('\n1 FAIL(s)');
-    process.exit(1);
-  }
-
-  await checkCase('const-decl-runs-no-throw', 'const x = 1', is(undefined), wrapEvaluate);
-  await checkCase('arrow-fn-returns-itself', 'x => x + 1', (got) => typeof got === 'function', wrapEvaluate);
-  await checkCase('plain-expression-returns-value', '1 + 1', is(2), wrapEvaluate);
-  await checkCase('explicit-return-still-works', 'return 5', is(5), wrapEvaluate);
-  await checkCase('statement-with-semicolon-preserved', 'let a = 1; a + 1', is(undefined), wrapEvaluate);
+  await checkCase('const-decl-runs-no-throw', 'const x = 1', is(undefined), wrapFn);
+  await checkCase('arrow-fn-returns-itself', 'x => x + 1', (got) => typeof got === 'function', wrapFn);
+  await checkCase('plain-expression-returns-value', '1 + 1', is(2), wrapFn);
+  await checkCase('explicit-return-still-works', 'return 5', is(5), wrapFn);
+  await checkCase('statement-with-semicolon-preserved', 'let a = 1; a + 1', is(undefined), wrapFn);
 
   console.log(failures.length ? `\n${failures.length} FAIL(s)` : '\nALL PASS');
   process.exit(failures.length ? 1 : 0);

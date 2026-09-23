@@ -12,14 +12,15 @@ const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failure
 
 const mode = (p) => fs.statSync(p).mode & 0o777;
 
+let ensurePrivateDir = null;
+try {
+  ({ ensurePrivateDir } = require(path.join(ROOT, 'src/main/private-dir.js')));
+} catch (e) {
+  fail('load-private-dir', e.message);
+}
+
 function checkEnsurePrivateDirFresh() {
-  let ensurePrivateDir;
-  try {
-    ({ ensurePrivateDir } = require(path.join(ROOT, 'src/main/private-dir.js')));
-  } catch (e) {
-    fail('load-private-dir', e.message);
-    return;
-  }
+  if (!ensurePrivateDir) { fail('ensurePrivateDir-creates-0700', 'private-dir.js not loaded'); return; }
   const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-repro-')), 'shots');
   ensurePrivateDir(dir);
   if (mode(dir) === 0o700) pass('ensurePrivateDir-creates-0700');
@@ -29,7 +30,7 @@ function checkEnsurePrivateDirFresh() {
 // mkdirSync's mode option only applies when it creates the dir. A dir an older
 // build already left at 0755 must still end up private.
 function checkEnsurePrivateDirFixesStaleDir() {
-  const { ensurePrivateDir } = require(path.join(ROOT, 'src/main/private-dir.js'));
+  if (!ensurePrivateDir) { fail('ensurePrivateDir-fixes-stale-0755-dir', 'private-dir.js not loaded'); return; }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-repro-stale-'));
   fs.chmodSync(dir, 0o755);
   ensurePrivateDir(dir);
@@ -48,6 +49,10 @@ async function checkAttachmentFileIsPrivate() {
     fail('load-attachments', e.message);
     return;
   }
+  // fromDataUrl always writes into the same real os.tmpdir()/tandem-attachments,
+  // regardless of which checkout's copy of the function is under test here, so a
+  // dir a previous run left behind (private or not) must not leak into this one.
+  try { fs.rmSync(path.join(os.tmpdir(), 'tandem-attachments'), { recursive: true, force: true }); } catch {}
   const dataUrl = `data:image/png;base64,${Buffer.from('not really a png').toString('base64')}`;
   const res = await fromDataUrl({ dataUrl, name: 'p3-repro.png' });
   if (res.error) { fail('attachment-write-ok', res.error); return; }
