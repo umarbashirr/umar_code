@@ -168,7 +168,7 @@ function createUsageHistory(cacheDir) {
         seen.add(key);
         const counts = { inputTokens: input, outputTokens: output, cacheReadInputTokens: cacheRead, cacheCreationInputTokens: cacheWrite };
         addTo(((p.byDay[dayOf(t)] ||= {})[model] ||= zero()), counts);
-        addTo(((p.byProject[project || 'unknown'] ||= {})[model] ||= zero()), counts);
+        addTo(((p.byProject[projectOf(project)] ||= {})[model] ||= zero()), counts);
       }
     }
     return out;
@@ -176,6 +176,9 @@ function createUsageHistory(cacheDir) {
 
   return { summary };
 }
+
+// An agent's worktree is still the project it was cut from.
+const projectOf = (cwd) => (cwd ? cwd.replace(/[\\/]\.(claude[\\/])?worktrees[\\/].*$/, '') : 'unknown');
 
 const zero = () => ({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 });
 function addTo(into, c) { for (const k of Object.keys(into)) into[k] += c[k] || 0; }
