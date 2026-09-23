@@ -85,7 +85,7 @@ function Row({ chat, current, onDelete }) {
         isActive={current}
         title={chat.title}
         className="group-has-data-[sidebar=menu-action]/menu-item:pr-2"
-        onClick={() => { if (!current) window.tandemChat?.open(chat); }}>
+        onClick={() => window.tandemChat?.open(chat)}>
         {/* A dot rather than an icon per row: forty speech bubbles down the
             rail are forty of the same picture. A finished chat keeps its tick. */}
         {done ? (
