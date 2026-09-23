@@ -394,6 +394,16 @@ const focusedCwd = () => focused;
 const chatProjects = new Map(); // chat key -> dir
 const cwdOfChat = (chat) => (chat && chatProjects.get(chat)) || focused;
 
+// Where a chat with no project runs. It is a real folder because every CLI
+// needs a working directory and files its transcripts under it, but it is not a
+// project: it is never in `open`, the recents or the strip, and the tree and
+// the terminal never look at it.
+const CHATS_DIR = path.join(projects.DIR, 'chats');
+fs.mkdirSync(CHATS_DIR, { recursive: true });
+
+// Whether a folder a chat names is one it may run in.
+const known = (dir) => open.has(dir) || dir === CHATS_DIR;
+
 const openDirs = () => [...open.keys()];
 
 const oneProject = (dir) => ({
@@ -408,6 +418,7 @@ const projectInfo = () => ({
   focused,
   home: os.homedir(),
   recents: projects.recents().filter((r) => !open.has(r.path)),
+  chats: CHATS_DIR,
   // The single-folder shape the panel still reads in places that only ever
   // meant the one on screen.
   ...oneProject(focused),
@@ -665,8 +676,11 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   const runs = isProviderId(want) ? want : chatPrefs.providerOf(chat, provider);
   chatPrefs.setProvider(chat, runs);
 
-  const cwd = project && open.has(project) ? project : cwdOfChat(chat);
+  const cwd = project && known(project) ? project : cwdOfChat(chat);
   chatProjects.set(chat, cwd);
+  // A chat with no folder has no preview of its own, and the only one it could
+  // reach is the focused project's, so it gets no browser tools at all.
+  const previews = cwd !== CHATS_DIR;
 
   const prefs = chatPrefs.resolve(chat, {
     mode: chosenMode,
@@ -685,14 +699,14 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     settings: row.catalogKind === 'claude' ? row.catalog.sessionSettings(cwd) : undefined,
     mcpOff: row.catalogKind === 'claude' ? row.catalog.offAtRuntime(cwd) : undefined,
     bridgeEnv: bridge.env(),
-    mcp: previewMcp(cwd),
+    mcp: previews ? previewMcp(cwd) : null,
     shared: mcpRegistry.launchList(nodeBin()),
-    invoke: async (tool, args, actor) => {
+    invoke: previews ? async (tool, args, actor) => {
       const who = actor?.id && actor.id !== 'main'
         ? { ...actor, chat }
         : { id: `main:${chat}`, label: 'the main thread', chat };
       return driveTool(tool, args, { cwd, actor: who });
-    },
+    } : null,
   });
   sessions.set(chat, agent);
 
@@ -1378,11 +1392,10 @@ function registerIpc() {
   ipcMain.handle('agent:history', async () => ({
     // codex answers over a round trip rather than a readdir, so the projects
     // are asked about together instead of one after another.
-    projects: await Promise.all(openDirs().map(async (dir) => ({
-      dir,
-      name: path.basename(dir) || dir,
-      sessions: await sessionsIn(dir),
-    }))),
+    projects: await Promise.all([
+      { dir: CHATS_DIR, name: 'Chats', folderless: true },
+      ...openDirs().map((dir) => ({ dir, name: path.basename(dir) || dir })),
+    ].map(async (p) => ({ ...p, sessions: await sessionsIn(p.dir) }))),
     running: liveSessions().map((a) => a.sessionId).filter(Boolean),
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
@@ -1395,7 +1408,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle('agent:transcript', async (_e, { id, project }) => {
-    const dir = project && open.has(project) ? project : focusedCwd();
+    const dir = project && known(project) ? project : focusedCwd();
     const h = ownerOf(id);
     const t = await h.readSession(dir, id);
     // Which agents ran, so a replayed chat draws their rows straight away. The
@@ -1403,13 +1416,13 @@ function registerIpc() {
     return { ...t, subagents: h.listSubagents(dir, id) };
   });
   ipcMain.handle('agent:subagent', (_e, { session, agentId, project }) =>
-    ownerOf(session).readSubagent(project && open.has(project) ? project : focusedCwd(), session, agentId));
+    ownerOf(session).readSubagent(project && known(project) ? project : focusedCwd(), session, agentId));
   // Deleting a chat. A session still running would write its transcript
   // straight back after the unlink, so the process behind it goes first.
   ipcMain.handle('agent:deleteSession', async (_e, { id, project } = {}) => {
     for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
     try {
-      const gone = await ownerOf(id).deleteSession(project && open.has(project) ? project : focusedCwd(), id);
+      const gone = await ownerOf(id).deleteSession(project && known(project) ? project : focusedCwd(), id);
       owners.delete(id);
       // The transcript is what the mark was about, so it goes with it.
       completed.forget(id);

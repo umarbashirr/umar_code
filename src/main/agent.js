@@ -77,7 +77,9 @@ class AgentSession extends EventEmitter {
     const CORE = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
       'browser_type', 'browser_screenshot', 'browser_console', 'browser_show']);
 
-    const tools = browserTools(z).map((t) =>
+    // A session with nothing to invoke has no preview to drive, so it is not
+    // offered the browser tools or told about them.
+    const tools = !this.invoke ? [] : browserTools(z).map((t) =>
       sdk.tool(t.name, t.description, t.schema, async (args, extra) => {
         const route = t.route ? t.route(args) : t.bridgeTool;
         const mapped = t.map ? t.map(args) : args;
@@ -99,8 +101,7 @@ class AgentSession extends EventEmitter {
       }, { alwaysLoad: CORE.has(t.name) }),
     );
 
-    const preview = sdk.createSdkMcpServer({ name: 'preview', version: '0.1.0', tools });
-    this.preview = preview;
+    this.preview = tools.length ? sdk.createSdkMcpServer({ name: 'preview', version: '0.1.0', tools }) : null;
     // Tandem ships no claude of its own, so this is the whole session. Say it
     // here rather than let the SDK fail on a spawn: its own error names a
     // missing optional dependency, which is nothing the person can act on.
@@ -127,8 +128,8 @@ class AgentSession extends EventEmitter {
         // MCP server configured as a plain command name fails to start, and a
         // key exported in an rc file is nowhere to be found. See shell-env.js.
         env: shellEnv.env(),
-        mcpServers: { preview, ...this.dynamic },
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: INSTRUCTIONS },
+        mcpServers: this.#servers(),
+        systemPrompt: { type: 'preset', preset: 'claude_code', ...(this.preview ? { append: INSTRUCTIONS } : {}) },
         permissionMode: this.permissionMode,
         ...(this.settings ? { settings: this.settings } : {}),
         ...(this.model ? { model: this.model } : {}),
@@ -423,10 +424,14 @@ class AgentSession extends EventEmitter {
   //
   // setMcpServers replaces the whole dynamic set, so the preview tools have to
   // ride along in every call or the browser disappears from the session.
+  #servers() {
+    return this.preview ? { preview: this.preview, ...this.dynamic } : { ...this.dynamic };
+  }
+
   async #syncDynamic() {
     if (!this.query) return { error: 'no session' };
     try {
-      const res = await this.query.setMcpServers({ preview: this.preview, ...this.dynamic });
+      const res = await this.query.setMcpServers(this.#servers());
       const failed = Object.entries(res?.errors || {}).filter(([n]) => n !== 'preview');
       return failed.length ? { error: failed.map(([n, m]) => `${n}: ${m}`).join('; ') } : { ok: true };
     } catch (e) {

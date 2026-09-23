@@ -116,13 +116,14 @@ const CODEX_INSTRUCTIONS = [
 ].join(' ');
 
 class CodexSession extends EventEmitter {
-  constructor({ cwd, resume, model, mode, effort, bridgeEnv, shared }) {
+  constructor({ cwd, resume, model, mode, effort, bridgeEnv, previews, shared }) {
     super();
     this.cwd = cwd;
     this.resume = resume || null;
     this.model = model || null;
     this.effort = effort || null;
     this.bridgeEnv = bridgeEnv || {};
+    this.previews = previews;
     this.shared = shared || [];
     this.mode = isMode(mode) ? mode : DEFAULT_MODE;
     this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
@@ -177,7 +178,7 @@ class CodexSession extends EventEmitter {
       approvalPolicy,
       // Additive, unlike baseInstructions, which would replace the whole prompt
       // codex builds for itself and take its own tools with it.
-      developerInstructions: CODEX_INSTRUCTIONS,
+      ...(this.previews ? { developerInstructions: CODEX_INSTRUCTIONS } : {}),
       ...(this.model ? { model: this.model } : {}),
     };
     const res = this.resume
@@ -196,14 +197,10 @@ class CodexSession extends EventEmitter {
      so it needs the bridge's address and token in its own environment rather
      than ours. */
   #config() {
-    const server = path.join(ROOT, 'mcp', 'server.js');
-    const env = { ...this.bridgeEnv, TANDEM_CWD: this.cwd };
     // Values are parsed as TOML. A JSON string and a TOML string are the same
     // thing and so are the arrays, but a JSON object is not a TOML table, so
     // the environment goes in one dotted key per variable rather than whole.
     const out = [
-      `mcp_servers.tandem.command=${JSON.stringify(process.env.TANDEM_NODE || 'node')}`,
-      `mcp_servers.tandem.args=${JSON.stringify([server])}`,
       /* The question tool. Off by default in codex 0.150.1, which is why a codex
          chat used to answer "ask me something" with a numbered list and a
          "reply with 1, 2 or 3" rather than the card claude gets. Set per session
@@ -211,8 +208,14 @@ class CodexSession extends EventEmitter {
          to run codex, not a change to how their codex runs. */
       'features.default_mode_request_user_input=true',
     ];
-    for (const [k, v] of Object.entries(env)) {
-      if (v != null) out.push(`mcp_servers.tandem.env.${k}=${JSON.stringify(String(v))}`);
+    if (this.previews) {
+      const server = path.join(ROOT, 'mcp', 'server.js');
+      const env = { ...this.bridgeEnv, TANDEM_CWD: this.cwd };
+      out.push(`mcp_servers.tandem.command=${JSON.stringify(process.env.TANDEM_NODE || 'node')}`);
+      out.push(`mcp_servers.tandem.args=${JSON.stringify([server])}`);
+      for (const [k, v] of Object.entries(env)) {
+        if (v != null) out.push(`mcp_servers.tandem.env.${k}=${JSON.stringify(String(v))}`);
+      }
     }
     // A -c override merges into a table config.toml already has rather than
     // replacing it, so a Tandem server named like one of codex's own would give
