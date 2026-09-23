@@ -11,10 +11,9 @@ import {
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
 import { BrandTile } from '@/components/brand-tile';
-import { ROW, RowList, SearchBox, TabHeader, matches } from '@/components/catalog-layout';
+import { Empty, Pills, ROW, RowList, SearchBox, TabHeader, matches } from '@/components/catalog-layout';
 import { MCP_GALLERY } from '../../../shared/mcp-gallery';
 // Signing in to a CLI's own server happens in a shell, and the shells are the
 // vanilla half's.
@@ -298,11 +297,7 @@ export function Servers({ catalog, query, setQuery }) {
       <TabHeader
         title="MCP servers"
         subtitle="Connect your agents to the apps you use. Every agent Tandem runs gets them.">
-        <ToggleGroup type="single" size="sm" spacing={1} value={filter} onValueChange={(v) => v && setFilter(v)}>
-          {FILTERS.map(([id, label]) => (
-            <ToggleGroupItem key={id} value={id} className="h-7 rounded-full px-3 text-xs">{label}</ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+        <Pills value={filter} onChange={setFilter} options={FILTERS} />
         <SearchBox value={query} onChange={setQuery} placeholder="Search servers" />
         <Button
           size="sm"
@@ -321,9 +316,7 @@ export function Servers({ catalog, query, setQuery }) {
         {adding && <AddServer catalog={catalog} onDone={() => setAdding(false)} />}
 
         {shown.length === 0 ? (
-          <p className="px-1 py-6 text-center text-muted-foreground text-sm">
-            {query.trim() ? 'Nothing matches that.' : 'Nothing is set up yet. Add a server from the list.'}
-          </p>
+          <Empty>{query.trim() ? 'Nothing matches that.' : 'Nothing is set up yet. Add a server from the list.'}</Empty>
         ) : (
           <RowList>
             {shown.map((item) => (item.entry
