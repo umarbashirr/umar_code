@@ -35,7 +35,7 @@ export const MODES = [
   ['plan', 'Plan', 'Work out an approach and stop before touching anything'],
   ['ask', 'Ask', 'Asks before writing a file or running a command'],
   ['debug', 'Debug', 'Reproduce and isolate before fixing. Asks like Ask does'],
-  ['auto', 'Auto', 'Edits and ordinary commands run. Stops on anything destructive'],
+  ['auto', 'Auto', 'Edits and ordinary commands run. Stops a few known-risky commands, not a sandbox'],
   ['acceptEdits', 'Accept edits', 'Edits run without asking. Commands still ask'],
   ['always', 'Ask confirmation always', 'Asks before every tool, reads included'],
   ['bypass', 'Full bypass', 'Nothing asks. Nothing is checked'],
