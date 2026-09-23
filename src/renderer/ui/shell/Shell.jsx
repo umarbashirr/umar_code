@@ -15,7 +15,7 @@
    window and "180px" is the floor the rail used to have. */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
-import { FolderTreeIcon, GitCompareIcon, GlobeIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
+import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -31,6 +31,7 @@ import App from '../App';
 import { focusShell, runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
 import TitleBar from './TitleBar';
+import AgentsView from './AgentsView';
 import BrowserView from './BrowserView';
 import ChangesView from './ChangesView';
 import FilesView from './FilesView';
@@ -103,6 +104,7 @@ export const VIEW_KINDS = {
   files: { icon: FolderTreeIcon, label: 'Files', command: 'files', hint: 'Project files (Ctrl+Shift+D)' },
   changes: { icon: GitCompareIcon, label: 'Changes', command: 'changes', hint: 'Uncommitted changes (Ctrl+Shift+G)' },
   terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', hint: 'Terminal (Ctrl+`)' },
+  agents: { icon: BotIcon, label: 'Agents', command: 'agents', hint: "This chat's subagents" },
 };
 
 // A preview whose page has not said what it is yet, or has not loaded anything
@@ -113,9 +115,9 @@ const labelOf = (tab) => {
   return VIEW_KINDS[tab.kind].label;
 };
 
-/* Starting one. Files and Changes may already be open in this folder, in which
-   case the store hands back the one that is there, so all three are offered
-   every time rather than the menu guessing which are spent. */
+/* Starting one. Files, Changes and Agents may already be open in this folder,
+   in which case the store hands back the one that is there, so every kind is
+   offered every time rather than the menu guessing which are spent. */
 function AddTab() {
   const [open, setOpen] = useState(false);
   usePaneCover(open);
@@ -299,6 +301,7 @@ export default function Shell() {
                 <BrowserView />
                 <FilesView />
                 <ChangesView />
+                <AgentsView />
                 <Terminals />
               </section>
             </ResizablePanel>

@@ -26,7 +26,6 @@ import { UsageMeter } from '@/components/usage-meter';
 import { tokenFor } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { useProject, shortPath } from '../useProject';
-import { spoken } from '../useAgent';
 import { fromBlob, fromPaths, sizeLabel, toAttachments } from '@/lib/attachments';
 
 // How freely the agent may act, loosest first, which is also the order Shift+Tab
@@ -590,7 +589,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
                 className="flex items-center gap-2 rounded-md border border-border border-dashed px-2.5 py-1.5">
                 <span className="font-mono text-muted-foreground text-[10px]">{i + 1}</span>
                 <span className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-xs">
-                  <TokenText text={spoken(m.text)} />
+                  <TokenText text={m.text} />
                 </span>
                 <Button
                   type="button"

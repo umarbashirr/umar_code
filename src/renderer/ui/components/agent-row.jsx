@@ -1,13 +1,11 @@
-// A subagent is a conversation inside a conversation. It used to get a card to
-// say so, but three running agents then cost three bordered boxes stacked down
-// the transcript, and the border was doing nothing the indent underneath did
-// not already do. So it is two lines against a dot: what it was asked, and
-// what it is doing about it. Opened, it is its own transcript under a rule.
-import { useEffect, useRef, useState } from 'react';
-import { ChevronRightIcon, PanelBottomIcon, SquareIcon } from 'lucide-react';
+// A subagent is a conversation inside a conversation. In the chat it is two
+// lines against a dot: what it was asked, and what it is doing about it. Its
+// transcript used to open under the row, and three running at once buried the
+// chat in three growing logs, so clicking the row now opens it in the Agents
+// tab instead.
+import { BotIcon, PanelBottomIcon, SquareIcon } from 'lucide-react';
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
-import { Fold } from '@/components/fold';
 import { Button } from '@/components/ui/button';
 import { toolLabel, toolSummary } from '@/components/tool-row';
 import { clock, useTick } from '@/lib/clock';
@@ -63,117 +61,111 @@ function doing(kids) {
   return null;
 }
 
-export function AgentRow({ item, onStop, onBackground, onOpen, children }) {
-  const running = item.status === 'running' || item.status === 'stopping';
-  // Open while it is the thing happening, folded once it is history. Whoever
-  // touches the chevron owns it after that.
-  const touched = useRef(false);
-  const [open, setOpen] = useState(running);
-  useEffect(() => {
-    if (touched.current) return;
-    if (!running && open) setOpen(false);
-  }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
+export const isLive = (item) => item.status === 'running' || item.status === 'stopping';
 
-  const elapsed = useElapsed(item);
-  const counts = stats(item.stats);
-  const failed = item.status === 'failed';
+// The row's status light. It was one grey dot in every state, which meant the
+// one row on screen with its own life in it looked the same finished as it did
+// halfway through. Live is the same green the fleet strip uses for the same
+// agent.
+export function AgentDot({ item, className }) {
+  return (
+    <span className={cn(
+      'size-[5px] shrink-0 rounded-full',
+      item.status === 'failed' ? 'bg-destructive'
+        : item.waiting ? 'bg-amber-500'
+          : isLive(item) ? 'animate-pulse bg-emerald-500'
+            : 'bg-muted-foreground/45',
+      className,
+    )} />
+  );
+}
 
-  const toggle = () => {
-    touched.current = true;
-    const next = !open;
-    setOpen(next);
-    if (next && item.loaded === false) onOpen?.(item);
-  };
-
-  const what = item.description || item.input?.description || 'Agent';
-  // While it runs, the second line is what it is doing; once it has stopped it
-  // is what it did. Either way the row is two lines and never a box. An agent
-  // that has not opened its first call yet still gets a line, because a
-  // running row with nothing moving on it looks like a stalled one.
-  const under = running
+// While it runs, the second line is what it is doing; once it has stopped it
+// is what it did. An agent that has not opened its first call yet still gets
+// a line, because a running row with nothing moving on it looks stalled.
+export function agentLine(item) {
+  return isLive(item)
     ? doing(item.children || []) || 'Working'
-    : counts.join(' · ');
+    : stats(item.stats).join(' · ');
+}
+
+// Stop and background, for the row here and the header in the Agents tab.
+// Spans rather than buttons, because both sit inside a button.
+export function AgentActions({ item, onStop, onBackground }) {
+  const running = isLive(item);
+  const act = (fn) => ({
+    role: 'button',
+    tabIndex: 0,
+    onClick: (e) => { e.stopPropagation(); fn?.(item); },
+    onKeyDown: (e) => { if (e.key === 'Enter') { e.stopPropagation(); fn?.(item); } },
+    className: 'grid size-5 place-items-center rounded hover:bg-secondary hover:text-foreground',
+  });
+  return (
+    <>
+      {running && !item.background && (
+        <span title="Let the turn carry on without waiting for this" {...act(onBackground)}>
+          <PanelBottomIcon className="size-3.5" />
+        </span>
+      )}
+      {running && item.taskId && (
+        <span title="Stop this agent, leave the rest running" {...act(onStop)}>
+          <SquareIcon className="size-3" />
+        </span>
+      )}
+    </>
+  );
+}
+
+export function AgentMeta({ item }) {
+  const elapsed = useElapsed(item);
+  const running = isLive(item);
+  return (
+    <>
+      {item.waiting && <span className="text-amber-600 dark:text-amber-500">needs you</span>}
+      {item.background && running && !item.waiting && <span>background</span>}
+      {item.status === 'stopped' && <span>stopped</span>}
+      {!!item.tools && <span>{plural(item.tools, 'tool', 'tools')}</span>}
+      {elapsed && <span className="tabular-nums">{elapsed}</span>}
+    </>
+  );
+}
+
+// The dot sits where a tool row has its chevron and the bot where it has its
+// icon, so the description starts at the same edge as every tool name.
+export function AgentRow({ item, onStop, onBackground, onShow }) {
+  const running = isLive(item);
+  const failed = item.status === 'failed';
+  const what = item.description || item.input?.description || 'Agent';
+  const under = agentLine(item);
 
   return (
-    <div>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={toggle}
-        className="h-auto w-full items-start justify-start gap-2 px-2 py-1 font-normal">
-        <ChevronRightIcon
-          className={cn('mt-[3px] size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
-        {/* The row's status light. It was one grey dot in every state, which
-            meant the one row on screen with its own life in it looked the same
-            finished as it did halfway through. Live is the same green the
-            fleet strip uses for the same agent. */}
-        <span className={cn(
-          'mt-[7px] size-[5px] shrink-0 rounded-full',
-          failed ? 'bg-destructive'
-            : item.waiting ? 'bg-amber-500'
-              : running ? 'animate-pulse bg-emerald-500'
-                : 'bg-muted-foreground/45',
-        )} />
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => onShow?.(item)}
+      title="Open in the Agents tab"
+      className="h-auto w-full items-start justify-start gap-2 px-2 py-1 text-left font-normal">
+      <span className="grid h-5 w-3 shrink-0 place-items-center"><AgentDot item={item} /></span>
+      <BotIcon className="mt-[3px] size-3.5 shrink-0 text-muted-foreground" />
 
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className={cn('truncate text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>
-              {what}
-            </span>
-            <span className="shrink-0 text-muted-foreground text-xs">{item.agentType || 'agent'}</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className={cn('truncate text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>
+            {what}
           </span>
-          {under && (
-            <span className="truncate text-muted-foreground text-xs">
-              {running ? <Shimmer as="span" className="truncate">{under}</Shimmer> : under}
-            </span>
-          )}
+          <span className="shrink-0 text-muted-foreground text-xs">{item.agentType || 'agent'}</span>
         </span>
-
-        <span className="flex shrink-0 items-center gap-2 pl-2 font-mono text-[11px] text-muted-foreground/75">
-          {item.waiting && <span className="text-amber-600 dark:text-amber-500">needs you</span>}
-          {item.background && running && !item.waiting && <span>background</span>}
-          {item.status === 'stopped' && <span>stopped</span>}
-          {!!item.tools && <span>{plural(item.tools, 'tool', 'tools')}</span>}
-          {elapsed && <span className="tabular-nums">{elapsed}</span>}
-          {running && !item.background && (
-            <span
-              role="button"
-              tabIndex={0}
-              title="Let the turn carry on without waiting for this"
-              onClick={(e) => { e.stopPropagation(); onBackground?.(item); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onBackground?.(item); } }}
-              className="grid size-5 place-items-center rounded hover:bg-secondary hover:text-foreground">
-              <PanelBottomIcon className="size-3.5" />
-            </span>
-          )}
-          {running && item.taskId && (
-            <span
-              role="button"
-              tabIndex={0}
-              title="Stop this agent, leave the rest running"
-              onClick={(e) => { e.stopPropagation(); onStop?.(item); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onStop?.(item); } }}
-              className="grid size-5 place-items-center rounded hover:bg-secondary hover:text-foreground">
-              <SquareIcon className="size-3" />
-            </span>
-          )}
-        </span>
-      </Button>
-
-      <Fold open={open} className="ml-[13px] flex flex-col gap-px border-l pr-2 pb-2 pl-3">
-        {item.loaded === 'loading' && (
-          <Shimmer as="div" className="px-2 py-1 font-mono text-[11px]">reading its transcript…</Shimmer>
+        {under && (
+          <span className="truncate text-muted-foreground text-xs">
+            {running ? <Shimmer as="span" className="truncate">{under}</Shimmer> : under}
+          </span>
         )}
-        {children}
-        {item.report && (
-          <div className="tandem-in mt-1.5 rounded-md bg-muted/45 px-2.5 py-2 text-[12.5px] leading-relaxed">
-            <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-muted-foreground/75">
-              what it came back with
-            </span>
-            {item.report}
-          </div>
-        )}
-      </Fold>
-    </div>
+      </span>
+
+      <span className="flex shrink-0 items-center gap-2 pl-2 font-mono text-[11px] text-muted-foreground/75">
+        <AgentMeta item={item} />
+        <AgentActions item={item} onStop={onStop} onBackground={onBackground} />
+      </span>
+    </Button>
   );
 }

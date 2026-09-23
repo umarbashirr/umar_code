@@ -13,9 +13,12 @@ export function TokenText({ text }) {
   const nodes = parse(text);
   return (
     <span>
-      {nodes.map((n, i) => (n.type === 'text'
-        ? <span key={i}>{n.text}</span>
-        : <TokenBadge key={i} kind={n.kind} label={n.label} title={n.title} />))}
+      {nodes.map((n, i) => {
+        if (n.type === 'text') return <span key={i}>{n.text}</span>;
+        const badge = <TokenBadge key={i} kind={n.kind} label={n.label} title={n.title} />;
+        if (!n.note) return badge;
+        return <span key={i}>{badge} {n.note}{'\n'}</span>;
+      })}
     </span>
   );
 }
