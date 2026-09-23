@@ -75,19 +75,21 @@ const strip = (s) => s
   .trim();
 
 // The first thing a person actually typed, which makes a better title than a
-// slash command echo or a tool result.
+// slash command echo or a tool result. Returned with its line breaks, which is
+// how chatTitle tells an attachment block from the text typed under it.
 function humanText(o) {
   if (o.type !== 'user' || o.isSidechain || o.isMeta) return null;
   const c = o.message?.content;
   const raw = typeof c === 'string' ? c
     : Array.isArray(c) ? c.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n')
       : '';
-  const text = strip(raw);
+  const kept = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  const text = strip(kept);
   if (!text) return null;
   if (/^<(command-name|command-message|command-args|local-command|bash-input|bash-stdout|bash-stderr|user-prompt|ide_)/.test(text)) return null;
   if (/^(Caveat|\[Request interrupted)/.test(text)) return null;
   if (text.startsWith('Caveat:')) return null;
-  return text;
+  return kept;
 }
 
 // A title comes out of the head of the file and never changes once it is there,

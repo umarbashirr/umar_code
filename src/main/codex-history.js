@@ -114,8 +114,6 @@ function cwdFilter(cwd) {
 const ms = (sec) => (typeof sec === 'number' ? sec * 1000 : 0);
 const iso = (sec) => (typeof sec === 'number' ? new Date(sec * 1000).toISOString() : null);
 
-const strip = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-
 // The rail groups by day and searches the lot, so the limit is high for the
 // same reason it is in history.js.
 async function listSessions(cwd, limit = 200) {
@@ -136,9 +134,11 @@ async function listSessions(cwd, limit = 200) {
     if (t.parentThreadId) continue;
     // `name` is a title someone set; `preview` is the first thing they typed,
     // which is the same thing history.js digs out of the transcript head.
-    const title = strip(t.name || t.preview);
+    // chatTitle folds the whitespace itself, and needs the line breaks first
+    // to find an attachment block.
+    const title = chatTitle(t.name || t.preview);
     if (!title) continue;
-    rows.push({ id: t.id, title: chatTitle(title).slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt) });
+    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt) });
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);
