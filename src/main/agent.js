@@ -56,6 +56,7 @@ class AgentSession extends EventEmitter {
     this.owners = new Map();           // inner tool_use id -> agent id | 'main'
     this.ownerWaits = new Map();       // inner tool_use id -> resolve
     this.tasks = new Map();            // agent id -> { toolUseId, type, description }
+    this.unfinished = new Set();       // agent ids that have started and not yet reported back
     this.byToolUse = new Map();        // Agent tool_use id -> agent id
     // Held for setMcpServers: it replaces the whole dynamic set, so the browser
     // tools have to be handed back every time or they go with it.
@@ -213,6 +214,11 @@ class AgentSession extends EventEmitter {
         description: msg.description || '',
       });
       if (msg.tool_use_id) this.byToolUse.set(msg.tool_use_id, msg.task_id);
+      this.unfinished.add(msg.task_id);
+      return;
+    }
+    if (msg.type === 'system' && msg.subtype === 'task_notification') {
+      this.unfinished.delete(msg.task_id);
       return;
     }
     if (msg.type !== 'assistant') return;
@@ -312,6 +318,12 @@ class AgentSession extends EventEmitter {
 
   // `images` is what the human attached: base64 already, because the model can
   // only look at a picture whose bytes came with the message.
+  // The turn is over but its background agents are not: they live in this
+  // process, so stopping it to save memory would take them down with it.
+  get working() {
+    return this.busy || this.unfinished.size > 0;
+  }
+
   send(text, images) {
     this.busy = true;
     if (this.preface) { text = `${this.preface}\n\n${text}`; this.preface = null; }

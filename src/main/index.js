@@ -1032,7 +1032,9 @@ function registerIpc() {
     chosenEffort = next;
     settings.patch({ agent: { effort: next } });
     const a = sessions.get(key);
-    if (a && !a.busy) stopChat(key);
+    // Background agents live in that process, so a chat still running any
+    // picks the new effort up on its next session instead.
+    if (a && !(a.working ?? a.busy)) stopChat(key);
     return { effort: next, restarted: true };
   });
 
@@ -1129,8 +1131,15 @@ function registerIpc() {
     }
     return { providers: out };
   });
-  // Closing one chat, not the window. Whatever else is running stays running.
-  ipcMain.handle('agent:reset', (_e, { chat } = {}) => ({ ok: stopChat(chat) }));
+  // Closing one chat, not the window, or parking it when the panel moves away.
+  // Parking asks for idleOnly: a chat whose background agents are still going
+  // keeps its process, since stopping it would stop them and the next message
+  // would start their work over.
+  ipcMain.handle('agent:reset', (_e, { chat, idleOnly } = {}) => {
+    const a = sessions.get(chat);
+    if (idleOnly && a && (a.working ?? a.busy)) return { ok: false, working: true };
+    return { ok: stopChat(chat) };
+  });
 
   // --- settings ---
   // The shell wants the theme, the zoom and the terminal font before it paints
