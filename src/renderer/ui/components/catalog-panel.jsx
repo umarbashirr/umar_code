@@ -33,8 +33,17 @@ function hueOf(item) {
 
 const bare = (item) => (item.plugin ? item.name.slice(item.plugin.length + 1) : item.name);
 
+// Names are lowercase slugs, so an acronym in one would otherwise read as
+// "Aws cdk".
+const ACRONYMS = new Set([
+  'ab', 'ai', 'api', 'aws', 'cdk', 'ci', 'cli', 'crm', 'cro', 'css', 'html', 'js', 'mcp', 'pdf', 'pr',
+  'sdk', 'seo', 'sql', 'tdd', 'ui', 'ux',
+]);
+
 function titleOf(item) {
-  const words = bare(item).split(/[-_:]+/).filter(Boolean).join(' ');
+  const words = bare(item).split(/[-_:]+/).filter(Boolean)
+    .map((w) => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w))
+    .join(' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
