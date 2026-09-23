@@ -3,14 +3,14 @@
    it, so the preview and the terminals beside it stay where they are, and a
    server that needs signing in to can do it in a shell you can see. */
 import { useEffect, useRef } from 'react';
-import { XIcon } from 'lucide-react';
+import { StoreIcon, XIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CATALOG_SECTIONS, CatalogPanel } from '@/components/catalog-panel';
 import { AGENT_SECTIONS, SETTINGS_SECTIONS, SettingsPanel, updatesBehind } from '@/components/settings-panel';
 
-const IS_CATALOG = new Set(CATALOG_SECTIONS.map(([id]) => id));
+const IS_CATALOG = new Set(CATALOG_SECTIONS);
 
 function NavItem({ on, icon: Icon, label, note, onClick }) {
   return (
@@ -53,16 +53,11 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
 
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
-          <Label>This folder</Label>
-          {CATALOG_SECTIONS.map(([id, label, icon, count]) => (
-            <NavItem
-              key={id}
-              on={section === id}
-              icon={icon}
-              label={label}
-              note={<span className="ml-auto text-muted-foreground text-xs tabular-nums">{count(catalog)}</span>}
-              onClick={() => onSection(id)} />
-          ))}
+          <NavItem
+            on={catalogSection}
+            icon={StoreIcon}
+            label="Marketplace"
+            onClick={() => catalogSection || onSection(CATALOG_SECTIONS[0])} />
 
           <Label>Settings</Label>
           {SETTINGS_SECTIONS.map(([id, label, icon]) => (
@@ -87,13 +82,14 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
           ))}
         </nav>
 
-        {/* The catalog lists scroll inside themselves, under their own search
-            box, so they get the height; the settings scroll as one page. */}
+        {/* The marketplace lists scroll inside themselves, under their tabs
+            and search box, so they get the height; the settings scroll as one
+            page. */}
         <div
           ref={panel}
           className={cn('min-w-0 flex-1 px-8 py-6', catalogSection ? 'flex min-h-0 flex-col' : 'overflow-y-auto')}>
           {catalogSection
-            ? <CatalogPanel catalog={catalog} section={section} />
+            ? <CatalogPanel catalog={catalog} section={section} onSection={onSection} />
             : <SettingsPanel section={section} settings={settings} set={set} reset={reset} agent={agent} updates={updates} />}
         </div>
       </div>
