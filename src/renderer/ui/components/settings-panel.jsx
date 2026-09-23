@@ -5,6 +5,7 @@ import {
   RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
+import { MessageResponse } from '@/components/ai-elements/message';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -668,6 +669,39 @@ function Downloading({ received, total }) {
   );
 }
 
+// Release notes are written as a page of their own, so their headings are
+// brought down to the size of the page they are shown in.
+export function ReleaseNotesText({ notes }) {
+  if (!notes) return <p className="text-muted-foreground">This release came without notes.</p>;
+  return <MessageResponse className="[&_h2]:mt-5 [&_h2]:text-sm [&_h3]:text-sm">{notes}</MessageResponse>;
+}
+
+// Always the latest release, whether or not it is the one running, so the
+// note says which it is.
+function ReleaseNotes({ app, openPage }) {
+  const which = app.latest === app.current
+    ? 'The version you are running.'
+    : app.behind
+      ? `Not installed yet. You are on ${app.current}.`
+      : `The latest release. You are on ${app.current}.`;
+  const released = app.publishedAt ? ` Released ${new Date(app.publishedAt).toLocaleDateString()}.` : '';
+
+  return (
+    <Section title={`What's new in ${app.latest}`} note={which + released}>
+      <div className="py-3 text-sm">
+        <ReleaseNotesText notes={app.notes} />
+      </div>
+      {app.page && (
+        <div>
+          <Button variant="outline" onClick={openPage}>
+            <ExternalLinkIcon className="size-4" /> Release page
+          </Button>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function Updates({ settings, set, updates }) {
   const { app, claude, codex, cursor, grok, opencode, kind, progress, file, checking } = updates;
   const behind = app.behind;
@@ -722,11 +756,6 @@ function Updates({ settings, set, updates }) {
                       </Button>
                     )
                 )}
-                {behind && app.page && (
-                  <Button variant="ghost" onClick={updates.openPage}>
-                    <ExternalLinkIcon className="size-4" /> Notes
-                  </Button>
-                )}
               </>
             )}
         </Row>
@@ -762,6 +791,8 @@ function Updates({ settings, set, updates }) {
             onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />
         </Row>
       </Section>
+
+      {app.latest && <ReleaseNotes app={app} openPage={updates.openPage} />}
 
       <Section title="Agent CLIs" note="Each one is yours to update. Tandem only reads the version, so it never replaces a binary under you.">
         {Object.entries(PROVIDERS).map(([id, p]) => {
