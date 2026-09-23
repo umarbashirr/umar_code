@@ -327,6 +327,7 @@ class Driver {
   get stale() {
     if (!this.snapshot.checkedAt) return true;
     if (this.snapshot.endpoint !== endpoint()) return true;
+    if ((claudeBinary() || null) !== (this.snapshot.binaryPath || null)) return true;
     return Date.now() - this.snapshot.checkedAt > TTL_MS;
   }
 
@@ -366,6 +367,9 @@ class Driver {
   }
 
   async #probe() {
+    // Launched from the desktop, PATH has none of the home-folder installs
+    // until the login shell's rc files have run.
+    await shellEnv.ready();
     const bin = claudeBinary();
     const ep = endpoint();
     const checkedAt = Date.now();

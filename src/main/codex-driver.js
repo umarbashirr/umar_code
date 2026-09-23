@@ -157,8 +157,8 @@ class CodexDriver {
     // session that cannot start. Happens when codex is uninstalled, and it
     // happened to everyone whose only copy was inside the ChatGPT app when this
     // stopped looking there. Better an empty picker than six names that fail.
-    const bin = codexBinary();
-    if (this.snapshot.installed && (!bin || bin !== this.snapshot.binaryPath)) return true;
+    // A binary that has turned up since counts the same way.
+    if ((codexBinary() || null) !== (this.snapshot.binaryPath || null)) return true;
     return Date.now() - this.snapshot.checkedAt > TTL_MS;
   }
 
@@ -176,6 +176,9 @@ class CodexDriver {
   }
 
   async #probe() {
+    // Launched from the desktop, PATH has none of the home-folder installs
+    // until the login shell's rc files have run.
+    await shellEnv.ready();
     const bin = codexBinary();
     const checkedAt = Date.now();
 
