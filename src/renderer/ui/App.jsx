@@ -14,6 +14,9 @@ import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 
 import { clock, useTick } from '@/lib/clock';
 
@@ -159,6 +162,35 @@ function TurnClock({ since }) {
   );
 }
 
+// Shown at most once per launch for a given installed version. `open` is
+// computed by the caller from state lifted to App itself: the Updates page
+// and the chat both mount and unmount this component as navigation toggles
+// between them, so state kept here would forget a dismissal on every trip
+// back to the chat. "Later" leaves `restart.ready` alone, so the dot on the
+// Updates nav item (updatesBehind, in settings-panel.jsx) and the row in the
+// Updates page keep the offer around for whenever the person gets to it.
+function RestartDialog({ updates, busy, open, onDismiss }) {
+  const { restart } = updates;
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onDismiss(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Tandem {restart.installed} is installed</DialogTitle>
+          <DialogDescription>
+            Restart to use it.
+            {busy && ' An agent turn is running in a chat. Restarting stops it, the same as quitting would.'}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onDismiss}>Later</Button>
+          <Button onClick={updates.relaunch}>Restart now</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
@@ -166,6 +198,12 @@ export default function App() {
   const catalog = useCatalog();
   const { settings, set, reset } = useSettings();
   const updates = useUpdates();
+  const [restartDismissedFor, setRestartDismissedFor] = useState(null);
+  const dismissRestart = useCallback(
+    () => setRestartDismissedFor(updates.restart.installed),
+    [updates.restart.installed],
+  );
+  const restartOpen = !!(updates.restart.ready && updates.restart.installed !== restartDismissedFor);
   // The Customize page, in the chat's place. null when the chat is showing;
   // otherwise the section on screen, so Help → Check for updates lands on
   // updates and the skills chip lands on skills.
@@ -291,24 +329,31 @@ export default function App() {
   // A gap the transcript is not already explaining, once it has lasted long
   // enough to be a gap rather than the wire.
   const thinkingSince = useSettled(agent.busy && stalled(agent.items), 400);
+  // Any chat, not just the one on screen: a turn running in a background chat
+  // is just as real a reason to think before restarting.
+  const anyTurnRunning = agent.chats.some((c) => c.busy);
 
   if (customizeAt !== null) {
     return (
-      <CustomizePage
-        section={customizeAt}
-        onSection={setCustomizeAt}
-        onClose={closeCustomize}
-        catalog={catalog}
-        settings={settings}
-        set={set}
-        reset={reset}
-        agent={agent}
-        updates={updates} />
+      <>
+        <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+        <CustomizePage
+          section={customizeAt}
+          onSection={setCustomizeAt}
+          onClose={closeCustomize}
+          catalog={catalog}
+          settings={settings}
+          set={set}
+          reset={reset}
+          agent={agent}
+          updates={updates} />
+      </>
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}
