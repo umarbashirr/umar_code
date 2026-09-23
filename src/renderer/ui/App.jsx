@@ -226,6 +226,13 @@ export default function App() {
     leaveFullPage();
     setUsageOpen(false);
   }, []);
+  // Picking a chat, from the rail or the palette, means you want to read it, so
+  // whichever full page is up gives the window back.
+  const showChat = useCallback(() => {
+    leaveFullPage();
+    setUsageOpen(false);
+    setCustomizeAt(null);
+  }, []);
   // A half-typed message belongs to the chat it was typed in, so drafts are
   // kept per chat rather than following you around the rail.
   const [drafts, setDrafts] = useState({});
@@ -266,8 +273,8 @@ export default function App() {
       ]);
     window.sendToAgent = (t) => agent.send(t);
     window.tandemChat = {
-      open: agent.open,
-      newChat: agent.reset,
+      open: (chat) => { showChat(); return agent.open(chat); },
+      newChat: (dir) => { showChat(); return agent.reset(dir); },
       // The folder changed under us, so every chat here goes with it.
       clearChats: agent.clear,
       // Deleting one, transcript and all. The draft goes with it: half a
@@ -282,7 +289,7 @@ export default function App() {
       usage: openUsage,
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize, openUsage]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize, openUsage, showChat]);
 
   // News, once. A version the person has already been shown and ignored is not
   // worth a second interruption, so the version each toast named is written to
