@@ -1040,18 +1040,19 @@ function registerIpc() {
     usageLedger().record(chat, on || chatPrefs.providerOf(chat, provider), models);
   });
   ipcMain.handle('usage:all', async () => {
-    const plans = {};
+    const one = new Map();
     for (const [chat, a] of sessions) {
       const on = chatPrefs.providerOf(chat, provider);
-      if (a.closed || on in plans) continue;
-      plans[on] = null;
+      if (!a.closed && !one.has(on)) one.set(on, a);
+    }
+    const asked = await Promise.all([...one].map(async ([on, a]) => {
       const plan = await Promise.race([
         a.planUsage().catch(() => null),
         new Promise((r) => { setTimeout(() => r(null), 5000); }),
       ]);
-      if (plan && !plan.error) plans[on] = plan;
-    }
-    return { ...usageLedger().summary(), plans };
+      return [on, plan && !plan.error ? plan : null];
+    }));
+    return { ...usageLedger().summary(), plans: Object.fromEntries(asked) };
   });
   // Closing one chat, not the window. Whatever else is running stays running.
   ipcMain.handle('agent:reset', (_e, { chat } = {}) => ({ ok: stopChat(chat) }));
