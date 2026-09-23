@@ -134,12 +134,31 @@ const chooseModels = (id) => window.tandemChat?.settings(`agent-${id}`);
 const EFFORT_LABEL = { xhigh: 'Extra High' };
 const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);
 
+// A running claude session names the model it resolved to, such as
+// claude-opus-5-5[1m], where the picker lists the alias it was asked for, such
+// as opus[1m] shown as Opus 5.5. Matched back by family and version, and by
+// the 1M suffix, so the trigger and the tick still name a row of the list.
+function listedValue(models, id) {
+  if (!id || models.some((m) => m.value === id)) return id;
+  const parts = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/.exec(id);
+  if (!parts) return id;
+  const [, family, major, minor, long] = parts;
+  const version = minor ? `${major}.${minor}` : major;
+  const named = models.filter((m) => {
+    const name = (m.displayName || '').toLowerCase();
+    return name.startsWith(family) && name.split(/\s+/).includes(version);
+  });
+  const row = named.find((m) => m.value.endsWith(LONG) === !!long) || named[0];
+  return row ? row.value : id;
+}
+
 function ModelPicker({ agent, settings }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
+  const current = useMemo(() => listedValue(agent.models, agent.model), [agent.models, agent.model]);
   const groups = useMemo(
-    () => byProvider(agent.models, agent.providers, settings, agent.model),
-    [agent.models, agent.providers, settings, agent.model],
+    () => byProvider(agent.models, agent.providers, settings, current),
+    [agent.models, agent.providers, settings, current],
   );
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
@@ -173,9 +192,9 @@ function ModelPicker({ agent, settings }) {
   // A model the list has not heard of still has to name itself on the trigger:
   // a proxy routes names no probe here can see, and a chat resumed on one would
   // otherwise leave the button blank.
-  const row = agent.models.find((m) => m.value === agent.model);
+  const row = agent.models.find((m) => m.value === current);
   const label = [
-    row ? cleanModelName(row) : agent.model || 'Pick a model',
+    row ? cleanModelName(row) : current || 'Pick a model',
     agent.effort && effortLabel(agent.effort),
     capable && (long ? '1M' : '200K'),
   ].filter(Boolean).join(' · ');
@@ -229,13 +248,13 @@ function ModelPicker({ agent, settings }) {
             );
           }
           if (!nested) {
-            return <ModelItems key={g.id} rows={g.rows} current={agent.model} onPick={agent.changeModel} />;
+            return <ModelItems key={g.id} rows={g.rows} current={current} onPick={agent.changeModel} />;
           }
           return (
             <DropdownMenuSub key={g.id}>
               <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
-                <ModelItems rows={g.rows} current={agent.model} onPick={agent.changeModel} />
+                <ModelItems rows={g.rows} current={current} onPick={agent.changeModel} />
                 {VISIBILITY[g.id] && (
                   <>
                     <DropdownMenuSeparator />
