@@ -15,6 +15,10 @@ const AUTH_DIR = path.join(DIR, 'mcp-auth');
 // Kept inside the asar when packaged, like mcp/server.js: the node that runs it
 // is electron-as-node, which can read the archive and resolve the packed deps.
 const REMOTE = path.join(__dirname, '..', '..', 'node_modules', 'mcp-remote', 'dist');
+// Electron's node gives each address 250ms to connect before trying the next,
+// shorter than the round trip to some of these hosts from far away, and then
+// fails every one of them. Newer node waits 500ms.
+const NODE_FLAGS = ['--network-family-autoselection-attempt-timeout=500'];
 
 // Tandem's own servers go by these names in every session.
 const RESERVED = new Set(['preview', 'tandem']);
@@ -73,7 +77,7 @@ function launchList(node) {
     : {
       name,
       command: node,
-      args: [path.join(REMOTE, 'proxy.js'), ...remoteArgs(config)],
+      args: [...NODE_FLAGS, path.join(REMOTE, 'proxy.js'), ...remoteArgs(config)],
       env: { MCP_REMOTE_CONFIG_DIR: AUTH_DIR },
     }));
 }
@@ -114,7 +118,7 @@ function authenticate(name) {
     return Promise.resolve({ error: `${name} runs as a local process, so there is nothing to sign in to` });
   }
   // stdin stays open: the client shuts down as soon as it closes.
-  const child = spawn(process.execPath, [path.join(REMOTE, 'client.js'), ...remoteArgs(config)], {
+  const child = spawn(process.execPath, [...NODE_FLAGS, path.join(REMOTE, 'client.js'), ...remoteArgs(config)], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MCP_REMOTE_CONFIG_DIR: AUTH_DIR },
     stdio: ['pipe', 'ignore', 'pipe'],
     windowsHide: true,
