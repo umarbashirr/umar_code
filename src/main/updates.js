@@ -150,6 +150,21 @@ function pickAsset(assets, kind) {
   return candidates.find((a) => words.some((w) => a.name.toLowerCase().includes(w))) || candidates[0];
 }
 
+// The parts of a GitHub release the Updates page, the toast and the what's new
+// dialog read. A release with no asset for this install is still worth
+// reporting; it just cannot be downloaded from here.
+function releaseFrom(rel, kind) {
+  const asset = pickAsset(rel.assets || [], kind);
+  return {
+    latest: String(rel.tag_name || '').replace(/^v/, '') || null,
+    name: rel.name || rel.tag_name || null,
+    notes: String(rel.body || '').slice(0, 4000) || null,
+    publishedAt: rel.published_at || null,
+    page: rel.html_url || null,
+    asset: asset ? { name: asset.name, url: asset.browser_download_url, size: asset.size } : null,
+  };
+}
+
 const currentVersion = () => {
   try { return require('electron').app.getVersion(); } catch {}
   try { return require('../../package.json').version; } catch { return '0.0.0'; }
@@ -219,6 +234,10 @@ class Updates extends EventEmitter {
   constructor() {
     super();
     this.cache = readCache() || {};
+    // The version that wrote the cache, read before this process's own check
+    // replaces it. For an install that predates the what's new dialog, it is
+    // the only record of which version ran before this one.
+    this.ranBefore = this.cache.app?.current || null;
     this.downloading = null;
     this.restart = restartInfoFor(installKind(), null, currentVersion());
   }
@@ -228,9 +247,13 @@ class Updates extends EventEmitter {
     return this.snapshot();
   }
 
+  // `current` and `behind` are about this process, so they are worked out here
+  // rather than read from a cache that the previous version may have written.
   snapshot() {
+    const current = currentVersion();
+    const latest = this.cache.app?.latest || null;
     return {
-      app: this.cache.app || { current: currentVersion(), latest: null, behind: false },
+      app: { ...this.cache.app, current, latest, behind: !!latest && compareVersions(latest, current) > 0 },
       claude: this.claudeFor(),
       codex: this.codexFor(),
       cursor: this.cursorFor(),
@@ -291,34 +314,36 @@ class Updates extends EventEmitter {
     const kind = installKind();
     const slug = repoSlug();
     if (!slug) {
-      return { value: { current, latest: null, behind: false }, error: 'No repository is set in package.json.' };
+      return { value: { current, latest: null }, error: 'No repository is set in package.json.' };
     }
 
     try {
       const rel = await fetchJson(`https://api.github.com/repos/${slug}/releases/latest`, {
         accept: 'application/vnd.github+json',
       });
-      const latest = String(rel.tag_name || '').replace(/^v/, '');
-      const asset = pickAsset(rel.assets || [], kind);
-      const behind = !!latest && compareVersions(latest, current) > 0;
-      return {
-        value: {
-          current,
-          latest: latest || null,
-          behind,
-          name: rel.name || rel.tag_name || null,
-          notes: String(rel.body || '').slice(0, 4000) || null,
-          publishedAt: rel.published_at || null,
-          page: rel.html_url || null,
-          // A release with no asset for this install is still worth reporting;
-          // it just cannot be downloaded from here.
-          asset: asset ? { name: asset.name, url: asset.browser_download_url, size: asset.size } : null,
-        },
-        error: null,
-      };
+      return { value: { current, ...releaseFrom(rel, kind) }, error: null };
     } catch (e) {
-      return { value: { current, latest: null, behind: false }, error: `Could not reach GitHub: ${e.message}` };
+      return { value: { current, latest: null }, error: `Could not reach GitHub: ${e.message}` };
     }
+  }
+
+  // The running version's release, the first launch after it replaced an
+  // older one. `seen` is the last version whose notes were dismissed; with
+  // none recorded, the version that wrote the cache stands in for it. With
+  // neither, this is a fresh install, and there is nothing it is new since.
+  async whatsNew(seen) {
+    const current = currentVersion();
+    const before = seen || this.ranBefore;
+    if (!before || compareVersions(current, before) <= 0) return null;
+    let rel = this.cache.app;
+    if (rel?.latest !== current) {
+      const slug = repoSlug();
+      if (!slug) return null;
+      rel = releaseFrom(await fetchJson(`https://api.github.com/repos/${slug}/releases/tags/v${current}`, {
+        accept: 'application/vnd.github+json',
+      }), installKind());
+    }
+    return { version: current, name: rel.name, notes: rel.notes, publishedAt: rel.publishedAt, page: rel.page };
   }
 
   // The CLI belongs to the person now, not to the release. So a newer one on
