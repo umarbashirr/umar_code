@@ -57,6 +57,7 @@ const is = (want) => (got) => got === want;
   await checkCase('plain-expression-returns-value', '1 + 1', is(2), wrapFn);
   await checkCase('explicit-return-still-works', 'return 5', is(5), wrapFn);
   await checkCase('statement-with-semicolon-preserved', 'let a = 1; a + 1', is(undefined), wrapFn);
+  await checkCase('trailing-line-comment-does-not-eat-the-wrapper', '1 + 1 // x', is(2), wrapFn);
 
   console.log(failures.length ? `\n${failures.length} FAIL(s)` : '\nALL PASS');
   process.exit(failures.length ? 1 : 0);

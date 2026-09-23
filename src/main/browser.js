@@ -486,13 +486,17 @@ class BrowserPane extends EventEmitter {
 // anything, so the wrong guess never reaches the page. Code that already uses
 // `return` keeps working: wrapping it as an expression is itself a syntax
 // error, which is exactly what sends it down the statement path.
+//
+// The closing wrapper always goes on its own line: code ending in a `//`
+// comment (`document.title // x`) would otherwise swallow whatever came next
+// on the same line, `) })()` included, into the comment.
 function wrapEvaluate(code) {
-  const asExpression = `(async () => { return (${code}) })()`;
+  const asExpression = `(async () => { return (${code}\n) })()`;
   try {
     new Function(`return ${asExpression}`); // eslint-disable-line no-new-func
     return asExpression;
   } catch {
-    return `(async () => { ${code} })()`;
+    return `(async () => { ${code}\n})()`;
   }
 }
 
