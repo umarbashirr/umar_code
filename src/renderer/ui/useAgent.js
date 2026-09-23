@@ -1,7 +1,7 @@
 import { chatTitle } from '../../shared/chat-title';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { account, blankUsage, totals, withStop } from '@/lib/usage';
+import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 
 const tandem = () => window.tandem;
@@ -235,6 +235,20 @@ export function useAgent() {
   const chatsRef = useRef(chats);
   const activeRef = useRef(activeKey);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
+
+  // Each chat's totals go to the ledger behind the Usage page whenever the
+  // counted part changes, which is once per result or Stop, not per request.
+  const recorded = useRef(new Map());
+  useEffect(() => {
+    for (const c of chats) {
+      const { banked, live } = c.usage;
+      const seen = recorded.current.get(c.key);
+      if (seen?.banked === banked && seen?.live === live) continue;
+      recorded.current.set(c.key, { banked, live });
+      const models = byModel(c.usage);
+      if (Object.keys(models).length) tandem().agent.recordUsage?.(c.key, c.provider, models)?.catch?.(() => {});
+    }
+  }, [chats]);
   // Same reason: the callbacks that open a new chat are memoised on other
   // things and would otherwise hand it the CLI that was picked on first render.
   const providerRef = useRef(provider);

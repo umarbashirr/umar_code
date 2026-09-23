@@ -166,9 +166,12 @@ function withResult(usage, msg) {
   };
 }
 
+// Per model, everything this chat has been told it spent.
+export const byModel = (usage) => bank(usage.banked, usage.live);
+
 // Everything the panel draws, from the two halves put back together.
 export function totals(usage) {
-  const all = bank(usage.banked, usage.live);
+  const all = byModel(usage);
   const rows = [];
   let input = 0;
   let output = 0;
