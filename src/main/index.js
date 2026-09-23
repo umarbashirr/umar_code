@@ -771,7 +771,6 @@ async function createWindow() {
   // likely to be caught.
   win.on('focus', () => updates?.checkRestart().catch(() => {}));
 
-
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
     terms.clear();
