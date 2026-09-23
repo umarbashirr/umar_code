@@ -124,6 +124,9 @@ contextBridge.exposeInMainWorld('tandem', {
     forgetModel: (model) => ipcRenderer.invoke('agent:forgetModel', { model }),
     reset: (chat) => ipcRenderer.invoke('agent:reset', { chat }),
     usage: (chat) => ipcRenderer.invoke('agent:usage', { chat }),
+    // One chat's per-model totals, replaced whole, and every chat's summed.
+    recordUsage: (chat, provider, models) => ipcRenderer.invoke('usage:record', { chat, provider, models }),
+    allUsage: () => ipcRenderer.invoke('usage:all'),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
     transcript: (id, project) => ipcRenderer.invoke('agent:transcript', { id, project }),
