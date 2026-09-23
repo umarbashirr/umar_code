@@ -120,10 +120,28 @@ function applyTheme() {
 // the --term-* properties the scheme sets. Reading them back rather than
 // keeping a copy here is what stops the panel's own chrome, which is styled
 // from those properties, from drifting away from the canvas underneath it.
+//
+// The light theme's values are hsl() over the page's own variables. A probe
+// element turns each into rgb(), which xterm parses without a canvas. A bright
+// colour the theme leaves unset keeps xterm's default.
 function termTheme() {
   const style = getComputedStyle(document.documentElement);
-  const at = (name, fallback) => style.getPropertyValue(`--term-${name}`).trim() || fallback;
-  return {
+  const probe = document.createElement('i');
+  document.body.append(probe);
+  const rgb = (value) => {
+    probe.style.color = value;
+    return getComputedStyle(probe).color || value;
+  };
+  const at = (name, fallback) => {
+    const value = style.getPropertyValue(`--term-${name}`).trim();
+    return value ? rgb(value) : fallback;
+  };
+  const brights = Object.fromEntries(
+    ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+      .map((c) => [`bright${c[0].toUpperCase()}${c.slice(1)}`, at(`bright-${c}`)])
+      .filter(([, v]) => v),
+  );
+  const theme = {
     background: at('bg', '#0b0d12'),
     foreground: at('fg', '#d7dce6'),
     cursor: at('cursor', '#6ea8fe'),
@@ -136,7 +154,10 @@ function termTheme() {
     magenta: at('magenta', '#b58cf6'),
     cyan: at('cyan', '#5fd0d0'),
     white: at('white', '#d7dce6'),
+    ...brights,
   };
+  probe.remove();
+  return theme;
 }
 
 // The chat pane's own type. The size is a scale rather than a font-size: see

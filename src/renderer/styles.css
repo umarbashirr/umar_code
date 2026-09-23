@@ -55,11 +55,10 @@
   --code: hsl(var(--foreground) / .9);
   --shadow: 0 4px 14px hsl(240 10% 3.9% / .10);
   --scroll: hsl(var(--border));
-  /* The terminal stays dark in every theme: a white terminal fights the prompt
-     and colour scheme people already have. What a theme changes is which dark
-     it is. app.js reads these and hands them to xterm, so they are hex rather
-     than HSL triples, and anything the app paints on top of the terminal reads
-     the same four greys. */
+  /* The terminal's colours in the dark theme. Each scheme below picks its own
+     dark; the light theme replaces them all further down, so the terminal
+     follows the page. app.js reads these and hands them to xterm, and anything
+     the app paints on top of the terminal reads the same greys. */
   --term-bg: #0b0d12;
   --term-fg: #d7dce6;
   --term-dim: #79839a;
@@ -735,6 +734,36 @@ button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+
+/* The terminal in the light theme, for every scheme: the page's own background
+   and text, so the pane matches the window around it, and ANSI colours dark
+   enough to read on it. html[...] outranks the per-scheme blocks above, which
+   only set a dark terminal. The brights matter as much as the normals: a
+   prompt that draws in bright white would otherwise vanish. */
+html[data-theme="light"] {
+  --term-bg: hsl(var(--background));
+  --term-fg: hsl(var(--foreground));
+  --term-dim: hsl(var(--muted-foreground));
+  --term-line: hsl(var(--border));
+  --term-cursor: hsl(var(--primary));
+  --term-selection: hsl(var(--primary) / .18);
+  --term-black: #24292f;
+  --term-red: #cf222e;
+  --term-green: #116329;
+  --term-yellow: #9a6700;
+  --term-blue: #0550ae;
+  --term-magenta: #8250df;
+  --term-cyan: #1b7c83;
+  --term-white: #6e7781;
+  --term-bright-black: #57606a;
+  --term-bright-red: #a40e26;
+  --term-bright-green: #1a7f37;
+  --term-bright-yellow: #633c01;
+  --term-bright-blue: #218bff;
+  --term-bright-magenta: #a475f9;
+  --term-bright-cyan: #3192aa;
+  --term-bright-white: #8c959f;
+}
 
 html, body {
   margin: 0; height: 100%;
