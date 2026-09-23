@@ -4,26 +4,36 @@
 // on every update. The part before the bracket is the model.
 export const cursorModelId = (value) => String(value || '').split('[')[0];
 
-/* Which of a CLI's models the picker lists, for the CLIs that list more than
-   anyone wants to scroll. A row is { id, free }.
+/* Which of a CLI's models the picker lists. A row is { id, free }.
 
-   Cursor keeps what you hid, so a model it adds later shows up. OpenCode lists
-   dozens of paid models beside a handful of free ones that work without a
-   login, so it keeps what you chose to show, and until you choose, that is the
-   free ones. */
-export const VISIBILITY = {
-  cursor: {
-    id: (m) => cursorModelId(m.value),
-    isShown: (row, s) => !s.cursor.hidden.includes(row.id),
+   Most CLIs keep what you hid, so a model they add later shows up. OpenCode
+   lists dozens of paid models beside a handful of free ones that work without
+   a login, so it keeps what you chose to show, and until you choose, that is
+   the free ones. */
+function hiding(provider, id, label) {
+  return {
+    id,
+    isShown: (row, s) => !s[provider].hidden.includes(row.id),
     setShown(rows, on, s) {
       const ids = rows.map((r) => r.id);
-      const hidden = on ? s.cursor.hidden.filter((h) => !ids.includes(h)) : [...s.cursor.hidden, ...ids];
-      return { cursor: { hidden: [...new Set(hidden)] } };
+      const was = s[provider].hidden;
+      const hidden = on ? was.filter((h) => !ids.includes(h)) : [...was, ...ids];
+      return { [provider]: { hidden: [...new Set(hidden)] } };
     },
-    note: 'Models Cursor adds later are shown until you hide them.',
-  },
+    note: `Models ${label} adds later are shown until you hide them.`,
+  };
+}
+
+const byValue = (m) => m.value;
+
+export const VISIBILITY = {
+  // The 1M-context copy of a Claude model is the same model to choose.
+  claude: hiding('claude', (m) => m.value.replace(/\[1m\]$/, ''), 'Claude'),
+  cursor: hiding('cursor', (m) => cursorModelId(m.value), 'Cursor'),
+  grok: hiding('grok', byValue, 'Grok'),
+  codex: hiding('codex', byValue, 'Codex'),
   opencode: {
-    id: (m) => m.value,
+    id: byValue,
     isShown: (row, s) => (s.opencode.shown ? s.opencode.shown.includes(row.id) : !!row.free),
     setShown(rows, on, s, all) {
       const ids = rows.map((r) => r.id);

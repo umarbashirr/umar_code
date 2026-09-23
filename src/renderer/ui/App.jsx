@@ -19,7 +19,7 @@ import { clock, useTick } from '@/lib/clock';
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
-import { runCommand, toast } from '../app.js';
+import { enterFullPage, leaveFullPage, toast } from '../app.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -167,10 +167,12 @@ export default function App() {
   // updates and the skills chip lands on skills.
   const [customizeAt, setCustomizeAt] = useState(null);
   const customize = useCallback((at) => {
-    // The page is drawn where the chat is, and a right pane at full width has
-    // folded the chat away.
-    runCommand('previewFull', false);
+    enterFullPage();
     setCustomizeAt(at);
+  }, []);
+  const closeCustomize = useCallback(() => {
+    leaveFullPage();
+    setCustomizeAt(null);
   }, []);
   // A half-typed message belongs to the chat it was typed in, so drafts are
   // kept per chat rather than following you around the rail.
@@ -291,7 +293,7 @@ export default function App() {
       <CustomizePage
         section={customizeAt}
         onSection={setCustomizeAt}
-        onClose={() => setCustomizeAt(null)}
+        onClose={closeCustomize}
         catalog={catalog}
         settings={settings}
         set={set}

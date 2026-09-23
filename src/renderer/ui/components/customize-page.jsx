@@ -8,7 +8,7 @@ import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CATALOG_SECTIONS, CatalogPanel } from '@/components/catalog-panel';
-import { SETTINGS_SECTIONS, SettingsPanel, updatesBehind } from '@/components/settings-panel';
+import { AGENT_SECTIONS, SETTINGS_SECTIONS, SettingsPanel, updatesBehind } from '@/components/settings-panel';
 
 const IS_CATALOG = new Set(CATALOG_SECTIONS.map(([id]) => id));
 
@@ -72,6 +72,17 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
               icon={icon}
               label={label}
               note={id === 'updates' && updatesBehind(updates) && <span className="ml-auto size-2 rounded-full bg-primary" />}
+              onClick={() => onSection(id)} />
+          ))}
+
+          <Label>Agents</Label>
+          {AGENT_SECTIONS.map(([id, label, icon]) => (
+            <NavItem
+              key={id}
+              on={section === id}
+              icon={icon}
+              label={label}
+              note={updates[id.slice(6)]?.behind && <span className="ml-auto size-2 rounded-full bg-primary" />}
               onClick={() => onSection(id)} />
           ))}
         </nav>

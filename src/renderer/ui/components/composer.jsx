@@ -130,7 +130,7 @@ function ModelItems({ rows, current, onPick }) {
   );
 }
 
-const chooseModels = (id) => window.tandemChat?.settings(`${id}-models`);
+const chooseModels = (id) => window.tandemChat?.settings(`agent-${id}`);
 
 const EFFORT_LABEL = { xhigh: 'Extra High' };
 const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);

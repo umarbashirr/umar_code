@@ -60,12 +60,15 @@ const DEFAULTS = {
     // Same as claude.binary below: empty means PATH, or the copy inside the
     // ChatGPT desktop app. A path is for an install neither of those finds.
     binary: '',
+    hidden: [],
   },
   claude: {
     // Where the claude the agent runs lives. Empty means whatever is on PATH,
     // which is the answer for anyone who installed it the usual way. A path
     // here is for an install PATH cannot see. See driver.js.
     binary: '',
+    // Models the picker leaves out, as for every CLI but OpenCode.
+    hidden: [],
   },
   cursor: {
     binary: '',
@@ -73,6 +76,7 @@ const DEFAULTS = {
   },
   grok: {
     binary: '',
+    hidden: [],
   },
   opencode: {
     binary: '',
@@ -111,8 +115,10 @@ function normalize(raw) {
   // It holds a path now, and either old word left in place would be shown as
   // one in the settings box and then written back on the next edit.
   if (out.claude.binary === 'bundled' || out.claude.binary === 'path') out.claude.binary = '';
-  const hidden = out.cursor.hidden;
-  out.cursor.hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
+  for (const id of ['claude', 'cursor', 'grok', 'codex']) {
+    const hidden = out[id].hidden;
+    out[id].hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
+  }
   const shown = out.opencode.shown;
   out.opencode.shown = Array.isArray(shown) ? shown.filter((v) => typeof v === 'string' && v) : null;
   return out;

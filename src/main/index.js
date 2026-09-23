@@ -150,6 +150,7 @@ function providerStates() {
       id: row.id,
       installed: !!d.installed,
       version: d.version || null,
+      path: d.binaryPath || null,
       message: d.message || (!d.installed ? row.missing : null) || null,
       count: (d.models || []).length,
     };
