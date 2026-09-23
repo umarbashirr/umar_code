@@ -62,18 +62,40 @@ function remove(name) {
   write(servers);
 }
 
+// A header reaches mcp-remote as a ${VAR} it fills in from its environment,
+// since a value on the command line is there for any process list to read.
+const headerVar = (key) => `TANDEM_MCP_HEADER_${key.toUpperCase().replace(/-/g, '_')}`;
+const headerArg = (key) => `${key}:\${${headerVar(key)}}`;
+
+function headerEnv(config) {
+  // A ${VAR} of the user's own is expanded here, where mcp-remote used to do it.
+  return Object.fromEntries(Object.entries(config.headers || {}).map(([k, v]) => [
+    headerVar(k),
+    String(v).replace(/\$\{([^}]+)}/g, (whole, name) => process.env[name] ?? whole),
+  ]));
+}
+
 // The arguments both mcp-remote entry points take, so the proxy and the sign-in
 // hash the server the same way and find the same token.
 function remoteArgs(config) {
   const args = [config.url];
-  for (const [k, v] of Object.entries(config.headers || {})) args.push('--header', `${k}: ${v}`);
+  for (const k of Object.keys(config.headers || {})) args.push('--header', headerArg(k));
   if (typeOf(config) === 'sse') args.push('--transport', 'sse-only');
   return args;
 }
 
+// What mcp-proxy.js runs mcp-remote's proxy with for one server.
+function proxyLaunch(name) {
+  const config = read()[name];
+  if (!config?.url) throw new Error(`${name} is not one of Tandem's remote servers`);
+  return { entry: path.join(REMOTE, 'proxy.js'), args: remoteArgs(config), env: headerEnv(config) };
+}
+
 // Every server as a stdio process, the one shape every CLI accepts at session
 // start. A remote server runs behind mcp-remote, which is what lets them share
-// one token cache instead of each CLI signing in on its own.
+// one token cache instead of each CLI signing in on its own. Its launch line
+// names the server and nothing more: claude and codex put the whole line, env
+// included, on their own command lines.
 //
 // A server that signs in with OAuth is left out until it has a token. Without
 // one its proxy opens the browser the moment a chat starts, and codex gives a
@@ -85,18 +107,19 @@ function launchList(node) {
     : {
       name,
       command: node,
-      args: [...NODE_FLAGS, path.join(REMOTE, 'proxy.js'), ...remoteArgs(config)],
+      args: [...NODE_FLAGS, path.join(__dirname, 'mcp-proxy.js'), name],
       env: { MCP_REMOTE_CONFIG_DIR: AUTH_DIR },
     }));
 }
 
 // mcp-remote's own getServerUrlHash and getConfigDir, for the arguments
 // remoteArgs passes: the url, then the headers as mcp-remote parses them back
-// out of each --header, keys sorted.
+// out of each --header, keys sorted. It hashes before it fills in the ${VAR}s,
+// so a header's value never changes which token file a server uses.
 function tokensFile(config) {
   const headers = {};
-  for (const [k, v] of Object.entries(config.headers || {})) {
-    const match = `${k}: ${v}`.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+  for (const k of Object.keys(config.headers || {})) {
+    const match = headerArg(k).match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (match) headers[match[1]] = match[2];
   }
   const parts = [config.url];
@@ -136,7 +159,7 @@ function authenticate(name) {
   }
   // stdin stays open: the client shuts down as soon as it closes.
   const child = spawn(process.execPath, [...NODE_FLAGS, path.join(REMOTE, 'client.js'), ...remoteArgs(config)], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MCP_REMOTE_CONFIG_DIR: AUTH_DIR },
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MCP_REMOTE_CONFIG_DIR: AUTH_DIR, ...headerEnv(config) },
     stdio: ['pipe', 'ignore', 'pipe'],
     windowsHide: true,
   });
@@ -192,4 +215,4 @@ function listed(rows) {
   return [...rows.filter((s) => !names.has(s.name)), ...ours].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-module.exports = { FILE, read, add, remove, launchList, authenticate, stopSignIns, listed };
+module.exports = { FILE, read, add, remove, launchList, proxyLaunch, authenticate, stopSignIns, listed };
