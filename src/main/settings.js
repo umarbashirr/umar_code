@@ -38,13 +38,14 @@ const DEFAULTS = {
     effort: '',
     // Which CLI the panel drives. Both are the person's own install; neither
     // ships with Tandem. See driver.js and codex-driver.js.
-    provider: 'claude',     // claude | cursor | grok | codex
+    provider: 'claude',     // claude | cursor | grok | opencode | codex
     // The model each one is set to. Kept apart because a name from one is
     // meaningless to the other, and switching provider should not lose the
     // choice you made on the one you switched away from.
     codexModel: '',
     cursorModel: '',
     grokModel: '',
+    opencodeModel: '',
   },
   startup: {
     reopenProject: true,
@@ -72,6 +73,12 @@ const DEFAULTS = {
   },
   grok: {
     binary: '',
+  },
+  opencode: {
+    binary: '',
+    // Which models the picker lists. Null until someone chooses, which means
+    // the free ones.
+    shown: null,
   },
   // The last version each toast named. A person who ignored the news about
   // 0.6.0 should not be told about 0.6.0 again every time they open a window;
@@ -106,6 +113,8 @@ function normalize(raw) {
   if (out.claude.binary === 'bundled' || out.claude.binary === 'path') out.claude.binary = '';
   const hidden = out.cursor.hidden;
   out.cursor.hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
+  const shown = out.opencode.shown;
+  out.opencode.shown = Array.isArray(shown) ? shown.filter((v) => typeof v === 'string' && v) : null;
   return out;
 }
 

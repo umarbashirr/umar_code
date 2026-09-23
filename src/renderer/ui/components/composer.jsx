@@ -13,7 +13,8 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
-import { isHidden } from '@/lib/cursor-models';
+import { isHidden, VISIBILITY } from '@/lib/model-visibility';
+import { ProviderLogo } from '@/components/provider-logo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,13 +62,21 @@ function oncePerModel(rows) {
    allow "Claude Code" as a name inside someone else's product. These head two
    groups of models, so the vendor name is the accurate word anyway, and it
    reads level with ChatGPT rather than naming one CLI and one company. */
-const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', codex: 'ChatGPT' };
+const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
+
+const ProviderName = ({ id }) => (
+  <span className="flex items-center gap-2">
+    <ProviderLogo id={id} />
+    {PROVIDER_LABEL[id] || id}
+  </span>
+);
 
 // Where to get each one, for the row that says it is missing.
 const INSTALL = {
   claude: 'npm install -g @anthropic-ai/claude-code',
   cursor: 'curl https://cursor.com/install -fsS | bash',
   grok: 'See https://x.ai/cli',
+  opencode: 'npm install -g opencode-ai',
   codex: 'npm install -g @openai/codex',
 };
 
@@ -75,15 +84,15 @@ const INSTALL = {
    which puts the running CLI first; a CLI with nothing behind it still gets a
    row, locked, so a missing install reads as something to fix rather than as a
    provider Tandem never supported. */
-const hiddenFromMenu = (m, hidden, current) => m.value !== current && isHidden(m, hidden);
+const hiddenFromMenu = (m, settings, current) => m.value !== current && isHidden(m, settings);
 
-function byProvider(models, providers, hidden, current) {
+function byProvider(models, providers, settings, current) {
   const out = [];
   for (const m of models) {
     const id = m.provider || 'claude';
     let last = out[out.length - 1];
     if (last?.id !== id) out.push(last = { id, rows: [], hiddenCount: 0 });
-    if (hiddenFromMenu(m, hidden, current)) last.hiddenCount += 1;
+    if (hiddenFromMenu(m, settings, current)) last.hiddenCount += 1;
     else last.rows.push(m);
   }
   for (const p of providers || []) {
@@ -112,7 +121,7 @@ function ModelItems({ rows, current, onPick }) {
         <>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>More models</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>More Models</DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-40">{legacy.map(item)}</DropdownMenuSubContent>
           </DropdownMenuSub>
         </>
@@ -121,17 +130,17 @@ function ModelItems({ rows, current, onPick }) {
   );
 }
 
-const chooseModels = () => window.tandemChat?.settings('cursor-models');
+const chooseModels = (id) => window.tandemChat?.settings(`${id}-models`);
 
-const EFFORT_LABEL = { xhigh: 'Extra high' };
+const EFFORT_LABEL = { xhigh: 'Extra High' };
 const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);
 
-function ModelPicker({ agent, hidden }) {
+function ModelPicker({ agent, settings }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
   const groups = useMemo(
-    () => byProvider(agent.models, agent.providers, hidden, agent.model),
-    [agent.models, agent.providers, hidden, agent.model],
+    () => byProvider(agent.models, agent.providers, settings, agent.model),
+    [agent.models, agent.providers, settings, agent.model],
   );
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
@@ -177,6 +186,7 @@ function ModelPicker({ agent, hidden }) {
       <DropdownMenuTrigger asChild>
         <Pill
           className="ml-auto shrink rounded-md px-2 font-medium text-foreground/80 text-xs hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
+          <ProviderLogo id={row?.provider || agent.provider} />
           <span className="min-w-0 truncate">{label}</span>
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Pill>
@@ -194,16 +204,16 @@ function ModelPicker({ agent, hidden }) {
                 // readable without hovering as well as in the tooltip.
                 title={`${g.missing?.message || 'Not found on your PATH.'} Install it with: ${INSTALL[g.id] || ''}`}
                 className="justify-between gap-6">
-                {PROVIDER_LABEL[g.id] || g.id}
-                <span className="text-muted-foreground text-xs">not installed</span>
+                <ProviderName id={g.id} />
+                <span className="text-muted-foreground text-xs">Not Installed</span>
               </DropdownMenuItem>
             );
           }
           if (!g.rows.length && g.hiddenCount) {
             return (
-              <DropdownMenuItem key={g.id} onSelect={chooseModels} className="justify-between gap-6">
-                {PROVIDER_LABEL[g.id] || g.id}
-                <span className="text-muted-foreground text-xs">all hidden</span>
+              <DropdownMenuItem key={g.id} onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
+                <ProviderName id={g.id} />
+                <span className="text-muted-foreground text-xs">All Hidden</span>
               </DropdownMenuItem>
             );
           }
@@ -214,8 +224,8 @@ function ModelPicker({ agent, hidden }) {
                 disabled
                 title={g.missing?.message || 'Installed, but not logged in.'}
                 className="justify-between gap-6">
-                {PROVIDER_LABEL[g.id] || g.id}
-                <span className="text-muted-foreground text-xs">not logged in</span>
+                <ProviderName id={g.id} />
+                <span className="text-muted-foreground text-xs">Not Logged In</span>
               </DropdownMenuItem>
             );
           }
@@ -224,15 +234,15 @@ function ModelPicker({ agent, hidden }) {
           }
           return (
             <DropdownMenuSub key={g.id}>
-              <DropdownMenuSubTrigger>{PROVIDER_LABEL[g.id] || g.id}</DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <ModelItems rows={g.rows} current={agent.model} onPick={agent.changeModel} />
-                {g.id === 'cursor' && (
+                {VISIBILITY[g.id] && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={chooseModels} className="justify-between gap-6">
-                      Choose models…
-                      {g.hiddenCount > 0 && <span className="text-muted-foreground text-xs">{g.hiddenCount} hidden</span>}
+                    <DropdownMenuItem onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
+                      Choose Models…
+                      {g.hiddenCount > 0 && <span className="text-muted-foreground text-xs">{g.hiddenCount} Hidden</span>}
                     </DropdownMenuItem>
                   </>
                 )}
@@ -253,7 +263,7 @@ function ModelPicker({ agent, hidden }) {
               <DropdownMenuRadioGroup
                 value={agent.effort || 'default'}
                 onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
-                <DropdownMenuRadioItem value="default">Default effort</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="default">Default Effort</DropdownMenuRadioItem>
                 {agent.efforts.map((level) => (
                   <DropdownMenuRadioItem key={level} value={level}>{effortLabel(level)}</DropdownMenuRadioItem>
                 ))}
@@ -264,7 +274,7 @@ function ModelPicker({ agent, hidden }) {
         {capable && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              Context window
+              Context Window
               <span className="ml-auto pl-4 text-muted-foreground text-xs">{long ? '1M' : '200K'}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-36">
@@ -279,7 +289,7 @@ function ModelPicker({ agent, hidden }) {
         )}
         {/* A proxy routes whatever names its owner configured, and no probe
             here can be sure it has seen all of them. */}
-        <DropdownMenuItem onSelect={() => setTyping(true)}>Type a model name…</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setTyping(true)}>Type a Model Name…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -429,7 +439,7 @@ function Attachment({ item, onOpen, onRemove }) {
   );
 }
 
-export function Composer({ agent, hiddenModels, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
+export function Composer({ agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
   // will land in. Not always the focused folder: reading a chat from another
@@ -703,7 +713,7 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
               {/* The picker is always here. An endpoint that will not list its
                   models still needs a way to name one, and with no CLI at all
                   the menu is the thing that says which ones to install. */}
-              <ModelPicker agent={agent} hidden={hiddenModels} />
+              <ModelPicker agent={agent} settings={settings} />
             </PromptInputTools>
 
             <PromptInputSubmit

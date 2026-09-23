@@ -15,8 +15,12 @@ function modelName(id) {
   return out.join(' ');
 }
 
+// Newer agents, OpenCode among them, put the model and the mode among the
+// session's config options instead of in their own fields.
+const configOption = (res, category) => (res?.configOptions || []).find((o) => o?.category === category) || null;
+
 function modelsFrom(res) {
-  const rows = res?.models?.availableModels || [];
+  const rows = res?.models?.availableModels || configOption(res, 'model')?.options || [];
   return rows
     .filter((m) => m && (m.modelId || m.id || m.value))
     .map((m) => {
@@ -27,4 +31,4 @@ function modelsFrom(res) {
     });
 }
 
-module.exports = { modelsFrom, modelName };
+module.exports = { modelsFrom, modelName, configOption };

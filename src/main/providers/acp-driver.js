@@ -11,7 +11,7 @@ const shellEnv = require('../shell-env');
 const PROBE_TIMEOUT_MS = 20000;
 const TTL_MS = 6 * 60 * 60 * 1000;
 
-const parseVersion = (out) => out.match(/\b(\d+\.\d+\.\d+[\w.-]*)\b/)?.[1] || null;
+const parseVersion = (out) => out.match(/(?:\bv|\b)(\d+\.\d+\.\d+[\w.-]*)\b/)?.[1] || null;
 
 function probeVersion(bin, args = ['--version']) {
   return new Promise((resolve) => {
@@ -94,8 +94,7 @@ class AcpDriver {
 
   get stale() {
     if (!this.snapshot.checkedAt) return true;
-    const bin = this.spec.binary();
-    if (this.snapshot.installed && (!bin || bin !== this.snapshot.binaryPath)) return true;
+    if ((this.spec.binary() || null) !== (this.snapshot.binaryPath || null)) return true;
     return Date.now() - this.snapshot.checkedAt > TTL_MS;
   }
 
@@ -113,6 +112,9 @@ class AcpDriver {
   }
 
   async #probe() {
+    // A CLI installed under the home folder is often on PATH only once the
+    // login shell's rc files have run.
+    await shellEnv.ready();
     const bin = this.spec.binary();
     const checkedAt = Date.now();
     if (!bin) {

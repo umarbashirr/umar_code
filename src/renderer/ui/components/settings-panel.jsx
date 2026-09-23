@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
-  InfoIcon, ListFilterIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
+  InfoIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
   RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
@@ -20,7 +20,8 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useTheme } from '@/hooks/use-theme';
 import { sizeLabel } from '@/lib/attachments';
 import { DEFAULT_SCHEME, SCHEMES } from '@/lib/themes';
-import { cursorModelId } from '@/lib/cursor-models';
+import { VISIBILITY } from '@/lib/model-visibility';
+import { ProviderLogo } from '@/components/provider-logo';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
 import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
@@ -28,7 +29,8 @@ import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
 export const SETTINGS_SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
-  ['cursor-models', 'Cursor models', ListFilterIcon],
+  ['cursor-models', 'Cursor models', (p) => <ProviderLogo id="cursor" {...p} />],
+  ['opencode-models', 'OpenCode models', (p) => <ProviderLogo id="opencode" {...p} />],
   ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
   ['updates', 'Updates', DownloadIcon],
@@ -65,10 +67,10 @@ function Row({ label, hint, children }) {
   );
 }
 
-function Section({ title, note, children }) {
+function Section({ title, icon, note, children }) {
   return (
     <div className="mb-9">
-      <h3 className="font-medium text-base">{title}</h3>
+      <h3 className="flex items-center gap-2 font-medium text-base">{icon}{title}</h3>
       {note && <p className="mt-1.5 text-[13px] text-muted-foreground leading-relaxed">{note}</p>}
       <FieldGroup className="mt-2 gap-0 divide-y divide-border/60">{children}</FieldGroup>
     </div>
@@ -277,6 +279,13 @@ const PROVIDERS = {
     where: '/usr/local/bin/grok',
     missing: 'Nothing named grok on your PATH. Install the Grok CLI from x.ai/cli, run grok login, then restart Tandem.',
   },
+  opencode: {
+    label: 'OpenCode',
+    cli: 'opencode',
+    install: 'npm install -g opencode-ai',
+    where: '/usr/local/bin/opencode',
+    missing: 'Nothing named opencode on your PATH. Install it with npm install -g opencode-ai, run opencode auth login for any provider past the free models, then restart Tandem.',
+  },
   codex: {
     label: 'Codex',
     cli: 'codex',
@@ -291,6 +300,7 @@ const PROVIDERS = {
 const CLAUDE_UPDATE = 'claude update';
 const CURSOR_UPDATE = 'agent update';
 const GROK_UPDATE = 'See https://x.ai/cli';
+const OPENCODE_UPDATE = 'opencode upgrade';
 // codex has a `codex update`, but it only works for the native install and
 // refuses on an npm one, which is how most people have it.
 const CODEX_UPDATE = 'npm install -g @openai/codex';
@@ -331,7 +341,7 @@ function Agent({ settings, set, agent, updates }) {
             <SelectContent>
               <SelectGroup>
                 {Object.entries(PROVIDERS).map(([id, v]) => (
-                  <SelectItem key={id} value={id}>{v.label}</SelectItem>
+                  <SelectItem key={id} value={id}><ProviderLogo id={id} />{v.label}</SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
@@ -374,56 +384,50 @@ function Agent({ settings, set, agent, updates }) {
   );
 }
 
-function CursorModels({ settings, set, agent }) {
+function ModelsPage({ provider, settings, set, agent }) {
   const [query, setQuery] = useState('');
-  const hidden = settings.cursor.hidden;
+  const vis = VISIBILITY[provider];
+  const { label, missing } = PROVIDERS[provider];
   const rows = useMemo(() => {
     const seen = new Set();
     const out = [];
     for (const m of agent.models) {
-      if (m.provider !== 'cursor') continue;
-      const id = cursorModelId(m.value);
+      if (m.provider !== provider) continue;
+      const id = vis.id(m);
       if (seen.has(id)) continue;
       seen.add(id);
-      out.push({ id, label: m.displayName || id });
+      out.push({ id, label: m.displayName || id, free: !!m.free });
     }
     return out;
-  }, [agent.models]);
+  }, [agent.models, provider, vis]);
 
   const q = query.trim().toLowerCase();
   const matching = q ? rows.filter((r) => r.label.toLowerCase().includes(q) || r.id.includes(q)) : rows;
-  const ids = matching.map((r) => r.id);
-  const save = (next) => set({ cursor: { hidden: [...new Set(next)] } });
-  const shownCount = rows.filter((r) => !hidden.includes(r.id)).length;
+  const show = (some, on) => set(vis.setShown(some, on, settings, rows));
+  const shownCount = rows.filter((r) => vis.isShown(r, settings)).length;
 
   if (!rows.length) {
-    return (
-      <Section
-        title="Cursor models"
-        note="Cursor has not listed any models yet. Install the Cursor CLI and run agent login, then come back." />
-    );
+    return <Section title={`${label} models`} note={`${label} has not listed any models yet. ${missing}`} />;
   }
 
   return (
     <Section
-      title="Cursor models"
-      note={`Which of Cursor's models the model picker shows. ${shownCount} of ${rows.length} shown. Models Cursor adds later are shown until you hide them.`}>
+      title={`${label} models`}
+      icon={<ProviderLogo id={provider} className="size-4" />}
+      note={`Which of ${label}'s models the model picker shows. ${shownCount} of ${rows.length} shown. ${vis.note}`}>
       <div className="flex items-center gap-2 py-4">
         <Input
           value={query}
           placeholder="Filter, e.g. claude or gpt"
           onChange={(e) => setQuery(e.target.value)}
           className="w-64" />
-        <Button variant="outline" className="ml-auto" onClick={() => save(hidden.filter((h) => !ids.includes(h)))}>
-          Show all
-        </Button>
-        <Button variant="outline" onClick={() => save([...hidden, ...ids])}>Hide all</Button>
+        <Button variant="outline" className="ml-auto" onClick={() => show(matching, true)}>Show all</Button>
+        <Button variant="outline" onClick={() => show(matching, false)}>Hide all</Button>
+        {vis.reset && <Button variant="outline" onClick={() => set(vis.reset.patch)}>{vis.reset.label}</Button>}
       </div>
       {matching.map((r) => (
-        <Row key={r.id} label={r.label}>
-          <Switch
-            checked={!hidden.includes(r.id)}
-            onCheckedChange={(on) => save(on ? hidden.filter((h) => h !== r.id) : [...hidden, r.id])} />
+        <Row key={r.id} label={r.label} hint={r.free ? 'Free' : undefined}>
+          <Switch checked={vis.isShown(r, settings)} onCheckedChange={(on) => show([r], on)} />
         </Row>
       ))}
       {!matching.length && <p className="py-4 text-[13px] text-muted-foreground">Nothing matches.</p>}
@@ -597,10 +601,10 @@ function Downloading({ received, total }) {
 
 // Both CLIs answer the same three questions, so they get the same row: which
 // version is running, whether a newer one is out, and what to type for it.
-function CliSection({ title, note, state, update, absent }) {
+function CliSection({ provider, title, note, state, update, absent }) {
   const cli = state || {};
   return (
-    <Section title={title} note={note}>
+    <Section title={title} icon={<ProviderLogo id={provider} className="size-4" />} note={note}>
       <Row
         label={cli.missing ? 'Not found' : cli.behind ? `${cli.latest} is out` : 'Up to date'}
         hint={cli.missing
@@ -617,7 +621,7 @@ function CliSection({ title, note, state, update, absent }) {
 }
 
 function Updates({ settings, set, updates }) {
-  const { app, claude, codex, cursor, grok, kind, progress, file, checking } = updates;
+  const { app, claude, codex, cursor, grok, opencode, kind, progress, file, checking } = updates;
   const behind = app.behind;
 
   return (
@@ -702,6 +706,7 @@ function Updates({ settings, set, updates }) {
       </Section>
 
       <CliSection
+        provider="claude"
         title="Claude CLI"
         note="Yours to update. Tandem only reads the version, so it never replaces the binary under you."
         state={claude}
@@ -709,6 +714,7 @@ function Updates({ settings, set, updates }) {
         absent="No claude on your PATH, so Claude chats cannot start. See the Agent tab." />
 
       <CliSection
+        provider="codex"
         title="Codex CLI"
         note="Only needed if you drive Codex. Same deal: Tandem reads the version and nothing else."
         state={codex}
@@ -716,6 +722,7 @@ function Updates({ settings, set, updates }) {
         absent="No codex on your PATH. Install it if you want to drive Codex from the Agent tab." />
 
       <CliSection
+        provider="cursor"
         title="Cursor CLI"
         note="Only needed if you drive Cursor. Tandem reads the version; there is no npm latest to compare."
         state={cursor}
@@ -723,11 +730,20 @@ function Updates({ settings, set, updates }) {
         absent="No Cursor CLI (agent) on your PATH. Install it from cursor.com/cli if you want Cursor chats." />
 
       <CliSection
+        provider="grok"
         title="Grok CLI"
         note="Only needed if you drive Grok. Tandem reads the version; there is no npm latest to compare."
         state={grok}
         update={GROK_UPDATE}
         absent="No grok on your PATH. Install it from x.ai/cli if you want Grok chats." />
+
+      <CliSection
+        provider="opencode"
+        title="OpenCode CLI"
+        note="Only needed if you drive OpenCode. Tandem reads the version; npm lags the install script, so there is no latest to compare."
+        state={opencode}
+        update={OPENCODE_UPDATE}
+        absent="No opencode on your PATH. Install it from opencode.ai if you want OpenCode chats." />
 
       {updates.error && (
         <Alert variant="destructive">
@@ -792,7 +808,7 @@ function About({ updates, reset }) {
 // An update nobody has looked at yet is the reason the Updates section exists,
 // so the nav marks it.
 export const updatesBehind = (updates) => !!(updates.app.behind || updates.claude?.behind
-  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind);
+  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind);
 
 export function SettingsPanel({ section, ...props }) {
   if (!props.settings) return null;
@@ -800,7 +816,8 @@ export function SettingsPanel({ section, ...props }) {
     <>
       {section === 'appearance' && <Appearance {...props} />}
       {section === 'agent' && <Agent {...props} />}
-      {section === 'cursor-models' && <CursorModels {...props} />}
+      {section === 'cursor-models' && <ModelsPage provider="cursor" {...props} />}
+      {section === 'opencode-models' && <ModelsPage provider="opencode" {...props} />}
       {section === 'chat' && <ChatPrefs {...props} />}
       {section === 'terminal' && <TerminalPrefs {...props} />}
       {section === 'updates' && <Updates {...props} />}

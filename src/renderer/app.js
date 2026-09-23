@@ -294,6 +294,8 @@ function start(shell) {
     if (name) setTabTitle(dir, tabId, name);
     term.onData((d) => window.tandem.term.input(id, d));
     term.onResize(({ cols, rows }) => window.tandem.term.resize(id, cols, rows));
+    // A fit while main was spawning resized the grid with no pty to tell.
+    window.tandem.term.resize(id, term.cols, term.rows);
     const command = typeOnStart.get(tabId);
     typeOnStart.delete(tabId);
     if (command) window.tandem.term.input(id, command + '\n');

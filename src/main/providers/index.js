@@ -1,6 +1,6 @@
 'use strict';
 
-const PROVIDER_IDS = ['claude', 'cursor', 'grok', 'codex'];
+const PROVIDER_IDS = ['claude', 'cursor', 'grok', 'opencode', 'codex'];
 const isProviderId = (id) => PROVIDER_IDS.includes(id);
 
 function createRegistry({ cacheDir, settings }) {
@@ -9,6 +9,7 @@ function createRegistry({ cacheDir, settings }) {
     require('./claude').create(ctx),
     require('./cursor').create(ctx),
     require('./grok').create(ctx),
+    require('./opencode').create(ctx),
     require('./codex').create(ctx),
   ];
   for (const row of rows) {

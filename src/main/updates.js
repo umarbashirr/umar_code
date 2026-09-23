@@ -21,6 +21,7 @@ const { compareVersions, probeVersion, claudeBinary } = require('./driver');
 const { probeVersion: probeCodexVersion, codexBinary } = require('./codex-driver');
 const { cursorBinary, probeVersion: probeCursorVersion } = require('./providers/cursor');
 const { grokBinary, probeVersion: probeGrokVersion } = require('./providers/grok');
+const { opencodeBinary, probeVersion: probeOpencodeVersion } = require('./providers/opencode');
 
 const CACHE = path.join(DIR, 'update-check.json');
 const REQUEST_TIMEOUT_MS = 15000;
@@ -193,6 +194,7 @@ class Updates extends EventEmitter {
       codex: this.codexFor(),
       cursor: this.cursorFor(),
       grok: this.grokFor(),
+      opencode: this.opencodeFor(),
       kind: installKind(),
       checkedAt: this.cache.checkedAt || null,
       error: this.cache.error || null,
@@ -207,9 +209,9 @@ class Updates extends EventEmitter {
   }
 
   async #check() {
-    const [app, claude, codex, cursor, grok] = await Promise.all([
+    const [app, claude, codex, cursor, grok, opencode] = await Promise.all([
       this.#checkApp(), this.#checkClaude(), this.#checkCodex(),
-      this.#checkCursor(), this.#checkGrok(),
+      this.#checkCursor(), this.#checkGrok(), this.#checkOpencode(),
     ]);
     this.cache = writeCache({
       app: app.value,
@@ -217,8 +219,9 @@ class Updates extends EventEmitter {
       codex: codex.value,
       cursor: cursor.value,
       grok: grok.value,
+      opencode: opencode.value,
       checkedAt: Date.now(),
-      error: app.error || claude.error || codex.error || cursor.error || grok.error || null,
+      error: app.error || claude.error || codex.error || cursor.error || grok.error || opencode.error || null,
     });
     const snap = this.snapshot();
     this.emit('changed', snap);
@@ -303,6 +306,12 @@ class Updates extends EventEmitter {
     return { value: { path: bin, version, latest: null }, error: null };
   }
 
+  async #checkOpencode() {
+    const bin = opencodeBinary();
+    const version = bin ? await probeOpencodeVersion(bin) : null;
+    return { value: { path: bin, version, latest: null }, error: null };
+  }
+
   // What the settings page and the launch toast read. `missing` is the one that
   // matters: no claude means no chat, and the app has nothing to fall back on.
   claudeFor() {
@@ -322,6 +331,10 @@ class Updates extends EventEmitter {
 
   grokFor() {
     return cliFor(this.cache.grok);
+  }
+
+  opencodeFor() {
+    return cliFor(this.cache.opencode);
   }
 
   // Streams the asset into the downloads folder, reporting progress as it goes.

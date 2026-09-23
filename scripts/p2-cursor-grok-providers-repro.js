@@ -99,7 +99,7 @@ function checkIndexWiring() {
 
 function checkUiLabels() {
   const composer = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/components/composer.jsx'), 'utf8');
-  const settings = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/components/settings-dialog.jsx'), 'utf8');
+  const settings = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/components/settings-panel.jsx'), 'utf8');
   if (/cursor: 'Cursor'/.test(composer) && /grok: 'Grok'/.test(composer)) pass('composer-labels');
   else fail('composer-labels', 'composer missing Cursor/Grok labels');
   if (/locked: !p\.installed/.test(composer)) pass('composer-locked-missing');
@@ -110,7 +110,7 @@ function checkUiLabels() {
 
 function checkRegistry() {
   const { createRegistry, isProviderId, PROVIDER_IDS } = require(path.join(ROOT, 'src/main/providers'));
-  if (PROVIDER_IDS.join(',') === 'claude,cursor,grok,codex' && isProviderId('cursor') && !isProviderId('opencode')) {
+  if (PROVIDER_IDS.join(',') === 'claude,cursor,grok,opencode,codex' && isProviderId('opencode') && !isProviderId('gemini')) {
     pass('registry-ids');
   } else fail('registry-ids', PROVIDER_IDS.join(','));
   const settings = { get: () => ({}) };
