@@ -114,13 +114,14 @@ const CODEX_INSTRUCTIONS = [
 ].join(' ');
 
 class CodexSession extends EventEmitter {
-  constructor({ cwd, resume, model, mode, effort, bridgeEnv }) {
+  constructor({ cwd, resume, model, mode, effort, bridgeEnv, shared }) {
     super();
     this.cwd = cwd;
     this.resume = resume || null;
     this.model = model || null;
     this.effort = effort || null;
     this.bridgeEnv = bridgeEnv || {};
+    this.shared = shared || [];
     this.mode = isMode(mode) ? mode : DEFAULT_MODE;
     this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
 
@@ -188,9 +189,10 @@ class CodexSession extends EventEmitter {
     return this;
   }
 
-  /* Everything codex cannot be told through the protocol. The preview tools are
-     the only entry that matters: codex spawns this server itself, so it needs
-     the bridge's address and token in its own environment rather than ours. */
+  /* Everything codex cannot be told through the protocol: the preview tools and
+     the servers from mcp-registry.js. codex spawns the preview server itself,
+     so it needs the bridge's address and token in its own environment rather
+     than ours. */
   #config() {
     const server = path.join(ROOT, 'mcp', 'server.js');
     const env = { ...this.bridgeEnv, TANDEM_CWD: this.cwd };
@@ -209,6 +211,11 @@ class CodexSession extends EventEmitter {
     ];
     for (const [k, v] of Object.entries(env)) {
       if (v != null) out.push(`mcp_servers.tandem.env.${k}=${JSON.stringify(String(v))}`);
+    }
+    for (const s of this.shared) {
+      out.push(`mcp_servers.${s.name}.command=${JSON.stringify(s.command)}`);
+      out.push(`mcp_servers.${s.name}.args=${JSON.stringify(s.args)}`);
+      for (const [k, v] of Object.entries(s.env)) out.push(`mcp_servers.${s.name}.env.${k}=${JSON.stringify(String(v))}`);
     }
     return out;
   }

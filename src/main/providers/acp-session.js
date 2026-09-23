@@ -72,7 +72,7 @@ function optionFor(options, decision) {
 }
 
 class AcpSession extends EventEmitter {
-  constructor({ spec, cwd, resume, model, mode, effort, bridgeEnv, mcp }) {
+  constructor({ spec, cwd, resume, model, mode, effort, bridgeEnv, mcp, shared }) {
     super();
     this.spec = spec;
     this.cwd = cwd;
@@ -82,6 +82,7 @@ class AcpSession extends EventEmitter {
     this.effort = effort || null;
     this.bridgeEnv = bridgeEnv || {};
     this.mcp = mcp || null;
+    this.shared = shared || [];
     this.queue = [];
     this.closed = false;
     this.busy = false;
@@ -170,14 +171,15 @@ class AcpSession extends EventEmitter {
   }
 
   #servers() {
-    if (!this.mcp?.command) return [];
+    const shared = this.shared.map((s) => ({ ...s, env: mcpEnv(s.env) }));
+    if (!this.mcp?.command) return shared;
     const env = { ...(this.mcp.env || {}), ...this.bridgeEnv, TANDEM_CWD: this.cwd };
     return [{
       name: this.mcp.name || 'tandem',
       command: this.mcp.command,
       args: this.mcp.args || [],
       env: mcpEnv(env),
-    }];
+    }, ...shared];
   }
 
   send(textIn, images = []) {

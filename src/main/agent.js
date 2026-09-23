@@ -21,7 +21,7 @@ const SHOT_NOTE = /^(\d+)x(\d+) saved to (.+)$/;
 const OWNER_WAIT = 400;
 
 class AgentSession extends EventEmitter {
-  constructor({ cwd, invoke, resume, model, mode, effort, settings, mcpOff }) {
+  constructor({ cwd, invoke, resume, model, mode, effort, settings, mcpOff, shared }) {
     super();
     this.cwd = cwd;
     this.invoke = invoke;              // (bridgeTool, args, actor) => Promise<result>
@@ -61,7 +61,9 @@ class AgentSession extends EventEmitter {
     // Held for setMcpServers: it replaces the whole dynamic set, so the browser
     // tools have to be handed back every time or they go with it.
     this.preview = null;
-    this.dynamic = {};
+    // Tandem's own servers start in the dynamic set, so they survive every
+    // setMcpServers call the same way.
+    this.dynamic = Object.fromEntries((shared || []).map(({ name, ...s }) => [name, { type: 'stdio', ...s }]));
   }
 
   async start() {
@@ -125,7 +127,7 @@ class AgentSession extends EventEmitter {
         // MCP server configured as a plain command name fails to start, and a
         // key exported in an rc file is nowhere to be found. See shell-env.js.
         env: shellEnv.env(),
-        mcpServers: { preview },
+        mcpServers: { preview, ...this.dynamic },
         systemPrompt: { type: 'preset', preset: 'claude_code', append: INSTRUCTIONS },
         permissionMode: this.permissionMode,
         ...(this.settings ? { settings: this.settings } : {}),

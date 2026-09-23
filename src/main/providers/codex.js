@@ -28,6 +28,7 @@ function create({ cacheDir, settings }) {
       mode: opts.mode,
       effort: opts.effort,
       bridgeEnv: opts.bridgeEnv,
+      shared: opts.shared,
     }),
     has: () => !!driver.current({ refresh: false }).installed,
     install: 'npm install -g @openai/codex',

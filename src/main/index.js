@@ -19,6 +19,7 @@ const editors = require('./editors');
 const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
+const mcpRegistry = require('./mcp-registry');
 const completed = require('./completed');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
@@ -347,12 +348,13 @@ function nodeShimDir() {
   return dir;
 }
 
+const nodeBin = () => process.env.TANDEM_NODE
+  || path.join(nodeShimDir(), process.platform === 'win32' ? 'node.cmd' : 'node');
+
 function previewMcp(cwd) {
-  const node = process.env.TANDEM_NODE
-    || path.join(nodeShimDir(), process.platform === 'win32' ? 'node.cmd' : 'node');
   return {
     name: 'tandem',
-    command: node,
+    command: nodeBin(),
     args: [mcpServerPath(ROOT)],
     env: { ...(bridge?.env() || {}), TANDEM_CWD: cwd },
   };
@@ -682,6 +684,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     mcpOff: row.catalogKind === 'claude' ? row.catalog.offAtRuntime(cwd) : undefined,
     bridgeEnv: bridge.env(),
     mcp: previewMcp(cwd),
+    shared: mcpRegistry.launchList(nodeBin()),
     invoke: async (tool, args, actor) => {
       const who = actor?.id && actor.id !== 'main'
         ? { ...actor, chat }
@@ -1263,6 +1266,7 @@ function registerIpc() {
   // can see the browser prompt and answer it. The token it writes is the same
   // one the next chat reads.
   ipcMain.handle('catalog:mcpLogin', (_e, { name }) => {
+    if (mcpRegistry.has(name)) return mcpRegistry.loginCommand(name, nodeBin());
     if (!claudeCatalog()) return cat().mcpLogin(focusedCwd(), name);
     const server = cat().current(focusedCwd()).mcp.find((s) => s.name === name);
     if (!server) return { error: `${name} is not a server this folder knows about` };
@@ -1282,6 +1286,21 @@ function registerIpc() {
   });
   ipcMain.handle('catalog:mcpAdd', async (_e, { name, scope, config }) => {
     const dir = focusedCwd();
+    if (scope === 'tandem') {
+      let spec;
+      try {
+        const added = mcpRegistry.add(name, config);
+        spec = mcpRegistry.launchList(nodeBin()).find((s) => s.name === added);
+      } catch (e) {
+        return { error: e.message };
+      }
+      // Only a claude session can take a server mid-chat. The other CLIs are
+      // handed the list when a chat starts, so they pick it up on the next one.
+      if (!claudeCatalog()) return cat().current(dir);
+      const { name: runtime, ...launch } = spec;
+      const done = await Promise.all(catalogSessions(dir).map((a) => a.addMcpServer(runtime, { type: 'stdio', ...launch })));
+      return { ...cat().current(dir), error: done.find((r) => r?.error)?.error || null };
+    }
     try {
       await cat().addServer(dir, { name, scope, config });
     } catch (e) {
@@ -1295,6 +1314,11 @@ function registerIpc() {
   });
   ipcMain.handle('catalog:mcpRemove', async (_e, { name, scope }) => {
     const dir = focusedCwd();
+    if (scope === 'tandem') {
+      mcpRegistry.remove(name);
+      if (claudeCatalog()) await Promise.all(catalogSessions(dir).map((a) => a.removeMcpServer(name)));
+      return cat().current(dir);
+    }
     const runtime = cat().runtimeName(dir, name);
     try {
       await cat().removeServer(dir, name, scope);

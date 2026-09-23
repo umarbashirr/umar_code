@@ -30,6 +30,7 @@ function create({ cacheDir, settings }) {
       effort: opts.effort,
       settings: opts.settings,
       mcpOff: opts.mcpOff,
+      shared: opts.shared,
     }),
     has: () => true,
     install: 'npm install -g @anthropic-ai/claude-code',
