@@ -5,8 +5,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const { DIR } = require('./projects');
+const shellEnv = require('./shell-env');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
 
 const FILE = path.join(DIR, 'mcp.json');
@@ -67,9 +68,31 @@ function remove(name) {
 const headerVar = (key) => `TANDEM_MCP_HEADER_${key.toUpperCase().replace(/-/g, '_')}`;
 const headerArg = (key) => `${key}:\${${headerVar(key)}}`;
 
+// The token a CLI you are signed in to hands out, or null when it is missing or
+// signed out. gh is the only one so far.
+function cliToken(cli) {
+  try {
+    const out = execFileSync(cli, ['auth', 'token'], {
+      env: shellEnv.env(), encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    });
+    return out.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// A server added with tokenFrom stores no token. It sends the CLI's current
+// one, so signing in to the CLI again carries over.
+function headersOf(config) {
+  if (!config.tokenFrom) return config.headers || {};
+  return { ...config.headers, Authorization: `Bearer ${cliToken(config.tokenFrom) || ''}` };
+}
+
+const headerNames = (config) => [...new Set([...Object.keys(config.headers || {}), ...(config.tokenFrom ? ['Authorization'] : [])])];
+
 function headerEnv(config) {
   // A ${VAR} of the user's own is expanded here, where mcp-remote used to do it.
-  return Object.fromEntries(Object.entries(config.headers || {}).map(([k, v]) => [
+  return Object.fromEntries(Object.entries(headersOf(config)).map(([k, v]) => [
     headerVar(k),
     String(v).replace(/\$\{([^}]+)}/g, (whole, name) => process.env[name] ?? whole),
   ]));
@@ -79,7 +102,7 @@ function headerEnv(config) {
 // hash the server the same way and find the same token.
 function remoteArgs(config) {
   const args = [config.url];
-  for (const k of Object.keys(config.headers || {})) args.push('--header', headerArg(k));
+  for (const k of headerNames(config)) args.push('--header', headerArg(k));
   if (typeOf(config) === 'sse') args.push('--transport', 'sse-only');
   return args;
 }
@@ -100,7 +123,8 @@ function proxyLaunch(name) {
 // A server that signs in with OAuth is left out until it has a token. Without
 // one its proxy opens the browser the moment a chat starts, and codex gives a
 // server ten seconds to come up, far too short to finish a sign-in. The
-// Authenticate button is where that happens instead.
+// Authenticate button is where that happens instead. One whose token comes from
+// a CLI is left out while that CLI is signed out, for the same reason.
 function launchList(node) {
   return Object.entries(read()).filter(([name]) => !awaitingSignIn(name)).map(([name, config]) => (typeOf(config) === 'stdio'
     ? { name, command: config.command, args: config.args || [], env: config.env || {} }
@@ -108,9 +132,14 @@ function launchList(node) {
       name,
       command: node,
       args: [...NODE_FLAGS, path.join(__dirname, 'mcp-proxy.js'), name],
-      env: { MCP_REMOTE_CONFIG_DIR: AUTH_DIR },
+      env: { MCP_REMOTE_CONFIG_DIR: AUTH_DIR, ...(config.tokenFrom ? cliEnv() : {}) },
     }));
 }
+
+// What gh needs to find its sign-in, which may be in the system keyring. codex
+// starts a server with little more than PATH and HOME.
+const CLI_ENV = ['GH_CONFIG_DIR', 'GH_HOST', 'XDG_CONFIG_HOME', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS'];
+const cliEnv = () => Object.fromEntries(CLI_ENV.filter((k) => shellEnv.env()[k]).map((k) => [k, shellEnv.env()[k]]));
 
 // mcp-remote's own getServerUrlHash and getConfigDir, for the arguments
 // remoteArgs passes: the url, then the headers as mcp-remote parses them back
@@ -118,7 +147,7 @@ function launchList(node) {
 // so a header's value never changes which token file a server uses.
 function tokensFile(config) {
   const headers = {};
-  for (const k of Object.keys(config.headers || {})) {
+  for (const k of headerNames(config)) {
     const match = headerArg(k).match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
     if (match) headers[match[1]] = match[2];
   }
@@ -134,12 +163,61 @@ const OAUTH_URLS = new Set(MCP_GALLERY.filter((g) => g.auth === 'oauth').map((g)
 
 function awaitingSignIn(name) {
   const config = read()[name];
-  return !!config && OAUTH_URLS.has(config.url) && !signedIn(name);
+  return !!config && (OAUTH_URLS.has(config.url) || !!config.tokenFrom) && !signedIn(name);
 }
 
 function signedIn(name) {
   const config = read()[name];
+  if (config?.tokenFrom) return !!cliToken(config.tokenFrom);
   return !!config && typeOf(config) !== 'stdio' && fs.existsSync(tokensFile(config));
+}
+
+// One initialize, the request a proxy starts with, so a token the server turns
+// down is never saved.
+async function checkToken(entry, token) {
+  let res;
+  try {
+    res = await fetch(entry.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'tandem', version: '1' } },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (e) {
+    return `could not reach ${entry.name}: ${e.message}`;
+  }
+  res.body?.cancel();
+  if (res.status === 401 || res.status === 403) return `${entry.name} did not accept that token`;
+  return res.ok ? null : `${entry.name} answered ${res.status}`;
+}
+
+// Whether a token server can be added with the CLI's sign-in rather than a
+// pasted token.
+async function cliSignedIn(id) {
+  const entry = MCP_GALLERY.find((g) => g.id === id && g.auth === 'token');
+  await shellEnv.ready();
+  return !!entry && !!cliToken(entry.token.cli);
+}
+
+// Adds a gallery server that takes a token. A pasted one is stored as its
+// header; without one the server is added to use the CLI's, and stores none.
+async function addWithToken(id, pasted) {
+  const entry = MCP_GALLERY.find((g) => g.id === id && g.auth === 'token');
+  if (!entry) return { error: `${id} is not a server that takes a token` };
+  await shellEnv.ready();
+  const token = pasted?.trim() || cliToken(entry.token.cli);
+  if (!token) return { error: `${entry.name} CLI is signed out. Run ${entry.token.login}, or paste a token.` };
+  const refused = await checkToken(entry, token);
+  if (refused) return { error: refused };
+  add(id, pasted?.trim()
+    ? { type: 'http', url: entry.url, headers: { Authorization: `Bearer ${token}` } }
+    : { type: 'http', url: entry.url, tokenFrom: entry.token.cli });
+  return { ok: true };
 }
 
 const AUTH_TIMEOUT = 5 * 60 * 1000;
@@ -202,7 +280,8 @@ function listed(rows) {
     scope: 'tandem',
     type: typeOf(config),
     target: config.command ? [config.command, ...(config.args || [])].join(' ') : config.url,
-    config,
+    // Headers can hold a token, and the panel has no use for them.
+    config: { ...config, headers: undefined },
     enabled: true,
     editable: false,
     removable: true,
@@ -215,4 +294,6 @@ function listed(rows) {
   return [...rows.filter((s) => !names.has(s.name)), ...ours].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-module.exports = { FILE, read, add, remove, launchList, proxyLaunch, authenticate, stopSignIns, listed };
+module.exports = {
+  FILE, read, add, remove, launchList, proxyLaunch, cliSignedIn, addWithToken, authenticate, stopSignIns, listed,
+};

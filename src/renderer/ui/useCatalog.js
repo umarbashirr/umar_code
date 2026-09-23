@@ -71,6 +71,9 @@ export function useCatalog() {
     addMcp: (server) => run(() => tandem().catalog.mcpAdd(server)),
     addGalleryMcp: (name, config) => forServer(name, () => tandem().catalog.mcpAdd({ name, scope: 'tandem', config })),
     authMcp: (name) => forServer(name, () => tandem().catalog.mcpAuth(name)),
+    addTokenMcp: (name, token) => forServer(name, () => tandem().catalog.mcpAddToken(name, token)),
+    cliSignedIn: (name) => tandem().catalog.mcpCliSignedIn(name),
+    openTokenPage: (name) => tandem().catalog.mcpTokenPage(name),
     removeMcp: (name, scope) => run(() => tandem().catalog.mcpRemove(name, scope)),
   };
 }

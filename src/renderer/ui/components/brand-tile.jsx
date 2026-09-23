@@ -3,15 +3,15 @@
    imported, so the bundle carries these and not the whole set. A brand
    simple-icons lacks gets its first letter. */
 import {
-  siAirtable, siAtlassian, siClickup, siCloudflare, siDropbox, siGitlab, siHuggingface, siIntercom, siLinear,
-  siMiro, siNeon, siNetlify, siNotion, siPaypal, siPosthog, siPrisma, siSentry, siSquare, siStripe, siSupabase,
-  siTodoist, siWebflow, siWix, siZapier,
+  siAirtable, siAtlassian, siClickup, siCloudflare, siDropbox, siGithub, siGitlab, siHuggingface, siIntercom,
+  siLinear, siMiro, siNeon, siNetlify, siNotion, siPaypal, siPosthog, siPrisma, siSentry, siSquare, siStripe,
+  siSupabase, siTodoist, siWebflow, siWix, siZapier,
 } from 'simple-icons';
 
 const ICONS = {
-  siAirtable, siAtlassian, siClickup, siCloudflare, siDropbox, siGitlab, siHuggingface, siIntercom, siLinear,
-  siMiro, siNeon, siNetlify, siNotion, siPaypal, siPosthog, siPrisma, siSentry, siSquare, siStripe, siSupabase,
-  siTodoist, siWebflow, siWix, siZapier,
+  siAirtable, siAtlassian, siClickup, siCloudflare, siDropbox, siGithub, siGitlab, siHuggingface, siIntercom,
+  siLinear, siMiro, siNeon, siNetlify, siNotion, siPaypal, siPosthog, siPrisma, siSentry, siSquare, siStripe,
+  siSupabase, siTodoist, siWebflow, siWix, siZapier,
 };
 
 function luminance(hex) {

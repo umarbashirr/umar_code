@@ -20,6 +20,7 @@ const files = require('./files');
 const attachments = require('./attachments');
 const projects = require('./projects');
 const mcpRegistry = require('./mcp-registry');
+const { MCP_GALLERY } = require('../shared/mcp-gallery');
 const completed = require('./completed');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
@@ -1301,6 +1302,21 @@ function registerIpc() {
     if (!claudeCatalog()) return cat().current(dir);
     await shareLive(dir, name);
     return learnCatalog();
+  });
+  // A gallery server that takes a token, from the CLI's sign-in or pasted.
+  ipcMain.handle('catalog:mcpCliSignedIn', (_e, { name }) => mcpRegistry.cliSignedIn(name));
+  ipcMain.handle('catalog:mcpAddToken', async (_e, { name, token }) => {
+    const res = await mcpRegistry.addWithToken(name, token);
+    const dir = focusedCwd();
+    if (res.error) return { ...cat().current(dir), error: res.error };
+    if (!claudeCatalog()) return cat().current(dir);
+    const done = await shareLive(dir, name);
+    return { ...cat().current(dir), error: done.find((r) => r?.error)?.error || null };
+  });
+  ipcMain.handle('catalog:mcpTokenPage', (_e, { name }) => {
+    const page = MCP_GALLERY.find((g) => g.id === name)?.token?.create;
+    if (page) shell.openExternal(page);
+    return { ok: !!page };
   });
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
     const dir = focusedCwd();

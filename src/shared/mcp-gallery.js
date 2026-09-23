@@ -2,7 +2,9 @@
 // Remote MCP servers anyone can add in one click. id is the name the server is
 // added under, icon a simple-icons export name. auth 'oauth' servers sign in
 // through the browser, and each supports dynamic client registration, which
-// mcp-remote needs; 'none' servers answer without any sign-in.
+// mcp-remote needs; 'none' servers answer without any sign-in. 'token' servers
+// take a token instead: the one token.cli hands out when you are signed in to
+// it, or one you paste, made at token.create.
 
 const MCP_GALLERY = [
   { id: 'notion', name: 'Notion', auth: 'oauth', icon: 'siNotion', url: 'https://mcp.notion.com/mcp',
@@ -45,6 +47,9 @@ const MCP_GALLERY = [
     description: 'Create and query the Postgres databases in your Neon account.' },
   { id: 'prisma', name: 'Prisma', auth: 'oauth', icon: 'siPrisma', url: 'https://mcp.prisma.io/mcp',
     description: 'Create and manage Prisma Postgres databases.' },
+  { id: 'github', name: 'GitHub', auth: 'token', icon: 'siGithub', url: 'https://api.githubcopilot.com/mcp/',
+    description: 'Work with the issues, pull requests, code and repositories on GitHub.',
+    token: { cli: 'gh', login: 'gh auth login', create: 'https://github.com/settings/personal-access-tokens/new' } },
   { id: 'gitlab', name: 'GitLab', auth: 'oauth', icon: 'siGitlab', url: 'https://gitlab.com/api/v4/mcp',
     description: 'Work with the issues, merge requests and code in your GitLab projects.' },
   { id: 'granola', name: 'Granola', auth: 'oauth', icon: null, url: 'https://mcp.granola.ai/mcp',

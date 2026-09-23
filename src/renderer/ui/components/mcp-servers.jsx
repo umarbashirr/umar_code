@@ -1,6 +1,6 @@
 /* The MCP servers tab: the servers anyone can add in one click, and the ones
    already set up here, in one list. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckIcon, KeyRoundIcon, PlusIcon, RefreshCwIcon, RotateCwIcon, XIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -129,6 +129,7 @@ function galleryState(entry, row, pending) {
   if (pending?.busy) return row ? 'signing-in' : 'adding';
   if (!row) return 'available';
   if (entry.auth === 'oauth' && !row.signedIn) return 'needs-sign-in';
+  if (row.config?.tokenFrom && !row.signedIn) return 'cli-signed-out';
   return 'connected';
 }
 
@@ -153,24 +154,62 @@ const SigningIn = () => (
 
 function GalleryRow({ entry, row, pending, catalog }) {
   const state = galleryState(entry, row, pending);
-  const remove = () => catalog.removeMcp(entry.id, 'tandem');
+  // A token server is added with the CLI's sign-in when there is one, and with
+  // a pasted token otherwise.
+  const [viaCli, setViaCli] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [token, setToken] = useState('');
+  useEffect(() => {
+    if (entry.token && state === 'available') catalog.cliSignedIn(entry.id).then(setViaCli).catch(() => {});
+  }, [entry, state]);
+  const remove = () => {
+    setPasting(false);
+    catalog.removeMcp(entry.id, 'tandem');
+  };
+  const add = () => {
+    if (!entry.token) return catalog.addGalleryMcp(entry.id, { type: entry.type || 'http', url: entry.url });
+    if (viaCli) return catalog.addTokenMcp(entry.id);
+    setPasting(true);
+  };
+  const save = (e) => {
+    e.preventDefault();
+    catalog.addTokenMcp(entry.id, token);
+    setToken('');
+  };
+  const signedOut = state === 'cli-signed-out' && `${entry.name} CLI is signed out. Run ${entry.token.login} to sign back in.`;
+  const note = pending?.error || signedOut;
   return (
     <div className={ROW}>
       <BrandTile icon={entry.icon} name={entry.name} />
       <div className="min-w-0 flex-1">
-        <div className="text-sm">{entry.name}</div>
-        <div className={cn('truncate text-xs', pending?.error ? 'text-destructive' : 'text-muted-foreground')} title={pending?.error || entry.description}>
-          {pending?.error || entry.description}
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm">{entry.name}</span>
+          {viaCli && state === 'available' && !pasting && (
+            <span className="text-muted-foreground text-xs">uses your {entry.name} CLI sign-in</span>
+          )}
+        </div>
+        <div className={cn('truncate text-xs', note ? 'text-destructive' : 'text-muted-foreground')} title={note || entry.description}>
+          {note || entry.description}
         </div>
       </div>
-      {state === 'available' && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7"
-          onClick={() => catalog.addGalleryMcp(entry.id, { type: entry.type || 'http', url: entry.url })}>
-          Add
-        </Button>
+      {state === 'available' && !pasting && (
+        <Button size="sm" variant="outline" className="h-7" onClick={add}>Add</Button>
+      )}
+      {state === 'available' && pasting && (
+        <form onSubmit={save} className="flex shrink-0 items-center gap-2">
+          <Input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={`Paste a ${entry.name} token`}
+            className="h-7 w-52 text-xs"
+            autoFocus />
+          <Button type="button" size="sm" variant="link" className="h-7 px-0 text-xs" onClick={() => catalog.openTokenPage(entry.id)}>
+            Create a token
+          </Button>
+          <Button type="submit" size="sm" variant="outline" className="h-7" disabled={!token.trim()}>Save</Button>
+          <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => { setPasting(false); setToken(''); }}>Cancel</Button>
+        </form>
       )}
       {state === 'adding' && (
         <Button size="sm" variant="outline" className="h-7" disabled><Spinner className="size-3.5" /> Add</Button>
@@ -182,6 +221,12 @@ function GalleryRow({ entry, row, pending, catalog }) {
         </>
       )}
       {state === 'signing-in' && <SigningIn />}
+      {state === 'cli-signed-out' && (
+        <>
+          <RemoveButton onClick={remove} />
+          <span className="text-muted-foreground text-xs">Signed out</span>
+        </>
+      )}
       {state === 'connected' && (
         <>
           <RemoveButton onClick={remove} />
