@@ -756,7 +756,7 @@ function Updates({ settings, set, updates }) {
           </Row>
         )}
 
-        <Row label="Check on launch" hint="Asks GitHub when the app starts.">
+        <Row label="Check automatically" hint="Asks GitHub when the app starts and every six hours after.">
           <Switch
             checked={settings.startup.checkUpdates}
             onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />
@@ -804,7 +804,7 @@ function Startup({ settings, set }) {
           checked={s.reopenProject}
           onCheckedChange={(reopenProject) => set({ startup: { reopenProject } })} />
       </Row>
-      <Row label="Check for updates on launch">
+      <Row label="Check for updates" hint="At launch and every six hours after.">
         <Switch
           checked={s.checkUpdates}
           onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />

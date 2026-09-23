@@ -291,19 +291,24 @@ export default function App() {
     return () => { window.addAttachment = null; window.sendToAgent = null; window.tandemChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize, openUsage, showChat]);
 
-  // News, once. A version the person has already been shown and ignored is not
-  // worth a second interruption, so the version each toast named is written to
-  // the settings file before it goes up.
+  // News, until it is seen. A toast that timed out while nobody was looking
+  // told nobody, so these stay up until a button or the close is used, and only
+  // then is the version written to the settings file. The id keeps a re-run of
+  // this effect from stacking a second copy of a toast that is still up.
   useEffect(() => {
     if (!settings?.startup.checkUpdates) return;
     const told = settings.notices;
 
-    if (updates.app.behind && told.app !== updates.app.latest) {
-      set({ notices: { app: updates.app.latest } });
-      toast(`Tandem ${updates.app.latest} is out`, `You are on ${updates.app.current}`, [
+    const { app } = updates;
+    if (app.behind && told.app !== app.latest) {
+      toast(`Tandem ${app.latest} is out`, `You are on ${app.current}`, [
         { label: 'Update', primary: true, run: () => customize('updates') },
         { label: 'Later' },
-      ]);
+      ], {
+        id: `update-app-${app.latest}`,
+        duration: Infinity,
+        onDismiss: () => set({ notices: { app: app.latest } }),
+      });
     }
 
     // The CLI is theirs to update, so this is news rather than a chore Tandem
@@ -311,11 +316,14 @@ export default function App() {
     // that names the command.
     const c = updates.claude;
     if (c?.behind && told.claude !== c.latest) {
-      set({ notices: { claude: c.latest } });
       toast(`Claude ${c.latest} is out`, `You are running ${c.running?.version}`, [
         { label: 'How', primary: true, run: () => customize('updates') },
         { label: 'Later' },
-      ]);
+      ], {
+        id: `update-claude-${c.latest}`,
+        duration: Infinity,
+        onDismiss: () => set({ notices: { claude: c.latest } }),
+      });
     }
   }, [
     updates.app.behind, updates.app.latest, updates.claude?.behind, updates.claude?.latest,
@@ -377,6 +385,18 @@ export default function App() {
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}
+        {/* Stays for as long as there is a newer Tandem, so a toast waved away
+            or never seen is not the only place the news was. */}
+        {updates.app.behind && (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="ml-auto shrink-0 text-muted-foreground"
+            onClick={() => customize('updates')}>
+            <span className="size-1.5 rounded-full bg-primary" />
+            Tandem {updates.app.latest} is out
+          </Button>
+        )}
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>

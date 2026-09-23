@@ -42,23 +42,27 @@ function Card({ id, title, description, actions }) {
   );
 }
 
-export function toast(title, description, actions = []) {
+// `options` goes to sonner as is. Its onDismiss is widened to every way out,
+// because sonner leaves its own action and cancel buttons out of it.
+export function toast(title, description, actions = [], options = {}) {
   const real = actions.filter((a) => !isDismiss(a));
+  const gone = () => options.onDismiss?.();
 
-  if (real.length === 0) return sonner(title, { description });
+  if (real.length === 0) return sonner(title, { description, ...options });
 
   if (real.length === 1) {
     const [only] = real;
     const cancel = actions.find(isDismiss);
     return sonner(title, {
       description,
-      action: { label: only.label, onClick: () => only.run() },
-      ...(cancel ? { cancel: { label: cancel.label, onClick: () => {} } } : {}),
+      ...options,
+      action: { label: only.label, onClick: () => { only.run(); gone(); } },
+      ...(cancel ? { cancel: { label: cancel.label, onClick: gone } } : {}),
     });
   }
 
   return sonner.custom(
     (id) => <Card id={id} title={title} description={description} actions={actions} />,
-    { duration: 15000 },
+    { duration: 15000, ...options },
   );
 }
