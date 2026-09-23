@@ -162,9 +162,13 @@ function AddressBar({ tab, showing }) {
     if (focused && !s.loading) setDraft(s.url);
   }, [s.url, s.loading, focused]);
 
+  // The draft starts as the address without its scheme, so the scheme goes back
+  // on only when that is still what is in the field. Anything typed over it is
+  // an address of its own and navigateTab decides how to read it.
   const submit = () => {
-    const next = (s.scheme + draft).trim();
-    if (!next) return;
+    const typed = draft.trim();
+    if (!typed) return;
+    const next = typed === s.url ? s.scheme + typed : typed;
     navigateTab(next, tab);
     input.current?.blur();
   };
@@ -194,7 +198,7 @@ function AddressBar({ tab, showing }) {
         spellCheck={false}
         placeholder="Search or enter URL"
         className="font-mono text-[13px]"
-        value={focused ? draft : (s.scheme + s.url || draft)}
+        value={focused ? draft : (s.url || draft)}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={() => {
           setDraft(s.url);
