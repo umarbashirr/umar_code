@@ -134,8 +134,11 @@ const rememberModel = (p, model) => {
 function allModels() {
   const ids = (registry?.ids || []).slice();
   ids.sort((a, b) => (a === provider ? -1 : b === provider ? 1 : 0));
-  return ids.flatMap((p) => (driverFor(p)?.current({ refresh: false }).models || [])
-    .map((m) => ({ ...m, provider: p })));
+  return ids.flatMap((p) => {
+    const listed = driverFor(p)?.current({ refresh: false }).models || [];
+    const row = rowOf(p);
+    return (row?.annotate ? row.annotate(listed) : listed).map((m) => ({ ...m, provider: p }));
+  });
 }
 
 const providerOf = (model) => allModels().find((m) => m.value === model)?.provider || provider;

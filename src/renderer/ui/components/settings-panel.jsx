@@ -20,7 +20,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useTheme } from '@/hooks/use-theme';
 import { sizeLabel } from '@/lib/attachments';
 import { DEFAULT_SCHEME, SCHEMES } from '@/lib/themes';
-import { cursorModelId } from '@/lib/cursor-models';
+import { VISIBILITY } from '@/lib/model-visibility';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
 import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
@@ -29,6 +29,7 @@ export const SETTINGS_SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
   ['cursor-models', 'Cursor models', ListFilterIcon],
+  ['opencode-models', 'OpenCode models', ListFilterIcon],
   ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
   ['updates', 'Updates', DownloadIcon],
@@ -382,56 +383,49 @@ function Agent({ settings, set, agent, updates }) {
   );
 }
 
-function CursorModels({ settings, set, agent }) {
+function ModelsPage({ provider, settings, set, agent }) {
   const [query, setQuery] = useState('');
-  const hidden = settings.cursor.hidden;
+  const vis = VISIBILITY[provider];
+  const { label, missing } = PROVIDERS[provider];
   const rows = useMemo(() => {
     const seen = new Set();
     const out = [];
     for (const m of agent.models) {
-      if (m.provider !== 'cursor') continue;
-      const id = cursorModelId(m.value);
+      if (m.provider !== provider) continue;
+      const id = vis.id(m);
       if (seen.has(id)) continue;
       seen.add(id);
-      out.push({ id, label: m.displayName || id });
+      out.push({ id, label: m.displayName || id, free: !!m.free });
     }
     return out;
-  }, [agent.models]);
+  }, [agent.models, provider, vis]);
 
   const q = query.trim().toLowerCase();
   const matching = q ? rows.filter((r) => r.label.toLowerCase().includes(q) || r.id.includes(q)) : rows;
-  const ids = matching.map((r) => r.id);
-  const save = (next) => set({ cursor: { hidden: [...new Set(next)] } });
-  const shownCount = rows.filter((r) => !hidden.includes(r.id)).length;
+  const show = (some, on) => set(vis.setShown(some, on, settings, rows));
+  const shownCount = rows.filter((r) => vis.isShown(r, settings)).length;
 
   if (!rows.length) {
-    return (
-      <Section
-        title="Cursor models"
-        note="Cursor has not listed any models yet. Install the Cursor CLI and run agent login, then come back." />
-    );
+    return <Section title={`${label} models`} note={`${label} has not listed any models yet. ${missing}`} />;
   }
 
   return (
     <Section
-      title="Cursor models"
-      note={`Which of Cursor's models the model picker shows. ${shownCount} of ${rows.length} shown. Models Cursor adds later are shown until you hide them.`}>
+      title={`${label} models`}
+      note={`Which of ${label}'s models the model picker shows. ${shownCount} of ${rows.length} shown. ${vis.note}`}>
       <div className="flex items-center gap-2 py-4">
         <Input
           value={query}
           placeholder="Filter, e.g. claude or gpt"
           onChange={(e) => setQuery(e.target.value)}
           className="w-64" />
-        <Button variant="outline" className="ml-auto" onClick={() => save(hidden.filter((h) => !ids.includes(h)))}>
-          Show all
-        </Button>
-        <Button variant="outline" onClick={() => save([...hidden, ...ids])}>Hide all</Button>
+        <Button variant="outline" className="ml-auto" onClick={() => show(matching, true)}>Show all</Button>
+        <Button variant="outline" onClick={() => show(matching, false)}>Hide all</Button>
+        {vis.reset && <Button variant="outline" onClick={() => set(vis.reset.patch)}>{vis.reset.label}</Button>}
       </div>
       {matching.map((r) => (
-        <Row key={r.id} label={r.label}>
-          <Switch
-            checked={!hidden.includes(r.id)}
-            onCheckedChange={(on) => save(on ? hidden.filter((h) => h !== r.id) : [...hidden, r.id])} />
+        <Row key={r.id} label={r.label} hint={r.free ? 'Free' : undefined}>
+          <Switch checked={vis.isShown(r, settings)} onCheckedChange={(on) => show([r], on)} />
         </Row>
       ))}
       {!matching.length && <p className="py-4 text-[13px] text-muted-foreground">Nothing matches.</p>}
@@ -815,7 +809,8 @@ export function SettingsPanel({ section, ...props }) {
     <>
       {section === 'appearance' && <Appearance {...props} />}
       {section === 'agent' && <Agent {...props} />}
-      {section === 'cursor-models' && <CursorModels {...props} />}
+      {section === 'cursor-models' && <ModelsPage provider="cursor" {...props} />}
+      {section === 'opencode-models' && <ModelsPage provider="opencode" {...props} />}
       {section === 'chat' && <ChatPrefs {...props} />}
       {section === 'terminal' && <TerminalPrefs {...props} />}
       {section === 'updates' && <Updates {...props} />}

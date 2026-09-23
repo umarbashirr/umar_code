@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
-import { isHidden } from '@/lib/cursor-models';
+import { isHidden, VISIBILITY } from '@/lib/model-visibility';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,15 +76,15 @@ const INSTALL = {
    which puts the running CLI first; a CLI with nothing behind it still gets a
    row, locked, so a missing install reads as something to fix rather than as a
    provider Tandem never supported. */
-const hiddenFromMenu = (m, hidden, current) => m.value !== current && isHidden(m, hidden);
+const hiddenFromMenu = (m, settings, current) => m.value !== current && isHidden(m, settings);
 
-function byProvider(models, providers, hidden, current) {
+function byProvider(models, providers, settings, current) {
   const out = [];
   for (const m of models) {
     const id = m.provider || 'claude';
     let last = out[out.length - 1];
     if (last?.id !== id) out.push(last = { id, rows: [], hiddenCount: 0 });
-    if (hiddenFromMenu(m, hidden, current)) last.hiddenCount += 1;
+    if (hiddenFromMenu(m, settings, current)) last.hiddenCount += 1;
     else last.rows.push(m);
   }
   for (const p of providers || []) {
@@ -122,17 +122,17 @@ function ModelItems({ rows, current, onPick }) {
   );
 }
 
-const chooseModels = () => window.tandemChat?.settings('cursor-models');
+const chooseModels = (id) => window.tandemChat?.settings(`${id}-models`);
 
 const EFFORT_LABEL = { xhigh: 'Extra high' };
 const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);
 
-function ModelPicker({ agent, hidden }) {
+function ModelPicker({ agent, settings }) {
   const [typing, setTyping] = useState(false);
   const [draft, setDraft] = useState('');
   const groups = useMemo(
-    () => byProvider(agent.models, agent.providers, hidden, agent.model),
-    [agent.models, agent.providers, hidden, agent.model],
+    () => byProvider(agent.models, agent.providers, settings, agent.model),
+    [agent.models, agent.providers, settings, agent.model],
   );
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
@@ -202,7 +202,7 @@ function ModelPicker({ agent, hidden }) {
           }
           if (!g.rows.length && g.hiddenCount) {
             return (
-              <DropdownMenuItem key={g.id} onSelect={chooseModels} className="justify-between gap-6">
+              <DropdownMenuItem key={g.id} onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
                 {PROVIDER_LABEL[g.id] || g.id}
                 <span className="text-muted-foreground text-xs">all hidden</span>
               </DropdownMenuItem>
@@ -228,10 +228,10 @@ function ModelPicker({ agent, hidden }) {
               <DropdownMenuSubTrigger>{PROVIDER_LABEL[g.id] || g.id}</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="min-w-44">
                 <ModelItems rows={g.rows} current={agent.model} onPick={agent.changeModel} />
-                {g.id === 'cursor' && (
+                {VISIBILITY[g.id] && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={chooseModels} className="justify-between gap-6">
+                    <DropdownMenuItem onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
                       Choose models…
                       {g.hiddenCount > 0 && <span className="text-muted-foreground text-xs">{g.hiddenCount} hidden</span>}
                     </DropdownMenuItem>
@@ -430,7 +430,7 @@ function Attachment({ item, onOpen, onRemove }) {
   );
 }
 
-export function Composer({ agent, hiddenModels, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
+export function Composer({ agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
   // will land in. Not always the focused folder: reading a chat from another
@@ -704,7 +704,7 @@ export function Composer({ agent, hiddenModels, catalog, text, setText, attachme
               {/* The picker is always here. An endpoint that will not list its
                   models still needs a way to name one, and with no CLI at all
                   the menu is the thing that says which ones to install. */}
-              <ModelPicker agent={agent} hidden={hiddenModels} />
+              <ModelPicker agent={agent} settings={settings} />
             </PromptInputTools>
 
             <PromptInputSubmit
