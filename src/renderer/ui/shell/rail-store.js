@@ -22,6 +22,7 @@ const state = {
   projects: [],
   live: [],
   activeKey: null,
+  activeProject: null,
   // session id -> when it was marked. Main owns this and it survives restarts,
   // so a chat you finished with last week is still put away today.
   completed: {},
@@ -126,6 +127,7 @@ export const relative = (ms) => {
 };
 
 export const activeKey = () => state.activeKey;
+export const activeProject = () => state.activeProject;
 
 const folderName = (dir) => dir.split(/[/\\]/).filter(Boolean).pop() || dir;
 
@@ -167,7 +169,7 @@ function rows(dir, sessions) {
 /* Every folder worth a section, whether or not claude has written anything in
    it yet: open a folder, type once, and it has a live chat and no history. */
 function folders() {
-  const out = state.projects.map((p) => ({ dir: p.dir, name: p.name, sessions: p.sessions || [] }));
+  const out = state.projects.map((p) => ({ dir: p.dir, name: p.name, folderless: !!p.folderless, sessions: p.sessions || [] }));
   const byDir = new Map(out.map((p) => [p.dir, p]));
 
   for (const c of state.live) {
@@ -219,6 +221,7 @@ export function grouped(filter = '') {
     out.push({
       dir: folder.dir,
       name: folder.name,
+      folderless: folder.folderless,
       rows: open,
       done,
       at: newest(list),
@@ -286,9 +289,10 @@ window.tandemRail = {
   // The whole set of open chats, sent by the chat pane whenever it changes. It
   // owns which chats exist, which folder each belongs to, which one is on
   // screen and which are mid-turn; this only draws them next to what is on disk.
-  sync: ({ chats, active } = {}) => {
+  sync: ({ chats, active, activeProject } = {}) => {
     state.live = chats || [];
     state.activeKey = active || null;
+    state.activeProject = activeProject || null;
     changed();
   },
 };

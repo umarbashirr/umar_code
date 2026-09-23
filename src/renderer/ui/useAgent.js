@@ -167,10 +167,14 @@ export function useAgent() {
   // the IPC listeners are registered once and would otherwise close over the
   // project that was focused on the first render.
   const focusedProject = useRef(null);
+  // The folder main runs chats with no project in. It is never one of the open
+  // projects, so it has to be named to survive the sweep below.
+  const chatsDir = useRef(null);
   useEffect(() => {
     const apply = (info) => {
       const dir = info?.focused || info?.dir || null;
       focusedProject.current = dir;
+      chatsDir.current = info?.chats || null;
       // The window opens with a chat in it before it knows which folders it
       // has, so that first chat is rooted by the first answer and not by
       // whichever folder happens to be focused when it is finally used.
@@ -182,7 +186,7 @@ export function useAgent() {
       // stopped their sessions; what is left is the copies here, and a chat
       // pointing at a folder the window no longer holds has nowhere to send.
       const dirs = new Set((info?.projects || []).map((p) => p.dir));
-      if (dirs.size) dropChatsOutside(dirs, dir);
+      if (dirs.size) dropChatsOutside(dirs.add(info.chats), dir);
     };
     tandem().project.info().then(apply).catch(() => {});
     return tandem().project.onChanged(apply);
@@ -658,6 +662,9 @@ export function useAgent() {
   useEffect(() => {
     window.tandemRail?.sync?.({
       active: activeKey,
+      // Said apart from the list, which leaves out a chat nobody has typed in,
+      // because the welcome screen stands aside for a blank chat with no folder.
+      activeProject: active?.project || null,
       // A chat nobody has typed in is not a chat yet.
       chats: chats.filter((c) => c.session || c.items.length).map((c) => ({
         key: c.key,
@@ -935,7 +942,7 @@ export function useAgent() {
     // have no session id yet, and two new chats would both match on null.
     // Opening a chat moves the window to its folder: the files, the changes and
     // the shells beside it should be the ones that chat is talking about.
-    if (s.project && s.project !== focusedProject.current) {
+    if (s.project && s.project !== focusedProject.current && s.project !== chatsDir.current) {
       tandem().project.focus(s.project).catch(() => {});
     }
 

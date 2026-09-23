@@ -768,6 +768,7 @@ export function runCommand(name, arg) {
     case 'updates': return window.tandemChat?.settings?.('updates');
     case 'appearance': return window.tandemChat?.settings?.('appearance');
     case 'newChat': return window.tandemChat?.newChat();
+    case 'newChatNoFolder': return window.tandem.project.info().then((i) => window.tandemChat?.newChat(i.chats));
     case 'copyMcp': return copyMcpCommand();
     case 'about': return toast(
       'Tandem',

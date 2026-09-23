@@ -8,7 +8,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
-  FolderOpenIcon, FolderPlusIcon, GaugeIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, GaugeIcon, MessageSquareIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -324,6 +324,36 @@ function Folder({ folder, active, current, onDelete, onRemove }) {
   );
 }
 
+/* The chats with no project, pinned above the projects. They have no folder to
+   fold, open or remove, so this is a plain list under a label with a way to
+   start another one. */
+function Chats({ folder, active, onDelete }) {
+  return (
+    <SidebarGroup className="gap-0.5">
+      <SidebarGroupLabel>Chats</SidebarGroupLabel>
+      <SidebarGroupAction title="New chat without a folder" onClick={() => startChatIn(folder.dir)}>
+        <PlusIcon />
+      </SidebarGroupAction>
+      <SidebarGroupContent>
+        <Completed folder={folder} active={active} onDelete={onDelete} />
+        {!folder.rows.length && !folder.done.length ? (
+          <p className="px-2 py-1 text-muted-foreground text-xs">No chats yet</p>
+        ) : (
+          <SidebarMenu>
+            {folder.rows.map((chat) => (
+              <Row
+                key={chat.key || chat.id}
+                chat={chat}
+                current={!!chat.key && chat.key === active}
+                onDelete={onDelete} />
+            ))}
+          </SidebarMenu>
+        )}
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 /* Starting a chat, and saying where.
 
    New chat used to mean "here", and here was whichever folder the window
@@ -371,6 +401,17 @@ function NewChatDialog({ open, onOpenChange }) {
       <CommandInput placeholder="Search folders" />
       <CommandList>
         <CommandEmpty>No folder by that name.</CommandEmpty>
+
+        {/* This one leaves the window where it is, because a chat with no
+            folder has no files or shells to put beside it. */}
+        {window_.chats && (
+          <CommandGroup>
+            <CommandItem value="no folder just chat" onSelect={() => { onOpenChange(false); startChatIn(window_.chats); }}>
+              <MessageSquareIcon />
+              <span>No folder, just chat</span>
+            </CommandItem>
+          </CommandGroup>
+        )}
 
         {!!window_.projects?.length && (
           <CommandGroup heading="Open in this window">
@@ -492,7 +533,9 @@ export default function Rail() {
   const [doomed, setDoomed] = useState(null);
   const [leaving, setLeaving] = useState(null);
   const [starting, setStarting] = useState(false);
-  const folders = grouped();
+  const all = grouped();
+  const chats = all.find((f) => f.folderless);
+  const folders = all.filter((f) => !f.folderless);
   const active = activeKey();
   /* The folder holding the chat you are in. Its heading brightens, which is the
      one thing the rail was not saying: with three folders open and a chat from
@@ -552,6 +595,7 @@ export default function Rail() {
       </SidebarHeader>
 
       <SidebarContent>
+        {chats && <Chats folder={chats} active={active} onDelete={setDoomed} />}
         <SidebarGroup className="gap-0.5">
           {/* The rail is the list of folders, so the way to add one belongs at
               the top of it. The picker is main's, so a folder already open here

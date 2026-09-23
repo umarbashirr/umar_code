@@ -44,6 +44,7 @@ const COMMANDS = [
   { name: 'previewFull', label: 'Right pane at full width', icon: MaximizeIcon, hint: 'Ctrl+Shift+F' },
   { name: 'newTerminal', label: 'New terminal', icon: PlusIcon, hint: 'Ctrl+Shift+T' },
   { name: 'newChat', label: 'New chat', icon: SquarePenIcon },
+  { name: 'newChatNoFolder', label: 'New chat without a folder', icon: MessageSquareIcon },
   { name: 'theme', label: 'Light or dark', icon: SunMoonIcon },
   { name: 'appearance', label: 'Theme and appearance', icon: PaletteIcon },
   { name: 'settings', label: 'Settings', icon: SettingsIcon, hint: 'Ctrl+,' },

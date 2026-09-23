@@ -1,17 +1,20 @@
-/* Shown over the chat pane until a folder has been chosen. The agent, the
-   shells and the chat history are all scoped to one folder, so there is nothing
-   useful to draw before that choice is made. */
+/* Shown over the chat pane until a folder has been chosen. The shells, the
+   files and the changes are all scoped to one folder, so there is little to
+   draw before that choice is made. A chat does not need one, so this stands
+   aside for a chat with no folder. */
 import { useEffect, useState } from 'react';
-import { FolderIcon, FolderOpenIcon } from 'lucide-react';
+import { FolderIcon, FolderOpenIcon, MessageSquareIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { onProject, openFolder, openRecent, project, shortPath } from '../../project.js';
+import { activeProject, subscribeRail } from './rail-store';
 
 export default function Welcome() {
   const [, bump] = useState(0);
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
+  useEffect(() => subscribeRail(() => bump((n) => n + 1)), []);
 
-  if (project.chosen) return null;
+  if (project.chosen || (project.chats && activeProject() === project.chats)) return null;
 
   const recents = project.recents.slice(0, 6);
 
@@ -33,6 +36,10 @@ export default function Welcome() {
           <Button onClick={() => openFolder()}>Open folder…</Button>
           <Button variant="outline" onClick={() => openFolder({ newWindow: true })}>New window…</Button>
         </div>
+        <Button variant="secondary" onClick={() => window.tandemChat?.newChat(project.chats)}>
+          <MessageSquareIcon />
+          Just chat
+        </Button>
 
         {recents.length > 0 && (
           <div className="flex w-full max-w-sm flex-col gap-0.5">
