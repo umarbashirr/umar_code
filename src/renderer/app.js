@@ -731,6 +731,7 @@ export function runCommand(name, arg) {
     // The palette lives in the React half and registers itself on the window,
     // the way the settings dialog does.
     case 'palette': return window.tandemPalette?.toggle();
+    case 'usage': return window.tandemChat?.usage?.();
     case 'previewFull':
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();
