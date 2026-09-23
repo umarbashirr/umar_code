@@ -121,7 +121,7 @@ function ModelItems({ rows, current, onPick }) {
         <>
           <DropdownMenuSeparator />
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>More models</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>More Models</DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-40">{legacy.map(item)}</DropdownMenuSubContent>
           </DropdownMenuSub>
         </>
@@ -132,7 +132,7 @@ function ModelItems({ rows, current, onPick }) {
 
 const chooseModels = (id) => window.tandemChat?.settings(`${id}-models`);
 
-const EFFORT_LABEL = { xhigh: 'Extra high' };
+const EFFORT_LABEL = { xhigh: 'Extra High' };
 const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCase() + level.slice(1);
 
 function ModelPicker({ agent, settings }) {
@@ -205,7 +205,7 @@ function ModelPicker({ agent, settings }) {
                 title={`${g.missing?.message || 'Not found on your PATH.'} Install it with: ${INSTALL[g.id] || ''}`}
                 className="justify-between gap-6">
                 <ProviderName id={g.id} />
-                <span className="text-muted-foreground text-xs">not installed</span>
+                <span className="text-muted-foreground text-xs">Not Installed</span>
               </DropdownMenuItem>
             );
           }
@@ -213,7 +213,7 @@ function ModelPicker({ agent, settings }) {
             return (
               <DropdownMenuItem key={g.id} onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
                 <ProviderName id={g.id} />
-                <span className="text-muted-foreground text-xs">all hidden</span>
+                <span className="text-muted-foreground text-xs">All Hidden</span>
               </DropdownMenuItem>
             );
           }
@@ -225,7 +225,7 @@ function ModelPicker({ agent, settings }) {
                 title={g.missing?.message || 'Installed, but not logged in.'}
                 className="justify-between gap-6">
                 <ProviderName id={g.id} />
-                <span className="text-muted-foreground text-xs">not logged in</span>
+                <span className="text-muted-foreground text-xs">Not Logged In</span>
               </DropdownMenuItem>
             );
           }
@@ -241,8 +241,8 @@ function ModelPicker({ agent, settings }) {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => chooseModels(g.id)} className="justify-between gap-6">
-                      Choose models…
-                      {g.hiddenCount > 0 && <span className="text-muted-foreground text-xs">{g.hiddenCount} hidden</span>}
+                      Choose Models…
+                      {g.hiddenCount > 0 && <span className="text-muted-foreground text-xs">{g.hiddenCount} Hidden</span>}
                     </DropdownMenuItem>
                   </>
                 )}
@@ -263,7 +263,7 @@ function ModelPicker({ agent, settings }) {
               <DropdownMenuRadioGroup
                 value={agent.effort || 'default'}
                 onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
-                <DropdownMenuRadioItem value="default">Default effort</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="default">Default Effort</DropdownMenuRadioItem>
                 {agent.efforts.map((level) => (
                   <DropdownMenuRadioItem key={level} value={level}>{effortLabel(level)}</DropdownMenuRadioItem>
                 ))}
@@ -274,7 +274,7 @@ function ModelPicker({ agent, settings }) {
         {capable && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
-              Context window
+              Context Window
               <span className="ml-auto pl-4 text-muted-foreground text-xs">{long ? '1M' : '200K'}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="min-w-36">
@@ -289,7 +289,7 @@ function ModelPicker({ agent, settings }) {
         )}
         {/* A proxy routes whatever names its owner configured, and no probe
             here can be sure it has seen all of them. */}
-        <DropdownMenuItem onSelect={() => setTyping(true)}>Type a model name…</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setTyping(true)}>Type a Model Name…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -38,11 +38,17 @@ function priceList() {
   return byId;
 }
 
+// OpenCode names every model after its provider, as in "opencode/Big Pickle"
+// or, on 1.x, "OpenCode Zen/Big Pickle". Under an OpenCode heading its own
+// models need no prefix; another provider's keeps it, since the same model
+// can come from two.
+const ownName = (m) => (m.value.startsWith('opencode/') ? m.displayName.replace(/^[^/]*\//, '') : m.displayName);
+
 function annotate(models) {
   const byId = priceList();
   return models.map((m) => {
     const cost = byId.get(m.value);
-    return { ...m, free: !!cost && !(cost.input > 0) && !(cost.output > 0) };
+    return { ...m, displayName: ownName(m), free: !!cost && !(cost.input > 0) && !(cost.output > 0) };
   });
 }
 
