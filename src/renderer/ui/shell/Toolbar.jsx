@@ -8,7 +8,10 @@
    is drawn by the desktop and lands on top. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
+  CheckIcon,
   CodeXmlIcon,
+  CopyIcon,
+  FolderOpenIcon,
   MoonIcon,
   PanelLeftIcon,
   RotateCwIcon,
@@ -225,23 +228,42 @@ function OpenIn({ folder }) {
           {pick?.icon ? <img src={pick.icon} alt="" className="size-4 rounded-xs" /> : <CodeXmlIcon />}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      {/* The default comes first and says so: it is what a plain click on the
+          button opens. The install path is for whoever needs to tell two copies
+          apart, so it is a tooltip rather than text on every row. */}
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="truncate font-normal text-muted-foreground text-xs">
+          Open <span className="font-medium text-foreground">{folder.name}</span> in
+        </DropdownMenuLabel>
         <DropdownMenuGroup>
-          {list.map((e) => (
-            <DropdownMenuItem key={e.id} onSelect={() => openEditor(e.id)}>
+          {[...list].sort((a, b) => (b.id === pick?.id) - (a.id === pick?.id)).map((e) => (
+            <DropdownMenuItem key={e.id} title={e.bin} onSelect={() => openEditor(e.id)}>
               {e.icon ? <img src={e.icon} alt="" className="size-4 rounded-xs" /> : <CodeXmlIcon />}
               <span className="truncate">{e.name}</span>
-              <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">{e.bin}</span>
+              {e.id === pick?.id && (
+                <span className="ml-auto flex items-center gap-1 text-muted-foreground text-xs">
+                  <CheckIcon className="size-3.5" /> Default
+                </span>
+              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => loadEditors({ fresh: true })}>
-            <RotateCwIcon />
-            Look again
+          <DropdownMenuItem onSelect={() => window.tandem.files.openExternal('')}>
+            <FolderOpenIcon />
+            Show in file manager
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(folder.dir)}>
+            <CopyIcon />
+            Copy folder path
           </DropdownMenuItem>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-muted-foreground text-xs" onSelect={() => loadEditors({ fresh: true })}>
+          <RotateCwIcon />
+          Refresh editor list
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
