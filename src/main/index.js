@@ -1196,6 +1196,9 @@ function registerIpc() {
 
   ipcMain.handle('updates:info', () => updates.current());
   ipcMain.handle('updates:check', () => updates.check());
+  // Offline is not worth an error here: the dialog is asked for again on the
+  // next launch, since nothing was recorded as seen.
+  ipcMain.handle('updates:whatsNew', () => updates.whatsNew(settings.get('notices').whatsNew).catch(() => null));
   ipcMain.handle('updates:download', async () => {
     try {
       const res = await updates.download((p) => send('updates:progress', p));

@@ -12,6 +12,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
+import { ReleaseNotesText } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
@@ -192,6 +193,32 @@ function RestartDialog({ updates, busy, open, onDismiss }) {
   );
 }
 
+// The first launch on a new version, once. The version is recorded as seen
+// only when this is closed, so a launch that quits before anyone reads it asks
+// again next time.
+function WhatsNewDialog({ release, onDismiss }) {
+  return (
+    <Dialog open={!!release} onOpenChange={(next) => { if (!next) onDismiss(); }}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>What's new in Tandem {release?.version}</DialogTitle>
+          <DialogDescription>
+            {release?.publishedAt
+              ? `You are now on ${release.version}, released ${new Date(release.publishedAt).toLocaleDateString()}.`
+              : `You are now on ${release?.version}.`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-y-auto text-sm">
+          <ReleaseNotesText notes={release?.notes} />
+        </div>
+        <DialogFooter>
+          <Button onClick={onDismiss}>Got it</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
@@ -205,6 +232,12 @@ export default function App() {
     [updates.restart.installed],
   );
   const restartOpen = !!(updates.restart.ready && updates.restart.installed !== restartDismissedFor);
+  const [whatsNew, setWhatsNew] = useState(null);
+  useEffect(() => { window.tandem.updates.whatsNew().then(setWhatsNew).catch(() => {}); }, []);
+  const dismissWhatsNew = useCallback(() => {
+    set({ notices: { whatsNew: whatsNew.version } });
+    setWhatsNew(null);
+  }, [whatsNew, set]);
   // The Customize page, in the chat's place. null when the chat is showing;
   // otherwise the section on screen, so Help → Check for updates lands on
   // updates and the skills chip lands on skills.
@@ -365,6 +398,7 @@ export default function App() {
     return (
       <>
         <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+        <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
         <CustomizePage
           section={customizeAt}
           onSection={setCustomizeAt}
@@ -382,6 +416,7 @@ export default function App() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+      <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}

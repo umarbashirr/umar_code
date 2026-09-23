@@ -197,6 +197,7 @@ contextBridge.exposeInMainWorld('tandem', {
   updates: {
     info: () => ipcRenderer.invoke('updates:info'),
     check: () => ipcRenderer.invoke('updates:check'),
+    whatsNew: () => ipcRenderer.invoke('updates:whatsNew'),
     download: () => ipcRenderer.invoke('updates:download'),
     install: (path) => ipcRenderer.invoke('updates:install', { path }),
     openPage: () => ipcRenderer.invoke('updates:openPage'),
