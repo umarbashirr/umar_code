@@ -1447,8 +1447,7 @@ app.whenReady().then(async () => {
       captureWindow: async () => {
         if (!win) return { error: 'no window' };
         const img = await win.webContents.capturePage();
-        const dir = path.join(require('os').tmpdir(), 'tandem-shots');
-        ensurePrivateDir(dir);
+        const dir = ensurePrivateDir('tandem-shots');
         const file = path.join(dir, `window-${Date.now()}.png`);
         fs.writeFileSync(file, img.toPNG(), { mode: 0o600 });
         return { path: file, ...img.getSize() };

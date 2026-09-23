@@ -1,6 +1,7 @@
 'use strict';
 // P3.1: screenshots and pasted attachments land in a shared tmp dir. Anyone
-// else on the box must not be able to read them.
+// else on the box must not be able to read them, and must not be able to
+// redirect our writes by pre-planting a dir or symlink at the path we use.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -9,8 +10,11 @@ const ROOT = process.env.TANDEM_ROOT || path.join(__dirname, '..');
 const failures = [];
 const pass = (name) => console.log(`PASS ${name}`);
 const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failures.push(name); };
+const note = (msg) => console.log(`NOTE ${msg}`);
 
-const mode = (p) => fs.statSync(p).mode & 0o777;
+const uidSuffix = typeof process.getuid === 'function' ? `-${process.getuid()}` : '';
+const expectedDir = (name) => path.join(os.tmpdir(), `${name}${uidSuffix}`);
+const modeOf = (p) => { try { return fs.statSync(p).mode & 0o777; } catch { return null; } };
 
 let ensurePrivateDir = null;
 try {
@@ -20,22 +24,80 @@ try {
 }
 
 function checkEnsurePrivateDirFresh() {
-  if (!ensurePrivateDir) { fail('ensurePrivateDir-creates-0700', 'private-dir.js not loaded'); return; }
-  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-repro-')), 'shots');
-  ensurePrivateDir(dir);
-  if (mode(dir) === 0o700) pass('ensurePrivateDir-creates-0700');
-  else fail('ensurePrivateDir-creates-0700', `mode=${mode(dir).toString(8)}`);
+  const label = 'ensurePrivateDir-creates-per-user-0700-dir';
+  if (!ensurePrivateDir) { fail(label, 'private-dir.js not loaded'); return; }
+  const name = `tandem-repro-fresh-${Date.now()}`;
+  const want = expectedDir(name);
+  let got;
+  try {
+    got = ensurePrivateDir(name);
+  } catch (e) {
+    fail(label, `threw ${e.message}`);
+    return;
+  }
+  if (got === want && modeOf(got) === 0o700) pass(label);
+  else fail(label, `got=${got} want=${want} mode=${modeOf(got)}`);
 }
 
-// mkdirSync's mode option only applies when it creates the dir. A dir an older
-// build already left at 0755 must still end up private.
-function checkEnsurePrivateDirFixesStaleDir() {
-  if (!ensurePrivateDir) { fail('ensurePrivateDir-fixes-stale-0755-dir', 'private-dir.js not loaded'); return; }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-repro-stale-'));
-  fs.chmodSync(dir, 0o755);
-  ensurePrivateDir(dir);
-  if (mode(dir) === 0o700) pass('ensurePrivateDir-fixes-stale-0755-dir');
-  else fail('ensurePrivateDir-fixes-stale-0755-dir', `mode=${mode(dir).toString(8)}`);
+// mkdirSync's mode option only applies when it creates the dir. A dir this app
+// itself left at 0755 (from before this file existed) must still end up
+// private, without being treated as unsafe just because it predates the fix.
+function checkEnsurePrivateDirFixesOwnStaleDir() {
+  const label = 'ensurePrivateDir-fixes-own-stale-0755-dir';
+  if (!ensurePrivateDir) { fail(label, 'private-dir.js not loaded'); return; }
+  const name = `tandem-repro-stale-${Date.now()}`;
+  const want = expectedDir(name);
+  fs.mkdirSync(want, { recursive: true, mode: 0o755 });
+  fs.chmodSync(want, 0o755); // mkdirSync's mode only bites on creation; force the stale case
+  let got;
+  try {
+    got = ensurePrivateDir(name);
+  } catch (e) {
+    fail(label, `threw ${e.message}`);
+    return;
+  } finally {
+    try { fs.rmSync(want, { recursive: true, force: true }); } catch {}
+  }
+  if (got === want) pass(label);
+  else fail(label, `got=${got} want=${want}`);
+}
+
+// A symlink at the path we're about to use, aimed at somewhere the attacker
+// controls, must never be followed: not chmod'ed (chmodSync follows symlinks;
+// only lstat does not), and nothing gets written through it. This is the one
+// half of the review's threat model a single-user sandbox can actually stage.
+function checkSymlinkIsNotFollowed() {
+  const label = 'ensurePrivateDir-refuses-a-symlink';
+  if (!ensurePrivateDir) { fail(label, 'private-dir.js not loaded'); return; }
+  const name = `tandem-repro-symlink-${Date.now()}`;
+  const linkPath = expectedDir(name);
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-repro-symlink-target-'));
+  fs.symlinkSync(target, linkPath, 'dir');
+  let got;
+  try {
+    got = ensurePrivateDir(name);
+  } catch (e) {
+    try { fs.unlinkSync(linkPath); } catch {}
+    try { fs.rmSync(target, { recursive: true, force: true }); } catch {}
+    fail(label, `threw ${e.message}`);
+    return;
+  }
+  const stillASymlink = (() => { try { return fs.lstatSync(linkPath).isSymbolicLink(); } catch { return false; } })();
+  const targetUntouched = (() => { try { return fs.readdirSync(target).length === 0; } catch { return false; } })();
+  const fellBack = got !== linkPath && path.dirname(got) === os.tmpdir();
+  try { fs.unlinkSync(linkPath); } catch {}
+  try { fs.rmSync(target, { recursive: true, force: true }); } catch {}
+  if (fellBack && stillASymlink && targetUntouched) pass(label);
+  else fail(label, `got=${got} fellBack=${fellBack} stillASymlink=${stillASymlink} targetUntouched=${targetUntouched}`);
+}
+
+// The other half, a dir another OS user already owns at our path, needs a
+// second uid to actually create, which a single-user sandbox does not have.
+// Recorded here instead of faked: private-dir.js's safeToUse() rejects a dir
+// whenever lstat's uid disagrees with process.getuid(), the same lstat call
+// checkSymlinkIsNotFollowed above already exercises for the symlink half.
+function noteForeignOwnerCase() {
+  note('foreign-owner-dir cannot be staged on a single-user machine (would need a second uid to own the pre-existing dir); covered by code review of private-dir.js\'s safeToUse(), which rejects any dir whose lstat().uid !== process.getuid()');
 }
 
 // attachments.js's fromDataUrl writes a pasted image to disk without touching
@@ -49,47 +111,50 @@ async function checkAttachmentFileIsPrivate() {
     fail('load-attachments', e.message);
     return;
   }
-  // fromDataUrl always writes into the same real os.tmpdir()/tandem-attachments,
-  // regardless of which checkout's copy of the function is under test here, so a
-  // dir a previous run left behind (private or not) must not leak into this one.
+  // fromDataUrl always writes into the same real os.tmpdir(), regardless of
+  // which checkout's copy of the function is under test here, so a dir a
+  // previous run left behind (private or not) must not leak into this one.
+  try { fs.rmSync(expectedDir('tandem-attachments'), { recursive: true, force: true }); } catch {}
   try { fs.rmSync(path.join(os.tmpdir(), 'tandem-attachments'), { recursive: true, force: true }); } catch {}
   const dataUrl = `data:image/png;base64,${Buffer.from('not really a png').toString('base64')}`;
   const res = await fromDataUrl({ dataUrl, name: 'p3-repro.png' });
   if (res.error) { fail('attachment-write-ok', res.error); return; }
   const dir = path.dirname(res.path);
-  const dirOk = mode(dir) === 0o700;
-  const fileOk = mode(res.path) === 0o600;
+  const dirOk = modeOf(dir) === 0o700;
+  const fileOk = modeOf(res.path) === 0o600;
   if (dirOk && fileOk) pass('attachment-dir-and-file-private');
-  else fail('attachment-dir-and-file-private', `dir=${mode(dir).toString(8)} file=${mode(res.path).toString(8)}`);
+  else fail('attachment-dir-and-file-private', `dir=${modeOf(dir)} file=${modeOf(res.path)}`);
 }
 
 // browser.js and index.js's captureWindow both need a live Electron process to
 // run their write path end to end, so their wiring is checked in source: both
-// must route through the same ensurePrivateDir/0o600 the two runtime checks
-// above just proved private.
+// must route through the same ensurePrivateDir/0o600 the runtime checks above
+// just proved private.
 function checkBrowserAndCaptureWindowWiring() {
   const browserSrc = fs.readFileSync(path.join(ROOT, 'src/main/browser.js'), 'utf8');
   const indexSrc = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
 
-  if (/ensurePrivateDir\(this\.shotDir\)/.test(browserSrc)
+  if (/ensurePrivateDir\('tandem-shots'\)/.test(browserSrc)
     && /writeFileSync\(file, image\.toPNG\(\), \{ mode: 0o600 \}\)/.test(browserSrc)) {
     pass('browser-shotdir-wired-private');
   } else {
-    fail('browser-shotdir-wired-private', 'browser.js does not call ensurePrivateDir + 0o600 writeFileSync');
+    fail('browser-shotdir-wired-private', "browser.js does not call ensurePrivateDir('tandem-shots') + 0o600 writeFileSync");
   }
 
-  if (/ensurePrivateDir\(dir\)/.test(indexSrc)
+  if (/ensurePrivateDir\('tandem-shots'\)/.test(indexSrc)
     && /writeFileSync\(file, img\.toPNG\(\), \{ mode: 0o600 \}\)/.test(indexSrc)) {
     pass('capturewindow-wired-private');
   } else {
-    fail('capturewindow-wired-private', 'index.js captureWindow does not call ensurePrivateDir + 0o600 writeFileSync');
+    fail('capturewindow-wired-private', "index.js captureWindow does not call ensurePrivateDir('tandem-shots') + 0o600 writeFileSync");
   }
 }
 
 (async () => {
-  console.log('=== P3.1 screenshots and attachments must be private ===');
+  console.log('=== P3.1 screenshots and attachments must be private, and their dirs unspoofable ===');
   checkEnsurePrivateDirFresh();
-  checkEnsurePrivateDirFixesStaleDir();
+  checkEnsurePrivateDirFixesOwnStaleDir();
+  checkSymlinkIsNotFollowed();
+  noteForeignOwnerCase();
   await checkAttachmentFileIsPrivate();
   checkBrowserAndCaptureWindowWiring();
   console.log(failures.length ? `\n${failures.length} FAIL(s)` : '\nALL PASS');

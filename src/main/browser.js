@@ -4,7 +4,6 @@ const { EventEmitter } = require('events');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { normalizeUrl, isAllowedUrl } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
@@ -45,8 +44,7 @@ class BrowserPane extends EventEmitter {
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
     this.favicon = '';
-    this.shotDir = path.join(os.tmpdir(), 'tandem-shots');
-    ensurePrivateDir(this.shotDir);
+    this.shotDir = ensurePrivateDir('tandem-shots');
     this.#pruneShots();
 
     this.view = new WebContentsView({

@@ -8,7 +8,6 @@
 // would cost a fortune to say the same thing.
 const fs = require('fs');
 const fsp = fs.promises;
-const os = require('os');
 const path = require('path');
 const { dialog } = require('electron');
 const { ensurePrivateDir } = require('./private-dir');
@@ -78,8 +77,7 @@ async function fromDataUrl({ dataUrl, name }) {
   const buf = Buffer.from(m[2], 'base64');
   if (buf.length > MAX_IMAGE_BYTES) return { error: 'that image is too large' };
 
-  const dir = path.join(os.tmpdir(), 'tandem-attachments');
-  ensurePrivateDir(dir);
+  const dir = ensurePrivateDir('tandem-attachments');
   const file = path.join(dir, `paste-${Date.now()}-${++pasted}${ext}`);
   await fsp.writeFile(file, buf, { mode: 0o600 });
 
