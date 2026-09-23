@@ -7,6 +7,7 @@ const path = require('path');
 const os = require('os');
 const { normalizeUrl, isAllowedUrl } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
+const { ensurePrivateDir } = require('./private-dir');
 
 function partitionFor(project) {
   const key = crypto.createHash('sha256').update(String(project || '')).digest('hex').slice(0, 16);
@@ -45,7 +46,7 @@ class BrowserPane extends EventEmitter {
     this.debuggerAttached = false;
     this.favicon = '';
     this.shotDir = path.join(os.tmpdir(), 'tandem-shots');
-    fs.mkdirSync(this.shotDir, { recursive: true });
+    ensurePrivateDir(this.shotDir);
     this.#pruneShots();
 
     this.view = new WebContentsView({
@@ -405,7 +406,7 @@ class BrowserPane extends EventEmitter {
       image = await this.wc.capturePage();
     }
     const file = screenshotFilePath(this.shotDir, name);
-    fs.writeFileSync(file, image.toPNG());
+    fs.writeFileSync(file, image.toPNG(), { mode: 0o600 });
     this.#pruneShots();
     const size = image.getSize();
     return { path: file, width: size.width, height: size.height };
