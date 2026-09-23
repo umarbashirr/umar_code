@@ -42,6 +42,10 @@ export const blankUsage = () => ({
   banked: {},
   // What the query() running now has reported, replaced whole each result.
   live: {},
+  // Requests still streaming, by the thread they belong to. The CLI only counts
+  // a request into modelUsage once it finishes, so one cut off by Stop is
+  // billed and never reported unless it is banked from here.
+  inflight: {},
   // Size of the last request on the main thread, which is what fills the
   // window. Not a running total: it is one number that also goes down.
   context: 0,
@@ -85,12 +89,61 @@ export const requestSize = (u) => (u?.input_tokens || 0)
 
 // An assistant message on the main thread. A subagent has its own window, so
 // its requests say nothing about how full this conversation is.
-export function withRequest(usage, apiUsage) {
+function withRequest(usage, apiUsage) {
   const size = requestSize(apiUsage);
   return size ? { ...usage, context: size } : usage;
 }
 
-export function withResult(usage, msg) {
+const fromApi = (u = {}) => ({
+  inputTokens: u.input_tokens || 0,
+  outputTokens: u.output_tokens || 0,
+  cacheReadInputTokens: u.cache_read_input_tokens || 0,
+  cacheCreationInputTokens: u.cache_creation_input_tokens || 0,
+});
+
+// A request's own numbers, off the stream. message_start carries its input the
+// moment it is accepted, long before the first assistant message, which waits
+// for a whole thinking block. message_delta carries its output at the end.
+function withStreamEvent(usage, ev, thread) {
+  const inflight = usage.inflight || {};
+  if (ev?.type === 'message_start' && ev.message?.usage) {
+    const next = {
+      ...usage,
+      inflight: { ...inflight, [thread]: { model: ev.message.model || usage.model, ...fromApi(ev.message.usage) } },
+    };
+    return thread === 'main' ? withRequest(next, ev.message.usage) : next;
+  }
+  if (ev?.type === 'message_delta' && ev.usage?.output_tokens && inflight[thread]) {
+    return { ...usage, inflight: { ...inflight, [thread]: { ...inflight[thread], outputTokens: ev.usage.output_tokens } } };
+  }
+  if (ev?.type === 'message_stop' && inflight[thread]) {
+    const { [thread]: _done, ...rest } = inflight;
+    return { ...usage, inflight: rest };
+  }
+  return usage;
+}
+
+// Stop was pressed. Whatever was still streaming has been paid for and will
+// never reach modelUsage: an interrupted first turn gets no result at all, and
+// a later one gets a result that repeats the previous totals.
+export function withStop(usage) {
+  const cut = Object.values(usage.inflight || {});
+  if (!cut.length) return usage;
+  let banked = usage.banked;
+  for (const { model, ...m } of cut) banked = bank(banked, { [model || 'unknown']: m });
+  return { ...usage, banked, inflight: {} };
+}
+
+// Every message that says anything about spend goes through here.
+export function account(usage, msg) {
+  const thread = msg.parent_tool_use_id || 'main';
+  if (msg.type === 'stream_event') return withStreamEvent(usage, msg.event, thread);
+  if (msg.type === 'assistant' && thread === 'main' && msg.message?.usage) return withRequest(usage, msg.message.usage);
+  if (msg.type === 'result') return { ...withResult(usage, msg), inflight: {} };
+  return usage;
+}
+
+function withResult(usage, msg) {
   const live = msg.modelUsage || {};
   const now = spent(live);
   // A turn that died on the way up can report zeroes. Taking those would throw
@@ -113,9 +166,12 @@ export function withResult(usage, msg) {
   };
 }
 
+// Per model, everything this chat has been told it spent.
+export const byModel = (usage) => bank(usage.banked, usage.live);
+
 // Everything the panel draws, from the two halves put back together.
 export function totals(usage) {
-  const all = bank(usage.banked, usage.live);
+  const all = byModel(usage);
   const rows = [];
   let input = 0;
   let output = 0;

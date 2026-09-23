@@ -35,7 +35,7 @@ function Ring({ pct }) {
   );
 }
 
-function Row({ label, value, note, swatch, dim }) {
+export function Row({ label, value, note, swatch, dim }) {
   return (
     <div className="flex items-baseline gap-2">
       {swatch && <span className="size-2 shrink-0 translate-y-px rounded-[2px]" style={{ background: swatch }} />}
@@ -72,7 +72,7 @@ function ContextBar({ pct, detail }) {
   );
 }
 
-function PlanRow({ label, limit }) {
+export function PlanRow({ label, limit }) {
   const pct = Math.round(limit?.utilization ?? 0);
   const left = resetsIn(limit?.resets_at);
   return (
@@ -80,7 +80,7 @@ function PlanRow({ label, limit }) {
       <div className="flex items-baseline gap-2">
         <span className="text-muted-foreground">{label}</span>
         <span className="ml-auto font-mono tabular-nums">{pct}%</span>
-        {left && <span className="w-14 shrink-0 text-right text-muted-foreground">{left} left</span>}
+        {left && <span className="min-w-14 shrink-0 whitespace-nowrap text-right text-muted-foreground">{left} left</span>}
       </div>
       <Meter pct={pct} className={pct >= 90 ? 'bg-destructive' : pct >= 70 ? 'bg-[hsl(var(--warning))]' : 'bg-foreground/70'} />
     </div>
@@ -219,6 +219,14 @@ export function UsageMeter({ usage, chat }) {
             {limits.seven_day_opus && <PlanRow label="7 days, Opus" limit={limits.seven_day_opus} />}
           </div>
         )}
+
+        <Button
+          variant="ghost"
+          size="xs"
+          className="-mx-1.5 -mb-1 justify-start px-1.5 font-normal text-muted-foreground"
+          onClick={() => { setOpen(false); window.tandemChat?.usage?.(); }}>
+          Usage across every chat and agent
+        </Button>
 
         <p className="border-t pt-3 text-muted-foreground leading-relaxed">
           {usage.unpriced

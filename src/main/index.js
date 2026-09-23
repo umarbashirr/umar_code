@@ -23,6 +23,7 @@ const completed = require('./completed');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
 const { ensurePrivateDir } = require('./private-dir');
+const { createUsageLedger } = require('./usage-ledger');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease } = require('./pane-lease');
@@ -72,6 +73,8 @@ let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode
 // today's default happens to be and never follow it.
 let chosenEffort = EFFORT.includes(settings.get('agent').effort) ? settings.get('agent').effort : '';
 const chatPrefs = createChatPrefs();
+let ledger = null;
+const usageLedger = () => (ledger ||= createUsageLedger(app.getPath('userData')));
 let driverReady = null;
 let fileWatcher = null;
 let lastBounds = null; // the renderer measures before the pane exists
@@ -1031,6 +1034,27 @@ function registerIpc() {
     const [context, plan] = await Promise.all([a.contextUsage(), a.planUsage()]);
     return { context, plan };
   });
+  // The Usage page. Spend is whatever the chats have recorded; plan limits are
+  // only known to a live session, so each CLI answers through any one of its
+  // chats that is still running, and says nothing when none is.
+  ipcMain.handle('usage:record', (_e, { chat, provider: on, models } = {}) => {
+    usageLedger().record(chat, on || chatPrefs.providerOf(chat, provider), models);
+  });
+  ipcMain.handle('usage:all', async () => {
+    const one = new Map();
+    for (const [chat, a] of sessions) {
+      const on = chatPrefs.providerOf(chat, provider);
+      if (!a.closed && !one.has(on)) one.set(on, a);
+    }
+    const asked = await Promise.all([...one].map(async ([on, a]) => {
+      const plan = await Promise.race([
+        a.planUsage().catch(() => null),
+        new Promise((r) => { setTimeout(() => r(null), 5000); }),
+      ]);
+      return [on, plan && !plan.error ? plan : null];
+    }));
+    return { ...usageLedger().summary(), plans: Object.fromEntries(asked) };
+  });
   // Closing one chat, not the window. Whatever else is running stays running.
   ipcMain.handle('agent:reset', (_e, { chat } = {}) => ({ ok: stopChat(chat) }));
 
@@ -1472,4 +1496,4 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { stopAllChats(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });
+app.on('before-quit', () => { ledger?.flush(); stopAllChats(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });

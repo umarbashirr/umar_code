@@ -8,7 +8,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
-  FolderOpenIcon, FolderPlusIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, GaugeIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -540,6 +540,12 @@ export default function Rail() {
             <SidebarMenuButton title="Skills, MCP servers and settings" onClick={() => window.tandemChat?.customize()}>
               <BlocksIcon />
               <span>Customize</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.tandemChat?.usage()}>
+              <GaugeIcon />
+              <span>Usage</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
