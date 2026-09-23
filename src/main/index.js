@@ -1266,7 +1266,6 @@ function registerIpc() {
   // can see the browser prompt and answer it. The token it writes is the same
   // one the next chat reads.
   ipcMain.handle('catalog:mcpLogin', (_e, { name }) => {
-    if (mcpRegistry.has(name)) return mcpRegistry.loginCommand(name, nodeBin());
     if (!claudeCatalog()) return cat().mcpLogin(focusedCwd(), name);
     const server = cat().current(focusedCwd()).mcp.find((s) => s.name === name);
     if (!server) return { error: `${name} is not a server this folder knows about` };
@@ -1275,6 +1274,17 @@ function registerIpc() {
     return { command: `${quote(claudeBinary() || 'claude')} mcp login ${quote(server.runtime)}` };
   });
 
+  // Tandem's own remote servers sign in through mcp-remote, which runs the
+  // browser step itself and saves a token every agent's proxy reads. A live
+  // claude chat reconnects afterwards so its proxy picks the token up now.
+  ipcMain.handle('catalog:mcpAuth', async (_e, { name }) => {
+    const res = await mcpRegistry.authenticate(name);
+    const dir = focusedCwd();
+    if (res.error) return { ...cat().current(dir), error: res.error };
+    if (!claudeCatalog()) return cat().current(dir);
+    await Promise.all(catalogSessions(dir).map((a) => a.reconnectMcp(name)));
+    return learnCatalog();
+  });
   ipcMain.handle('catalog:mcpReconnect', async (_e, { name }) => {
     const dir = focusedCwd();
     const agent = catalogSessions(dir)[0] || null;
@@ -1612,4 +1622,4 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { ledger?.flush(); stopAllChats(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });
+app.on('before-quit', () => { ledger?.flush(); stopAllChats(); mcpRegistry.stopSignIns(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });

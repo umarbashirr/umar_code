@@ -270,8 +270,9 @@ function Servers({ catalog }) {
                     size="sm"
                     variant="outline"
                     className="h-7 gap-1.5 opacity-100"
-                    title="Open a shell and run the CLI's sign-in for this server"
+                    title={s.scope === 'tandem' ? 'Sign in to this server in your browser' : "Open a shell and run the CLI's sign-in for this server"}
                     onClick={async () => {
+                      if (s.scope === 'tandem') return catalog.authMcp(s.name);
                       const command = await catalog.loginMcp(s.name);
                       if (command) runCommand('runInTerminal', command);
                     }}>

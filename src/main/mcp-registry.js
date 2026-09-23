@@ -2,8 +2,10 @@
 // The MCP servers Tandem starts every agent session with, whichever CLI runs
 // it. Configured once here rather than once per CLI, in the same shape as a
 // .mcp.json so an existing config can be pasted in.
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { DIR } = require('./projects');
 
 const FILE = path.join(DIR, 'mcp.json');
@@ -76,14 +78,75 @@ function launchList(node) {
     }));
 }
 
-// A shell command that runs the browser sign-in for a remote server once.
-function loginCommand(name, node) {
+// mcp-remote's own getServerUrlHash and getConfigDir, for the arguments
+// remoteArgs passes: the url, then the headers as mcp-remote parses them back
+// out of each --header, keys sorted.
+function tokensFile(config) {
+  const headers = {};
+  for (const [k, v] of Object.entries(config.headers || {})) {
+    const match = `${k}: ${v}`.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (match) headers[match[1]] = match[2];
+  }
+  const parts = [config.url];
+  if (Object.keys(headers).length) parts.push(JSON.stringify(headers, Object.keys(headers).sort()));
+  const hash = crypto.createHash('md5').update(parts.join('|')).digest('hex');
+  return path.join(AUTH_DIR, 'mcp-remote-v1', `${hash}_tokens.json`);
+}
+
+function signedIn(name) {
   const config = read()[name];
-  if (!config) return { error: `${name} is not one of Tandem's servers` };
-  if (typeOf(config) === 'stdio') return { error: `${name} runs as a local process, so there is nothing to sign in to` };
-  const quote = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
-  const argv = [node, path.join(REMOTE, 'client.js'), ...remoteArgs(config)];
-  return { command: `MCP_REMOTE_CONFIG_DIR=${quote(AUTH_DIR)} ${argv.map(quote).join(' ')}` };
+  return !!config && typeOf(config) !== 'stdio' && fs.existsSync(tokensFile(config));
+}
+
+const AUTH_TIMEOUT = 5 * 60 * 1000;
+const signIns = new Map();
+
+// Runs mcp-remote's client once. It opens the browser for OAuth itself when the
+// server asks for it, saves the token where every agent's proxy looks, lists
+// the tools and exits 0. A server without auth goes straight to the listing.
+// Electron runs it as node directly, since the node shim is a .cmd on Windows
+// and that cannot be spawned without a shell.
+function authenticate(name) {
+  if (signIns.has(name)) return signIns.get(name).done;
+  const config = read()[name];
+  if (!config) return Promise.resolve({ error: `${name} is not one of Tandem's servers` });
+  if (typeOf(config) === 'stdio') {
+    return Promise.resolve({ error: `${name} runs as a local process, so there is nothing to sign in to` });
+  }
+  // stdin stays open: the client shuts down as soon as it closes.
+  const child = spawn(process.execPath, [path.join(REMOTE, 'client.js'), ...remoteArgs(config)], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MCP_REMOTE_CONFIG_DIR: AUTH_DIR },
+    stdio: ['pipe', 'ignore', 'pipe'],
+    windowsHide: true,
+  });
+  // Every line mcp-remote logs starts with its pid in brackets; the lines in
+  // between are stack traces.
+  let last = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    for (const line of chunk.split('\n')) {
+      const said = line.replace(/^(\[\d+\] )+/, '').trim();
+      if (said !== line.trim() && said) last = said;
+    }
+  });
+  const timer = setTimeout(() => {
+    last = 'the sign-in was not finished within 5 minutes';
+    child.kill();
+  }, AUTH_TIMEOUT);
+  const done = new Promise((resolve) => {
+    child.on('error', (e) => { last = e.message; });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      signIns.delete(name);
+      resolve(code === 0 ? { ok: true } : { error: last || `mcp-remote exited with code ${code}` });
+    });
+  });
+  signIns.set(name, { child, done });
+  return done;
+}
+
+function stopSignIns() {
+  for (const { child } of signIns.values()) child.kill();
 }
 
 // The servers as catalog rows. A CLI's own server of the same name gives way,
@@ -102,11 +165,10 @@ function listed(rows) {
     status: 'configured',
     error: null,
     tools: null,
+    signedIn: signedIn(name),
   }));
   const names = new Set(ours.map((s) => s.name));
   return [...rows.filter((s) => !names.has(s.name)), ...ours].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-const has = (name) => Object.hasOwn(read(), name);
-
-module.exports = { FILE, read, add, remove, has, launchList, loginCommand, listed };
+module.exports = { FILE, read, add, remove, launchList, authenticate, stopSignIns, listed };

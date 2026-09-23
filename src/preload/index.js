@@ -173,6 +173,7 @@ contextBridge.exposeInMainWorld('tandem', {
     mcpToggle: (name, enabled) => ipcRenderer.invoke('catalog:mcpToggle', { name, enabled }),
     mcpReconnect: (name) => ipcRenderer.invoke('catalog:mcpReconnect', { name }),
     mcpLogin: (name) => ipcRenderer.invoke('catalog:mcpLogin', { name }),
+    mcpAuth: (name) => ipcRenderer.invoke('catalog:mcpAuth', { name }),
     mcpAdd: (server) => ipcRenderer.invoke('catalog:mcpAdd', server),
     mcpRemove: (name, scope) => ipcRenderer.invoke('catalog:mcpRemove', { name, scope }),
     onChanged: on('agent:catalog'),
