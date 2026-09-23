@@ -30,6 +30,8 @@ const subscribeTop = (fn) => {
 };
 const onTop = () => activeKind(project.focused) === 'agents';
 
+const PEEK_MS = 3000;
+
 const whatOf = (item) => item.description || item.input?.description || 'Agent';
 
 function AgentList({ agents, current }) {
@@ -94,12 +96,12 @@ function AgentDetail({ item, agent }) {
           {item.loaded === 'loading' && (
             <Shimmer as="div" className="px-2 py-1 font-mono text-[11px]">reading its transcript…</Shimmer>
           )}
-          <Items items={item.children || []} agent={agent} />
-          {/* A background agent sends nothing back until it finishes. Say so,
-              or the pane reads as broken. */}
+          <Items items={item.children?.length ? item.children : item.peek || []} agent={agent} />
           {isLive(item) && item.background && !item.children?.length && (
             <div className="px-2 text-muted-foreground text-xs">
-              Running in the background. Its steps show up once it reports back.
+              {item.peek?.length
+                ? 'Running in the background. Read from its transcript every few seconds.'
+                : 'Running in the background. Its steps show up here once it writes its first one.'}
             </div>
           )}
           {item.report && (
@@ -132,6 +134,17 @@ export default function AgentsView() {
   useEffect(() => {
     if (pending) agent.openAgent(pending);
   }, [pending?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A background agent streams nothing until it is done, so while one is on
+  // screen its transcript is read again every few seconds, and once more when
+  // it stops being watched so the steps it finished on are not left out.
+  const watching = showing && current && isLive(current) && current.background && !current.children?.length ? current : null;
+  useEffect(() => {
+    if (!watching) return undefined;
+    agent.peekAgent(watching);
+    const timer = setInterval(() => agent.peekAgent(watching), PEEK_MS);
+    return () => { clearInterval(timer); agent.peekAgent(watching); };
+  }, [watching?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div id="agents-view" className="flex h-full min-h-0 flex-col" hidden={!showing || undefined}>

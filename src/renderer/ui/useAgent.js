@@ -7,6 +7,8 @@ import { hasUndecidedPerm } from './shell/chat-attention.js';
 const tandem = () => window.tandem;
 
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+// An agent or background shell that has not reported back.
+const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
 
 const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 
@@ -544,8 +546,21 @@ export function useAgent() {
 
     // A session ending is not the chat ending: a parked chat is stopped on
     // purpose and its transcript stays on screen.
+    // The process is gone, and every agent and background shell it was running
+    // went with it. A row left saying running would count up forever.
     offs.push(tandem().agent.onClosed(({ chat } = {}) => {
-      if (chat) edit(chat, (c) => ({ ...c, busy: false }));
+      if (!chat) return;
+      edit(chat, (c) => {
+        const cut = c.items.some(isRunning);
+        return {
+          ...c,
+          busy: false,
+          items: cut
+            ? [...c.items.map((it) => (isRunning(it) ? { ...it, status: 'stopped', waiting: false } : it)),
+              { id: uid('i'), kind: 'note', text: 'the session ended, so its background work stopped' }]
+            : c.items,
+        };
+      });
     }));
 
     // `tandem ask` from the terminal can open a chat too.
@@ -631,7 +646,7 @@ export function useAgent() {
   // scrolled past the row that started it.
   // Background shells count: a dev server left running is still going.
   const running = useMemo(
-    () => active.items.filter((it) => (it.kind === 'agent' || it.taskId) && it.status === 'running'),
+    () => active.items.filter(isRunning),
     [active.items],
   );
 
@@ -756,7 +771,7 @@ export function useAgent() {
     if (!chat?.session || !item?.agentId || item.loaded) return;
     patch(key, item.id, { loaded: 'loading' });
     try {
-      const t = await tandem().agent.subagent(chat.session, item.agentId);
+      const t = await tandem().agent.subagent(chat.session, item.agentId, chat.project);
       const kids = replay(t.messages, item.id);
       edit(key, (c) => ({ ...c, items: [...c.items, ...kids] }));
       patch(key, item.id, { loaded: true });
@@ -764,6 +779,25 @@ export function useAgent() {
       patch(key, item.id, { loaded: true, report: item.report || `could not read that agent's transcript: ${e.message}` });
     }
   }, [edit, patch]);
+
+  // A background agent sends nothing back until it finishes, but it writes its
+  // transcript as it goes, under the same id its task started with. Reading
+  // that is the only way to watch one work. A tool with no result yet is the
+  // step it is on.
+  const peekAgent = useCallback(async (item) => {
+    const key = activeRef.current;
+    const chat = chatsRef.current.find((c) => c.key === key);
+    const id = item?.agentId || item?.taskId;
+    if (!chat?.session || !id) return;
+    try {
+      const t = await tandem().agent.subagent(chat.session, id, chat.project);
+      const steps = replay(t.messages, item.id)
+        .map((n) => (n.kind === 'tool' && n.output === undefined ? { ...n, state: 'input-available' } : n));
+      patch(key, item.id, { peek: steps });
+    } catch {
+      // Not written yet, or not a Claude agent. The pane keeps saying so.
+    }
+  }, [patch]);
 
   // Stopping the turn also empties the queue, and the parked text is handed
   // back to the caller so the composer can put it where the user left it.
@@ -803,7 +837,7 @@ export function useAgent() {
     if (next?.usage?.model) setModel(next.usage.model);
     if (typeof next?.effort === 'string') setEffort(next.effort);
     if (prev && prev.key !== key && !prev.busy && prev.session) {
-      tandem().agent.reset(prev.key).catch(() => {});
+      tandem().agent.reset(prev.key, { idleOnly: true }).catch(() => {});
     }
   }, []);
 
@@ -1083,6 +1117,6 @@ export function useAgent() {
     decide, interrupt, reset, setProject, clear, open, removeChat, switchTo, changeModel, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
-    stopAgent, backgroundAgent, openAgent,
+    stopAgent, backgroundAgent, openAgent, peekAgent,
   };
 }
