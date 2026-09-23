@@ -24,13 +24,11 @@ import { VISIBILITY } from '@/lib/model-visibility';
 import { ProviderLogo } from '@/components/provider-logo';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
-import { CHAT_SIZES, toast, ZOOM_STEPS } from '../../app.js';
+import { CHAT_SIZES, runCommand, toast, ZOOM_STEPS } from '../../app.js';
 
 export const SETTINGS_SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
-  ['cursor-models', 'Cursor models', (p) => <ProviderLogo id="cursor" {...p} />],
-  ['opencode-models', 'OpenCode models', (p) => <ProviderLogo id="opencode" {...p} />],
   ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
   ['updates', 'Updates', DownloadIcon],
@@ -255,13 +253,17 @@ function ModelRow({ agent }) {
 }
 
 /* The CLIs the panel can drive. None of them ship with Tandem, so for each one
-   this is the name, where to get it, and what the box on the settings page
-   should suggest when someone has it somewhere odd. */
+   this is the name, where to get it, how to sign in and update it, and what
+   the box on its page should suggest when someone has it somewhere odd. */
 const PROVIDERS = {
   claude: {
     label: 'Claude',
     cli: 'claude',
     install: 'npm install -g @anthropic-ai/claude-code',
+    login: ['auth', 'login'],
+    // The CLI updates itself whichever way it was installed, so one command
+    // covers the npm copy and the one the native installer put down.
+    update: 'claude update',
     where: '/usr/local/bin/claude',
     missing: 'Nothing named claude on your PATH. Install it, check that claude --version answers in a terminal, then restart Tandem.',
   },
@@ -269,41 +271,45 @@ const PROVIDERS = {
     label: 'Cursor',
     cli: 'agent',
     install: 'curl https://cursor.com/install -fsS | bash',
+    login: ['login'],
+    update: 'agent update',
     where: '/usr/local/bin/agent',
     missing: 'Nothing named agent on your PATH. Install the Cursor CLI from cursor.com/cli, run agent login, then restart Tandem.',
   },
   grok: {
     label: 'Grok',
     cli: 'grok',
-    install: 'See https://x.ai/cli',
+    install: null,
+    site: 'https://x.ai/cli',
+    login: ['login'],
+    update: null,
     where: '/usr/local/bin/grok',
     missing: 'Nothing named grok on your PATH. Install the Grok CLI from x.ai/cli, run grok login, then restart Tandem.',
   },
   opencode: {
     label: 'OpenCode',
     cli: 'opencode',
-    install: 'npm install -g opencode-ai',
+    install: 'curl -fsSL https://opencode.ai/install | bash',
+    login: ['auth', 'login'],
+    update: 'opencode upgrade',
     where: '/usr/local/bin/opencode',
-    missing: 'Nothing named opencode on your PATH. Install it with npm install -g opencode-ai, run opencode auth login for any provider past the free models, then restart Tandem.',
+    missing: 'Nothing named opencode on your PATH. Install it from opencode.ai, run opencode auth login for any provider past the free models, then restart Tandem.',
   },
   codex: {
     label: 'Codex',
     cli: 'codex',
     install: 'npm install -g @openai/codex',
+    login: ['login'],
+    // codex has a `codex update`, but it only works for the native install
+    // and refuses on an npm one, which is how most people have it.
+    update: 'npm install -g @openai/codex',
     where: '/usr/local/bin/codex',
     missing: 'Nothing named codex on your PATH. Install it, run codex login once, then restart Tandem. If your only copy is the one inside the ChatGPT app, give its full path below.',
   },
 };
 
-// The CLI updates itself whichever way it was installed, so one command covers
-// the npm copy and the one the native installer put down.
-const CLAUDE_UPDATE = 'claude update';
-const CURSOR_UPDATE = 'agent update';
-const GROK_UPDATE = 'See https://x.ai/cli';
-const OPENCODE_UPDATE = 'opencode upgrade';
-// codex has a `codex update`, but it only works for the native install and
-// refuses on an npm one, which is how most people have it.
-const CODEX_UPDATE = 'npm install -g @openai/codex';
+export const AGENT_SECTIONS = Object.entries(PROVIDERS)
+  .map(([id, p]) => [`agent-${id}`, p.label, (props) => <ProviderLogo id={id} {...props} />]);
 
 // Copying in silence looks like a button that did nothing.
 const copy = (text) => {
@@ -311,62 +317,105 @@ const copy = (text) => {
   toast('Copied', text);
 };
 
-function Agent({ settings, set, agent, updates }) {
+const shellQuote = (v) => (/^[\w@%+=:,./-]+$/.test(v) ? v : `'${String(v).replace(/'/g, `'\\''`)}'`);
+
+function Agent({ settings, set, agent }) {
   const provider = PROVIDERS[agent.provider] ? agent.provider : 'claude';
+  return (
+    <Section title="New chats" note="What a chat starts on. Changing it here changes the chats already open too. Each CLI has its own page under Agents.">
+      <Row
+        label="Agent"
+        hint="Which CLI the panel drives. Chats already open keep the one they started on; the next message starts a new one.">
+        <Select value={provider} onValueChange={agent.changeProvider}>
+          <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {Object.entries(PROVIDERS).map(([id, v]) => (
+                <SelectItem key={id} value={id}><ProviderLogo id={id} />{v.label}</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Row>
+      <ModelRow agent={agent} />
+      <Row label="Permission mode" hint={MODES.find(([v]) => v === settings.agent.mode)?.[2]}>
+        <Select value={settings.agent.mode} onValueChange={(mode) => set({ agent: { mode } })}>
+          <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Row>
+    </Section>
+  );
+}
+
+/* One CLI, everything about it: whether it is here, which one, signing in,
+   updating it, and which of its models the picker lists. The driver knows
+   first, since it probes on every launch; the update check is a network call
+   someone can switch off, so it only fills in what the driver has not said. */
+function AgentPage({ provider, settings, set, agent, updates }) {
   const p = PROVIDERS[provider];
-  // The driver knows first: it probes on every launch, while the update check
-  // is a network call someone can switch off. Only the version comes from the
-  // update cache, and only when the driver has not reported one yet.
+  const state = agent.providers.find((s) => s.id === provider);
   const cli = updates[provider] || {};
-  const running = agent.driver?.installed
-    ? {
-      path: agent.driver.binaryPath,
-      version: agent.driver.version || cli.running?.version || null,
-    }
-    : null;
+  const installed = state ? state.installed : !!cli.running;
+  const version = state?.version || cli.running?.version || null;
+  const path = state?.path || cli.path || null;
+  const inUse = agent.provider === provider;
   const saved = settings[provider]?.binary || '';
   const [draft, setDraft] = useState(saved);
-  // Two things move this box: switching provider, and a settings reset. Either
-  // way a stale path would be written back on the next blur.
+  // Two things move this box: a settings reset, and a path saved elsewhere.
+  // Either way a stale path would be written back on the next blur.
   useEffect(() => { setDraft(saved); }, [saved]);
+
+  const inTerminal = (command) => runCommand('runInTerminal', command);
+  const updateHint = cli.behind
+    ? `You have ${version}. ${p.update ? `Update runs ${p.update} in a terminal.` : `Get it at ${p.site}.`}`
+    : cli.latest
+      ? `${version} is the latest.`
+      : p.update
+        ? `Tandem has no latest version to compare with. Update runs ${p.update}, which checks for itself.`
+        : `Newer releases are at ${p.site}.`;
 
   return (
     <>
-      <Section title="New chats" note="What a chat starts on. Changing it here changes the chats already open too.">
-        <Row
-          label="Agent"
-          hint="Which CLI the panel drives. Chats already open keep the one they started on; the next message starts a new one.">
-          <Select value={provider} onValueChange={agent.changeProvider}>
-            <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {Object.entries(PROVIDERS).map(([id, v]) => (
-                  <SelectItem key={id} value={id}><ProviderLogo id={id} />{v.label}</SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Row>
-        <ModelRow agent={agent} />
-        <Row label="Permission mode" hint={MODES.find(([v]) => v === settings.agent.mode)?.[2]}>
-          <Select value={settings.agent.mode} onValueChange={(mode) => set({ agent: { mode } })}>
-            <SelectTrigger className="min-w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {MODES.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Row>
-      </Section>
-
       <Section
-        title={`${p.label} CLI`}
-        note={`Tandem runs the ${p.cli} you installed. A chat already running keeps the one it started with.`}>
-        <Row label={running ? 'Found' : 'Not found'} hint={running?.path || p.missing}>
-          <Mono>{running?.version || '—'}</Mono>
-          {!running && <Button variant="outline" onClick={() => copy(p.install)}>Copy command</Button>}
+        title={p.label}
+        icon={<ProviderLogo id={provider} className="size-4" />}
+        note={`Tandem runs the ${p.cli} you installed, with the login you already have. A chat already running keeps the one it started with.`}>
+        <Row label={installed ? 'Installed' : 'Not installed'} hint={installed ? path : p.missing}>
+          {installed
+            ? <Mono>{version || '—'}</Mono>
+            : <Button variant="outline" onClick={() => copy(p.install || p.site)}>{p.install ? 'Copy install command' : 'Copy link'}</Button>}
         </Row>
+        <Row
+          label="New chats"
+          hint={inUse
+            ? `New chats start on ${p.label}.`
+            : `New chats start on ${PROVIDERS[agent.provider]?.label || 'another CLI'}. Chats already open keep theirs.`}>
+          {inUse
+            ? <Mono>In use</Mono>
+            : <Button variant="outline" disabled={!installed} onClick={() => agent.changeProvider(provider)}>Use {p.label}</Button>}
+        </Row>
+        {installed && (
+          <Row label="Sign in" hint={`Runs ${p.cli} ${p.login.join(' ')} in a terminal, for a first login or one that has expired.`}>
+            <Button variant="outline" onClick={() => inTerminal([path || p.cli, ...p.login].map(shellQuote).join(' '))}>
+              <SquareTerminalIcon className="size-4" /> Sign in
+            </Button>
+          </Row>
+        )}
+        {installed && (
+          <Row label={cli.behind ? `${cli.latest} is out` : 'Updates'} hint={updateHint}>
+            {p.update && (cli.behind || !cli.latest) && (
+              <Button variant="outline" onClick={() => inTerminal(p.update)}>
+                <SquareTerminalIcon className="size-4" /> Update
+              </Button>
+            )}
+            {!p.update && cli.behind && <Button variant="outline" onClick={() => copy(p.site)}>Copy link</Button>}
+          </Row>
+        )}
         <Row
           label="Somewhere else"
           hint={`Leave this empty unless ${p.cli} lives where PATH cannot reach it. A full path to the binary.`}>
@@ -380,25 +429,26 @@ function Agent({ settings, set, agent, updates }) {
             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
         </Row>
       </Section>
+      <ModelList provider={provider} settings={settings} set={set} agent={agent} installed={installed} />
     </>
   );
 }
 
-function ModelsPage({ provider, settings, set, agent }) {
+function ModelList({ provider, settings, set, agent, installed }) {
   const [query, setQuery] = useState('');
   const vis = VISIBILITY[provider];
-  const { label, missing } = PROVIDERS[provider];
+  const { label, cli, login, missing } = PROVIDERS[provider];
   const rows = useMemo(() => {
-    const seen = new Set();
-    const out = [];
+    // Claude lists a 1M-context copy of some models under the same id. The
+    // plain copy names the model.
+    const byId = new Map();
     for (const m of agent.models) {
       if (m.provider !== provider) continue;
       const id = vis.id(m);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push({ id, label: m.displayName || id, free: !!m.free });
+      if (byId.has(id) && m.value !== id) continue;
+      byId.set(id, { id, label: m.displayName || id, free: !!m.free });
     }
-    return out;
+    return [...byId.values()];
   }, [agent.models, provider, vis]);
 
   const q = query.trim().toLowerCase();
@@ -407,14 +457,19 @@ function ModelsPage({ provider, settings, set, agent }) {
   const shownCount = rows.filter((r) => vis.isShown(r, settings)).length;
 
   if (!rows.length) {
-    return <Section title={`${label} models`} note={`${label} has not listed any models yet. ${missing}`} />;
+    return (
+      <Section
+        title="Models"
+        note={installed
+          ? `${label} has not listed any models yet. If you are not signed in, run ${cli} ${login.join(' ')}.`
+          : `${label} has not listed any models yet. ${missing}`} />
+    );
   }
 
   return (
     <Section
-      title={`${label} models`}
-      icon={<ProviderLogo id={provider} className="size-4" />}
-      note={`Which of ${label}'s models the model picker shows. ${shownCount} of ${rows.length} shown. ${vis.note}`}>
+      title="Models"
+      note={`Which of ${label}'s models the picker shows. ${shownCount} of ${rows.length} shown. ${vis.note}`}>
       <div className="flex items-center gap-2 py-4">
         <Input
           value={query}
@@ -599,27 +654,6 @@ function Downloading({ received, total }) {
   );
 }
 
-// Both CLIs answer the same three questions, so they get the same row: which
-// version is running, whether a newer one is out, and what to type for it.
-function CliSection({ provider, title, note, state, update, absent }) {
-  const cli = state || {};
-  return (
-    <Section title={title} icon={<ProviderLogo id={provider} className="size-4" />} note={note}>
-      <Row
-        label={cli.missing ? 'Not found' : cli.behind ? `${cli.latest} is out` : 'Up to date'}
-        hint={cli.missing
-          ? absent
-          : cli.running?.version
-            ? `Running ${cli.running.version}${cli.latest ? `, latest is ${cli.latest}` : ''}.`
-            : 'No version reported yet.'}>
-        {cli.behind && (
-          <Button variant="outline" onClick={() => copy(update)}>Copy update command</Button>
-        )}
-      </Row>
-    </Section>
-  );
-}
-
 function Updates({ settings, set, updates }) {
   const { app, claude, codex, cursor, grok, opencode, kind, progress, file, checking } = updates;
   const behind = app.behind;
@@ -705,45 +739,25 @@ function Updates({ settings, set, updates }) {
         </Row>
       </Section>
 
-      <CliSection
-        provider="claude"
-        title="Claude CLI"
-        note="Yours to update. Tandem only reads the version, so it never replaces the binary under you."
-        state={claude}
-        update={CLAUDE_UPDATE}
-        absent="No claude on your PATH, so Claude chats cannot start. See the Agent tab." />
-
-      <CliSection
-        provider="codex"
-        title="Codex CLI"
-        note="Only needed if you drive Codex. Same deal: Tandem reads the version and nothing else."
-        state={codex}
-        update={CODEX_UPDATE}
-        absent="No codex on your PATH. Install it if you want to drive Codex from the Agent tab." />
-
-      <CliSection
-        provider="cursor"
-        title="Cursor CLI"
-        note="Only needed if you drive Cursor. Tandem reads the version; there is no npm latest to compare."
-        state={cursor}
-        update={CURSOR_UPDATE}
-        absent="No Cursor CLI (agent) on your PATH. Install it from cursor.com/cli if you want Cursor chats." />
-
-      <CliSection
-        provider="grok"
-        title="Grok CLI"
-        note="Only needed if you drive Grok. Tandem reads the version; there is no npm latest to compare."
-        state={grok}
-        update={GROK_UPDATE}
-        absent="No grok on your PATH. Install it from x.ai/cli if you want Grok chats." />
-
-      <CliSection
-        provider="opencode"
-        title="OpenCode CLI"
-        note="Only needed if you drive OpenCode. Tandem reads the version; npm lags the install script, so there is no latest to compare."
-        state={opencode}
-        update={OPENCODE_UPDATE}
-        absent="No opencode on your PATH. Install it from opencode.ai if you want OpenCode chats." />
+      <Section title="Agent CLIs" note="Each one is yours to update. Tandem only reads the version, so it never replaces a binary under you.">
+        {Object.entries(PROVIDERS).map(([id, p]) => {
+          const cli = updates[id] || {};
+          return (
+            <Row
+              key={id}
+              label={<span className="flex items-center gap-2"><ProviderLogo id={id} />{p.label}</span>}
+              hint={cli.missing
+                ? 'Not installed.'
+                : cli.behind
+                  ? `${cli.latest} is out. You have ${cli.running?.version}.`
+                  : cli.running?.version
+                    ? `${cli.running.version}${cli.latest ? ', the latest' : ''}.`
+                    : 'No version reported yet.'}>
+              <Button variant="ghost" onClick={() => window.tandemChat?.settings(`agent-${id}`)}>Open</Button>
+            </Row>
+          );
+        })}
+      </Section>
 
       {updates.error && (
         <Alert variant="destructive">
@@ -816,8 +830,9 @@ export function SettingsPanel({ section, ...props }) {
     <>
       {section === 'appearance' && <Appearance {...props} />}
       {section === 'agent' && <Agent {...props} />}
-      {section === 'cursor-models' && <ModelsPage provider="cursor" {...props} />}
-      {section === 'opencode-models' && <ModelsPage provider="opencode" {...props} />}
+      {section?.startsWith('agent-') && PROVIDERS[section.slice(6)] && (
+        <AgentPage key={section} provider={section.slice(6)} {...props} />
+      )}
       {section === 'chat' && <ChatPrefs {...props} />}
       {section === 'terminal' && <TerminalPrefs {...props} />}
       {section === 'updates' && <Updates {...props} />}
