@@ -20,6 +20,7 @@ import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, toast } from '../app.js';
+import { publish, showAgent } from './shell/agents-store.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -159,6 +160,8 @@ function TurnClock({ since }) {
 
 export default function App() {
   const agent = useAgent();
+  // The Agents tab draws from this chat's state but mounts in the right column.
+  useEffect(() => publish(agent));
   const catalog = useCatalog();
   const { settings, set, reset } = useSettings();
   const updates = useUpdates();
@@ -325,7 +328,7 @@ export default function App() {
       <FleetStrip
         agents={agent.running}
         onStop={agent.stopAgent}
-        onShow={(a) => document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })} />
+        onShow={(a) => showAgent(a.id)} />
 
       <Composer
         agent={agent}
@@ -408,7 +411,7 @@ function Transcript({ items, agent }) {
   );
 }
 
-function Items({ items, agent, from = 0 }) {
+export function Items({ items, agent, from = 0 }) {
   return runs(items).slice(from).map((g) => {
     if (!g.run) return <Row key={g.id}><Item item={g.item} agent={agent} /></Row>;
     if (g.run.length < FOLD_AT) {
@@ -440,8 +443,8 @@ function Items({ items, agent, from = 0 }) {
 function Item({ item, agent }) {
   const onDecide = agent.decide;
 
-  // An agent owns whatever it did, so its rows are drawn inside it rather than
-  // loose in the transcript where they would interleave with everyone else's.
+  // An agent owns whatever it did, and that lives in the Agents tab. Here it is
+  // one row, so three at once cost three lines of the chat and not three logs.
   if (item.kind === 'agent') {
     return (
       <div id={`row-${item.id}`}>
@@ -449,9 +452,7 @@ function Item({ item, agent }) {
           item={item}
           onStop={agent.stopAgent}
           onBackground={agent.backgroundAgent}
-          onOpen={agent.openAgent}>
-          <Items items={item.children || []} agent={agent} />
-        </AgentRow>
+          onShow={(it) => showAgent(it.id)} />
       </div>
     );
   }
@@ -551,9 +552,13 @@ function Item({ item, agent }) {
       // useful in telling someone they allowed their own reply.
       if (item.answers) {
         return (
-          <div className="px-2 text-muted-foreground text-xs">
+          <div className="flex flex-col gap-1.5 px-2 text-xs">
             {Object.entries(item.answers).map(([q, a]) => (
-              <div key={q} className="truncate"><span className="text-foreground">{a}</span> — {q}</div>
+              <div key={q}>
+                <div className="text-muted-foreground">{q}</div>
+                {/* The picker's advice to the asker, not part of the answer. */}
+                <div className="text-foreground">{String(a).replace(/\s*\(Recommended\)/g, '')}</div>
+              </div>
             ))}
           </div>
         );

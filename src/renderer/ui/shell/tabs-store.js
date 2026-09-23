@@ -14,12 +14,13 @@
 'use strict';
 import { layout, setLayout } from './layout-store.js';
 
-export const KINDS = ['browser', 'files', 'changes', 'terminal'];
+export const KINDS = ['browser', 'files', 'changes', 'terminal', 'agents'];
 
-// One tree and one diff per folder, so opening either twice lands you back on
-// the one you have. Previews and terminals are the exception: two dev servers,
-// or a build beside a shell, is the reason this strip exists at all.
-const SINGLE = new Set(['files', 'changes']);
+// One tree, one diff and one agents list per folder, so opening any of them
+// twice lands you back on the one you have. Previews and terminals are the
+// exception: two dev servers, or a build beside a shell, is the reason this
+// strip exists at all.
+const SINGLE = new Set(['files', 'changes', 'agents']);
 
 const byProject = new Map(); // dir -> { tabs: [{ id, kind, title }], activeId }
 

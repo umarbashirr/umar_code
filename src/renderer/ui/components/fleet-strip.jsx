@@ -7,23 +7,35 @@ import { Button } from '@/components/ui/button';
 import { clock, useTick } from '@/lib/clock';
 import { cn } from '@/lib/utils';
 
+const CHIP = 'tandem-in h-auto shrink-0 gap-2 rounded-full bg-card py-1 pr-1.5 pl-2.5 font-normal';
+
+// An agent left running in the background, a dev server say, can go on for the
+// whole session. A chip each for those fills the strip with timers that only
+// ever count up, so they share one chip. One waiting on you keeps its own.
+const parked = (a) => a.background && !a.waiting;
+
 export function FleetStrip({ agents, onStop, onShow }) {
   // One ticker for the whole strip rather than one per chip.
   useTick(agents.length > 0);
 
   if (!agents.length) return null;
 
+  const own = agents.filter((a) => !parked(a));
+  const background = agents.filter(parked);
+
+  // One line whatever the count. A strip that wraps pushes the composer up
+  // every time an agent starts, and scrolling sideways costs nothing.
   return (
-    <div className="tandem-rise mx-auto flex w-full max-w-3xl flex-wrap items-center gap-1.5 px-4 pb-1.5">
-      <span className="mr-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/75">running</span>
-      {agents.map((a) => (
+    <div className="tandem-rise mx-auto flex w-full max-w-3xl items-center gap-1.5 overflow-x-auto px-4 pb-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <span className="mr-0.5 shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/75">running</span>
+      {own.map((a) => (
         <Button
           key={a.id}
           variant="outline"
           size="xs"
           onClick={() => onShow?.(a)}
           title={a.description || a.agentType}
-          className="tandem-in h-auto gap-2 rounded-full bg-card py-1 pr-1.5 pl-2.5 font-normal">
+          className={CHIP}>
           <span className={cn(
             'size-1.5 shrink-0 rounded-full',
             a.waiting ? 'bg-amber-500' : 'animate-pulse bg-emerald-500',
@@ -45,6 +57,17 @@ export function FleetStrip({ agents, onStop, onShow }) {
           )}
         </Button>
       ))}
+      {background.length > 0 && (
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => onShow?.(background[0])}
+          title={background.map((a) => a.description || a.agentType).join('\n')}
+          className={cn(CHIP, 'pr-2.5')}>
+          <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+          <span>{background.length} in the background</span>
+        </Button>
+      )}
     </div>
   );
 }

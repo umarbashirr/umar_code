@@ -669,6 +669,7 @@ const toggleRight = (kind) => (state.rightOpen && activeKind(state.focused) === 
 const togglePreview = () => (state.rightOpen && activeKind(state.focused) === 'browser' ? hideRight() : openPreview(true));
 const toggleFiles = () => toggleRight('files');
 const toggleChanges = () => toggleRight('changes');
+const toggleAgents = () => toggleRight('agents');
 
 // The right column at full width: the chat collapses to nothing and whichever
 // tab is showing takes the whole content column. The rail is deliberately left
@@ -741,6 +742,10 @@ export function runCommand(name, arg) {
       if (arg === true) return showRight('changes');
       if (arg === false) return hideRight();
       return toggleChanges();
+    case 'agents':
+      if (arg === true) return showRight('agents');
+      if (arg === false) return hideRight();
+      return toggleAgents();
     case 'openFile':
       if (!arg) return undefined;
       showRight('files');

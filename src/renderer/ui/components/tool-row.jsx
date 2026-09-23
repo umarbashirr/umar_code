@@ -3,7 +3,7 @@
 // a stack of boxes.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ChevronRightIcon, CircleAlertIcon, FilePenIcon, FilePlusIcon, FolderSearchIcon,
+  ChevronRightIcon, CircleAlertIcon, FilePenIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
   GlobeIcon, MousePointerClickIcon, SearchIcon, SquareIcon, SquareTerminalIcon,
   TextCursorInputIcon, UsersIcon, WrenchIcon,
 } from 'lucide-react';
@@ -185,6 +185,9 @@ export function ToolStrip({ items, children }) {
         className="h-auto w-full justify-start gap-2 px-2 py-1 font-normal">
         <ChevronRightIcon
           className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
+        {/* Holds the icon column, so the summary starts where every tool
+            name beside it does. */}
+        <ListIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
         <span className="truncate text-[13px] text-muted-foreground">
           {open ? `${items.length} before this` : summarise(items)}
         </span>
