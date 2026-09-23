@@ -34,5 +34,10 @@ check('dotted-host-still-works', 'example.com', 'https://example.com');
 check('bare-dotless-word-still-ambiguous', 'myinternalhost', 'https://duckduckgo.com/?q=myinternalhost');
 check('words-with-spaces-still-searched', 'how to boil an egg', 'https://duckduckgo.com/?q=how%20to%20boil%20an%20egg');
 
+// Regression: a slash or colon inside an ordinary search phrase must not read
+// as a host just because a word before it happens to look like a label.
+check('slash-in-search-phrase-still-searched', 'c/c++ tutorial', 'https://duckduckgo.com/?q=c%2Fc%2B%2B%20tutorial');
+check('slash-word-in-search-phrase-still-searched', 'and/or meaning', 'https://duckduckgo.com/?q=and%2For%20meaning');
+
 console.log(failures.length ? `\n${failures.length} FAIL(s)` : '\nALL PASS');
 process.exit(failures.length ? 1 : 0);

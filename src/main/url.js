@@ -30,7 +30,9 @@ function assertAllowed(url) {
 // host ("devbox:8080", "myinternalhost/admin"), not a search term, so it must
 // not fall into the DuckDuckGo branch below. A bare label with neither
 // ("myinternalhost") stays ambiguous and is still treated as a search, same
-// as before this fix.
+// as before this fix. The regex only anchors the start, so on its own it also
+// matches the first slash of a search phrase like "c/c++ tutorial"; the
+// no-whitespace guard below is what keeps that a search.
 const HOST_WITH_PORT_OR_PATH = /^[a-z][a-z0-9-]*(:\d+)?\/|^[a-z][a-z0-9-]*:\d+$/i;
 
 function normalizeUrl(url) {
@@ -39,7 +41,7 @@ function normalizeUrl(url) {
   // Check host-ish shapes before scheme, or "localhost:3000" reads as a scheme.
   if (/^localhost(:\d+)?(\/|$)/i.test(s)) out = 'http://' + s;
   else if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(s)) out = 'http://' + s;
-  else if (HOST_WITH_PORT_OR_PATH.test(s)) out = 'http://' + s;
+  else if (!/\s/.test(s) && HOST_WITH_PORT_OR_PATH.test(s)) out = 'http://' + s;
   else if (/^:\d+/.test(s)) out = 'http://localhost' + s;
   else if (/^\d{2,5}$/.test(s)) out = 'http://localhost:' + s;
   else if (/^[a-z][a-z0-9+.-]*:/i.test(s)) out = s;
