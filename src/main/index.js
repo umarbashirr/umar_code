@@ -428,6 +428,28 @@ async function applyBinaries() {
   return d;
 }
 
+/* The button in Settings, and the two moments nobody presses it: opening an
+   agent's page and bringing the window back into focus. All three push the
+   same shape 'agent:driver' already sends after every other refresh, so the
+   picker and the provider rows update themselves without a special case.
+   Overlapping callers share one run rather than asking the login shell twice. */
+let recheckInflight = null;
+function recheckAgents() {
+  if (!recheckInflight) {
+    recheckInflight = (async () => {
+      await shellEnv.reask();
+      if (registry) await Promise.all(registry.all().map((row) => row.driver.refresh().catch(() => null)));
+      const payload = {
+        ...(activeDriver()?.current({ refresh: false }) || {}),
+        provider, providers: providerStates(), models: allModels(), current: settleModel(),
+      };
+      send('agent:driver', payload);
+      return payload;
+    })().finally(() => { recheckInflight = null; });
+  }
+  return recheckInflight;
+}
+
 async function applyProvider(next) {
   if (!isProviderId(next)) return provider;
   if (next === provider) return provider;
@@ -765,6 +787,16 @@ async function createWindow() {
     win.on(ev, () => send('win:state', windowState()));
   }
 
+  // Coming back to the window is when someone who just installed or updated a
+  // CLI in another terminal is most likely to look at Tandem again. Throttled
+  // so alt-tabbing back and forth does not spawn a login shell every time.
+  let lastFocusRecheck = 0;
+  win.on('focus', () => {
+    const now = Date.now();
+    if (now - lastFocusRecheck < 30000) return;
+    lastFocusRecheck = now;
+    recheckAgents().catch(() => {});
+  });
 
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
@@ -947,6 +979,10 @@ function registerIpc() {
       binaryPath: d.binaryPath || null,
     };
   });
+  // The Settings re-check button, and the same call made silently when an
+  // agent's page opens or the window regains focus. Resolves with what it
+  // sent on 'agent:driver', so the button's spinner has something to await.
+  ipcMain.handle('agent:recheck', () => recheckAgents());
 
   /* Effort has no live setter: the SDK takes it when a session starts and there
      is no equivalent of setModel for it. So this chat's idle session is stopped
