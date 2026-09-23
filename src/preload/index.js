@@ -192,6 +192,7 @@ contextBridge.exposeInMainWorld('tandem', {
     download: () => ipcRenderer.invoke('updates:download'),
     install: (path) => ipcRenderer.invoke('updates:install', { path }),
     openPage: () => ipcRenderer.invoke('updates:openPage'),
+    relaunch: () => ipcRenderer.invoke('updates:relaunch'),
     onProgress: on('updates:progress'),
     onChanged: on('updates:changed'),
   },
