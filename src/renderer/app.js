@@ -7,9 +7,10 @@ import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
 import { navigate, pickElement, toggleDrawer, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
 import { isPaneCovered } from './ui/shell/pane-cover.js';
 import {
-  activateTab, activeKind, activeTab, carryInto, dropProject as dropTabs,
-  openTab, projectDirs, setTabTitle, subscribeTabs, tabsOf,
+  activateTab, activeKind, activeTab, chatOfTab, dropChat, dropProject as dropTabs, everyTab,
+  openTab, projectDirs, revealTab, setTabTitle, showPanel, subscribeTabs, tabsOf,
 } from './ui/shell/tabs-store.js';
+import { activeKey, activeProject, liveKeys, subscribeRail } from './ui/shell/rail-store.js';
 import { DEFAULT_SCHEME, isScheme } from './ui/lib/themes.js';
 
 export const $ = (sel) => document.querySelector(sel);
@@ -22,8 +23,12 @@ const wiring = [];
 const wire = (fn) => wiring.push(fn);
 
 const state = {
-  // The folder the window is looking at. Its tabs are the ones in the column.
+  // The folder the window is looking at. With the chat on screen, it says whose
+  // tabs are the ones in the column.
   focused: '',
+  // Every folder the window has open, which is how a chat's own folder is told
+  // apart from the folder of chats that have none.
+  open: new Set(),
 };
 
 // Up here rather than with the rest of the terminal code: the theme is applied
@@ -332,16 +337,15 @@ function disposeShell(shell) {
   shell.host.remove();
 }
 
-// Every terminal tab in every folder, against every shell held. Run on each
-// change to the tabs, which is also how a folder closing takes its shells.
+// Every terminal tab in every chat's panel, against every shell held. Run on
+// each change to the tabs, which is also how a folder or a chat going away
+// takes its shells.
 function reconcileShells() {
   const wanted = new Set();
-  for (const dir of projectDirs()) {
-    for (const tab of tabsOf(dir)) {
-      if (tab.kind !== 'terminal') continue;
-      wanted.add(tab.id);
-      if (!shells.has(tab.id)) spawnShell(dir, tab.id);
-    }
+  for (const { dir, tab } of everyTab()) {
+    if (tab.kind !== 'terminal') continue;
+    wanted.add(tab.id);
+    if (!shells.has(tab.id)) spawnShell(dir, tab.id);
   }
   for (const shell of [...shells.values()]) if (!wanted.has(shell.tabId)) disposeShell(shell);
 }
@@ -398,10 +402,10 @@ window.tandem.term.onExit(({ id }) => {
 
 // --------------------------------------------------------- project focus
 
-/* One window, several folders, one panel. Focus decides which folder's shells
-   the strip lists and which terminal is on screen; it decides nothing else, and
-   in particular it stops nothing. Moving focus is two class toggles and a
-   redraw.
+/* One window, several folders, one column, and a panel for each chat in each
+   folder. Focus and the chat on screen decide which panel the column draws;
+   they decide nothing else, and in particular they stop nothing. Moving either
+   is two class toggles and a redraw.
 
    project:changed also fires when a folder is opened, closed or reordered, so
    the focused dir is compared against the last one seen and the panel is left
@@ -409,19 +413,20 @@ window.tandem.term.onExit(({ id }) => {
    because main has killed their shells and their tabs would otherwise sit in
    the map for the life of the window. */
 
-/* `leaving` is what the column was reading in the folder being left. It is a
-   parameter because the folder can be leaving by closing, in which case its
-   tabs are gone by the time this runs and the caller is the only one that still
-   knows. */
-function focusProject(dir, leaving = activeKind(state.focused)) {
+/* The panel in front is the chat on screen in the focused folder. A chat that
+   belongs to another open folder is on screen for a moment before focus
+   follows it, and that moment is not what this folder should go back to, so
+   only a chat of this folder's own, or of no folder, is remembered here. */
+function showChat() {
+  const home = activeProject();
+  const remember = !home || home === state.focused || !state.open.has(home);
+  showPanel(state.focused, activeKey() || '', { remember });
+}
+
+function focusProject(dir) {
   if (dir === state.focused) return;
   state.focused = dir;
-  /* The column swaps to this folder's strip, and a folder that has never had
-     one takes the kind you were reading. Coming to a project to look at what an
-     agent did there and landing on an empty column with three buttons in it is
-     a step nobody wants to take twice. carryInto does nothing when the column
-     is shut, so a folder you never open it on keeps costing nothing. */
-  if (dir) carryInto(dir, leaving);
+  showChat();
   syncRight();
   requestAnimationFrame(() => {
     resizeActive();
@@ -437,9 +442,7 @@ function focusProject(dir, leaving = activeKind(state.focused)) {
 window.tandem.project.onChanged((info) => {
   if (!info) return;
   const open = new Set((info.projects || []).map((p) => p.dir));
-  // Read before the drop below, because the folder closing can be the one whose
-  // diff is on screen, and the folder focus lands on should show its own.
-  const leaving = activeKind(state.focused);
+  state.open = open;
   const known = new Set(projectDirs());
   for (const dir of known) {
     // The empty dir is not a folder that can close, it is the startup gap, and
@@ -451,11 +454,26 @@ window.tandem.project.onChanged((info) => {
     dropTabs(dir);
     for (const kind of HELD) lastSeen.delete(`${kind}:${dir}`);
   }
-  focusProject(info.focused || '', leaving);
+  focusProject(info.focused || '');
+});
+
+/* Switching chats swaps the panel. A chat that was in the rail and is not any
+   more was deleted, and its panels go with it, shells and previews and all. */
+let seenChats = new Set();
+
+subscribeRail(() => {
+  const live = new Set(liveKeys());
+  for (const key of seenChats) if (!live.has(key)) dropChat(key);
+  seenChats = live;
+  showChat();
 });
 
 (async () => {
-  try { focusProject((await window.tandem.project.info())?.focused || ''); } catch {}
+  try {
+    const info = await window.tandem.project.info();
+    state.open = new Set((info?.projects || []).map((p) => p.dir));
+    focusProject(info?.focused || '');
+  } catch {}
 })();
 
 // -------------------------------------------------------------------- rail
@@ -503,7 +521,7 @@ function syncPreview() {
   const id = previewInBox();
   if (id !== named) {
     named = id;
-    window.tandem.browser.show(id);
+    window.tandem.browser.show(id, null, id && chatOfTab(id));
   }
   syncBounds();
   syncGuestVisibility();
@@ -720,14 +738,15 @@ export { toast } from './ui/shell/toast.jsx';
 
 // The agent loading a page is a request to be looked at. What it did is drawn
 // by the toolbar, which listens for the same thing.
-/* An agent navigating puts its page on screen. Main brings that agent's folder
-   forward first, so by the time this lands the folder is usually the focused
-   one and the column opens on the right page. The guard is for when it is not:
-   a folder that has since been closed, or a navigate that raced a switch. A
-   column yanked open on another folder's tab is worse than one that stayed
-   shut, because it is the wrong page under the right heading. */
-window.tandem.agent.onActivity(({ tool, project }) => {
+/* An agent navigating puts its page up in the panel of the chat it works for,
+   on the tab main drove. When that chat is on screen the column opens on the
+   page; when it is not, the page is waiting there for you. The guard is for a
+   tab this window never filed, in a folder that has since been closed or a
+   navigate that raced a switch: a column yanked open on another folder's tab
+   is the wrong page under the right heading. */
+window.tandem.agent.onActivity(({ tool, project, tab }) => {
   if (tool !== 'navigate') return;
+  if (tab && revealTab(tab)) return;
   if (project && project !== state.focused) return;
   openPreview();
 });
@@ -800,7 +819,13 @@ export function runCommand(name, arg) {
   }
 }
 
-window.tandem.onCommand(({ name, open }) => runCommand(name, open));
+// A preview an agent asked for is that agent's chat's, and the activity feed
+// puts it up there. Opening the column here as well would open it on whichever
+// chat happens to be in front.
+window.tandem.onCommand(({ name, open, chat }) => {
+  if (chat && chat !== activeKey()) return undefined;
+  return runCommand(name, open);
+});
 
 window.addEventListener('resize', () => { resizeActive(); syncBounds(); });
 wire(() => new ResizeObserver(() => syncBounds()).observe($('#paneslot')));

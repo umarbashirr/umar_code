@@ -246,9 +246,9 @@ function send(channel, payload) {
 // forward: an agent in one project putting its dev server on screen while the
 // window is looking at another would otherwise show the wrong page under the
 // right heading.
-function showPreview(show, project) {
+function showPreview(show, project, chat = null) {
   if (project && open.has(project) && project !== focused) focusProject(project);
-  send('app:command', { name: 'preview', open: show });
+  send('app:command', { name: 'preview', open: show, chat });
   if (show === true && win && !win.isFocused()) win.show();
   return { ok: true, preview: show === undefined ? 'toggled' : show ? 'open' : 'closed' };
 }
@@ -256,7 +256,7 @@ function showPreview(show, project) {
 // The preview one tab is showing, made on first use. Everything that can reach
 // a page goes through here, so a tool call from a chat in one folder can never
 // land on another folder's tab.
-function paneOf(tab, { create = true, project = focused } = {}) {
+function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   const held = panes.get(tab);
   if (held) return held.pane;
   if (!create || !tab || !win || win.isDestroyed()) return null;
@@ -264,7 +264,7 @@ function paneOf(tab, { create = true, project = focused } = {}) {
   const made = new BrowserPane(win, HOME_URL, { project });
   made.on('state', (st) => send('browser:state', { ...st, tab, project }));
   made.on('console', (c) => send('browser:console', { ...c, tab, project }));
-  panes.set(tab, { pane: made, project });
+  panes.set(tab, { pane: made, project, chat });
   // Born parked. It comes on screen only when the shell says it is the tab in
   // the box, and the shell has already said where the box is.
   if (tab === shownTab) {
@@ -276,18 +276,22 @@ function paneOf(tab, { create = true, project = focused } = {}) {
   return made;
 }
 
-/* The preview an agent working in a folder should drive. The one in the box if
-   it belongs to that folder, otherwise that folder's first, otherwise a new
-   one. In that last case the shell is told to draw a tab for it, because a page
-   nobody can click to is a page nobody can take back off the agent. */
-function previewOf(dir) {
+/* The preview an agent working in a folder should drive. Each chat has its own
+   panel, so an agent in a chat drives a preview from that chat's panel and
+   never the page another chat in the same folder has open. The one in the box
+   if it is one of those, otherwise the first, otherwise a new one. In that last
+   case the shell is told to draw a tab for it, because a page nobody can click
+   to is a page nobody can take back off the agent. With no chat named, any
+   preview in the folder will do. */
+function previewOf(dir, chat = null) {
   const key = dir && open.has(dir) ? dir : focused;
-  if (shownTab && panes.get(shownTab)?.project === key) return { tab: shownTab, pane: paneOf(shownTab) };
-  for (const [tab, rec] of panes) if (rec.project === key) return { tab, pane: rec.pane };
+  const fits = (rec) => rec?.project === key && (!chat || rec.chat === chat);
+  if (shownTab && fits(panes.get(shownTab))) return { tab: shownTab, pane: paneOf(shownTab) };
+  for (const [tab, rec] of panes) if (fits(rec)) return { tab, pane: rec.pane };
 
   const tab = `mn${++paneSeq}`;
-  const pane = paneOf(tab, { project: key });
-  send('preview:tab', { project: key, tab });
+  const pane = paneOf(tab, { project: key, chat });
+  send('preview:tab', { project: key, tab, chat });
   return { tab, pane };
 }
 
@@ -326,7 +330,10 @@ function dropPane(tab) {
 const releaseChatEverywhere = (chat) => { for (const l of leases.values()) l.releaseChat(chat); };
 const releaseTaskEverywhere = (id) => { for (const l of leases.values()) l.release(id); };
 
-const toolContext = (dir) => ({ getPane: () => previewOf(dir).pane, showPreview: (show) => showPreview(show, dir) });
+const toolContext = (dir, chat) => ({
+  getPane: () => previewOf(dir, chat).pane,
+  showPreview: (show) => showPreview(show, dir, chat),
+});
 
 // The agent SDK and the MCP server both spawn `node`. A packaged app cannot
 // assume the user has one, so leave a shim at the end of PATH that runs this
@@ -754,15 +761,19 @@ const BRIDGE_ACTOR = Object.freeze({ id: 'bridge', label: 'a terminal agent' });
 
 // Permission is already settled by the caller; this never asks.
 async function driveTool(tool, args, { cwd, actor }) {
-  const l = leaseFor(previewOf(cwd).tab);
+  // A terminal agent has no chat of its own, so it drives the preview of the
+  // chat on screen, which is the one the person running it is looking at.
+  const chat = actor?.chat || activeChat.chat;
+  const { tab } = previewOf(cwd, chat);
+  const l = leaseFor(tab);
   const busy = await l.acquire(tool, actor);
   if (busy) throw new Error(busy);
   try {
-    if (tool === 'navigate') showPreview(true, cwd);
+    if (tool === 'navigate') showPreview(true, cwd, chat);
     send('agent:activity', {
-      tool, args, t: Date.now(), actor, project: cwd || focused,
+      tool, args, t: Date.now(), actor, project: cwd || focused, tab,
     });
-    return await runTool(tool, args, toolContext(cwd));
+    return await runTool(tool, args, toolContext(cwd, chat));
   } finally {
     l.done(tool, actor);
   }
@@ -1505,7 +1516,7 @@ function registerIpc() {
     paneCovered = !v;
     paneOf(shownTab, { create: false })?.setVisible(!paneCovered);
   });
-  ipcMain.on('browser:show', (_e, { tab, project } = {}) => {
+  ipcMain.on('browser:show', (_e, { tab, project, chat } = {}) => {
     shownTab = tab || null;
     // The cover was of the page that was in the box when the menu opened, so
     // another preview arriving retires it. This is also the way back from a
@@ -1513,7 +1524,10 @@ function registerIpc() {
     paneCovered = false;
     // A tab the shell knows about and main has never made a page for: opening
     // the column on a fresh preview tab is the ordinary way here.
-    if (shownTab) paneOf(shownTab, { project: owner(project) });
+    if (shownTab) {
+      paneOf(shownTab, { project: owner(project), chat });
+      if (chat) panes.get(shownTab).chat = chat;
+    }
     applyShown();
   });
   ipcMain.on('browser:closeTab', (_e, { tab } = {}) => { if (tab) dropPane(tab); });

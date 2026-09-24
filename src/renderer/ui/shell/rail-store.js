@@ -127,6 +127,7 @@ export const relative = (ms) => {
 };
 
 export const activeKey = () => state.activeKey;
+export const liveKeys = () => state.live.map((c) => c.key);
 export const activeProject = () => state.activeProject;
 
 const folderName = (dir) => dir.split(/[/\\]/).filter(Boolean).pop() || dir;

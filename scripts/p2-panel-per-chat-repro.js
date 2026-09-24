@@ -89,10 +89,10 @@ const openChat = (page, chat) => page.evaluate(async (c) => {
   await new Promise((r) => setTimeout(r, 800));
 }, chat);
 
-const chord = (page, key) => page.evaluate(async (k) => {
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: true, shiftKey: true, bubbles: true }));
+const chord = (page, key, shiftKey = true) => page.evaluate(async (k, shift) => {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: true, shiftKey: shift, bubbles: true }));
   await new Promise((r) => setTimeout(r, 600));
-}, key);
+}, key, shiftKey);
 
 const panel = (page) => page.evaluate(() => {
   // The section keeps its border when the panel around it collapses, so the
@@ -100,7 +100,8 @@ const panel = (page) => page.evaluate(() => {
   const right = document.querySelector('section#right')?.parentElement;
   const open = !!right && right.getBoundingClientRect().width > 0;
   const tabs = [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim());
-  return { open, tabs };
+  const shells = document.querySelectorAll('#terms .term-host').length;
+  return { open, tabs, shells };
 });
 
 const show = (p) => `${p.open ? 'open' : 'shut'} [${p.tabs.join(', ')}]`;
@@ -154,10 +155,29 @@ async function main() {
     p = await panel(page);
     check('chat-three-kept-its-own', p.open && p.tabs.join() === 'Files', show(p));
 
+    await openChat(page, one);
+    await chord(page, 'B');
+    const withPreview = (await panel(page)).tabs;
+    await openChat(page, two);
+    await chord(page, '`', false);
+    p = await panel(page);
+    check('terminal-opens-in-chat-two', p.tabs.includes('Changes') && p.tabs.length === 2 && p.shells === 1, `${show(p)} shells=${p.shells}`);
+
+    await openChat(page, one);
+    p = await panel(page);
+    check('chat-one-keeps-its-preview', p.tabs.join() === withPreview.join() && p.tabs.length === 2, `${show(p)} was [${withPreview}]`);
+    check('chat-two-shell-lives-while-away', p.shells === 1, `shells=${p.shells}`);
+
+    await openChat(page, two);
+    p = await panel(page);
+    check('chat-two-terminal-comes-back', p.open && p.tabs.length === 2 && p.shells === 1, `${show(p)} shells=${p.shells}`);
+
     page.ws.close();
   } finally {
+    const exited = new Promise((r) => app.once('exit', r));
     app.kill();
-    fs.rmSync(fx.base, { recursive: true, force: true });
+    await exited;
+    fs.rmSync(fx.base, { recursive: true, force: true, maxRetries: 5 });
   }
 
   console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');

@@ -13,7 +13,7 @@
    Sizes are the ones the old CSS carried. In this version of the library a bare
    number means pixels and a bare string means percent, so "18" is 18% of the
    window and "180px" is the floor the rail used to have. */
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -46,7 +46,6 @@ import {
   activateTab,
   activeKind,
   activeTab,
-  carryInto,
   closeTab,
   getTabsVersion,
   KINDS,
@@ -155,8 +154,8 @@ function AddTab() {
 }
 
 /* The strip along the top of the right column: a tab per preview, plus the file
-   tree and the diff. It draws the focused folder's row, and switching folders
-   swaps it for that folder's own, the way the terminal strip does.
+   tree and the diff. It draws the row of the chat on screen in the focused
+   folder, and switching chats or folders swaps it for that one's own.
 
    Clicking only moves the store. The pages behind the preview tabs are native
    views main holds, and app.js reconciles those against the store, so nothing
@@ -172,16 +171,6 @@ function TabStrip() {
   const dir = useFocusedDir();
   const tabs = tabsOf(dir);
   const active = activeTab(dir);
-
-  /* Arriving somewhere with the column open and an empty strip. The kind you
-     were reading comes across, because leaving a diff in one project to land on
-     a blank column in the next is not what the move meant. Harmless if app.js
-     got there first: a folder with tabs keeps the ones it has. */
-  const cameFrom = useRef(null);
-  useEffect(() => {
-    if (cameFrom.current && cameFrom.current !== dir) carryInto(dir, activeKind(cameFrom.current));
-    cameFrom.current = dir;
-  }, [dir]);
 
   return (
     <Tabs
@@ -222,9 +211,9 @@ function TabStrip() {
         <AddTab />
 
         {/* The column closes itself when the last tab goes, so an empty strip
-            means a folder that has never had one open. Say so, rather than
+            means a chat that has never had one open. Say so, rather than
             leaving a lone plus over a blank column. */}
-        {!tabs.length && <span className="px-1 text-xs text-muted-foreground">Nothing open in this folder</span>}
+        {!tabs.length && <span className="px-1 text-xs text-muted-foreground">Nothing open in this chat</span>}
       </TabsList>
     </Tabs>
   );

@@ -53,8 +53,9 @@ contextBridge.exposeInMainWorld('tandem', {
     action: (action, arg, tab, project) => ipcRenderer.invoke('browser:action', { action, arg, tab, project }),
     // Which preview belongs in the box. The shell owns the strip, so the shell
     // is what says; null means the column is shut or is showing something that
-    // is not a preview.
-    show: (tab, project) => ipcRenderer.send('browser:show', { tab, project }),
+    // is not a preview. `chat` is the chat whose panel the tab is in, which is
+    // the chat an agent has to be working for to drive it.
+    show: (tab, project, chat) => ipcRenderer.send('browser:show', { tab, project, chat }),
     closeTab: (tab) => ipcRenderer.send('browser:closeTab', { tab }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),

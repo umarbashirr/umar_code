@@ -18,7 +18,7 @@
    reading another one is in its console when you click over to it. */
 'use strict';
 import { act, layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
-import { activateTab, activeTab, openTab, previewTabs, setTabTitle, subscribeTabs } from './tabs-store.js';
+import { activateTab, activeTab, chatOfTab, everyTab, openTab, previewTabs, setTabTitle, subscribeTabs } from './tabs-store.js';
 import { toast } from './toast.jsx';
 
 const blank = () => ({
@@ -159,14 +159,13 @@ export const previews = () => [...ownerOf].map(([tab, dir]) => ({ tab, dir }));
 
 /* A tab that left the strip takes its native view with it, and a
    WebContentsView nobody disposes stays in the window with its debugger
-   attached. Watching the strip rather than waiting to be told means the close
-   button, a folder closing and anything else that drops a tab all arrive here
-   by the same road. */
+   attached. Watching the store rather than waiting to be told means the close
+   button, a folder or a chat going away and anything else that drops a tab all
+   arrive here by the same road. Every chat's previews count, since a chat not
+   on screen keeps its pages. */
 function reap() {
-  const live = new Set(previewTabs(focusedDir));
-  for (const [tab, dir] of ownerOf) {
-    if (dir === focusedDir && !live.has(tab)) forget(tab);
-  }
+  const live = new Set(everyTab().filter((e) => e.tab.kind === 'browser').map((e) => e.tab.id));
+  for (const tab of [...ownerOf.keys()]) if (!live.has(tab)) forget(tab);
 }
 
 function forget(tab) {
@@ -188,7 +187,7 @@ function syncPreview() {
   const box = onScreen();
   if (box !== shown) {
     shown = box;
-    window.tandem.browser.show(box);
+    window.tandem.browser.show(box, null, box && chatOfTab(box));
   }
   if (box) lastPreview.set(focusedDir, box);
 
@@ -215,7 +214,7 @@ function syncPreview() {
    its loads wait for you rather than pulling the column off the folder in
    front. */
 function reveal(tab) {
-  if (!tab || ownerOf.get(tab) !== focusedDir) return;
+  if (!tab || !previewTabs(focusedDir).includes(tab)) return;
   activateTab(focusedDir, tab);
   if (!layout.rightOpen) setLayout({ rightOpen: true });
   syncPreview();
@@ -236,11 +235,9 @@ function previewIn(dir) {
 
   // Opening a tab opens the column, which is right when the address is for the
   // folder in front of you and wrong when it came from one behind it.
-  const wasOpen = layout.rightOpen;
-  const tab = openTab(dir, 'browser');
+  const tab = openTab(dir, 'browser', null, { reveal: dir === focusedDir });
   if (!tab) return null;
   ownerOf.set(tab.id, dir);
-  if (!wasOpen && dir !== focusedDir) setLayout({ rightOpen: false });
   syncPreview();
   return tab.id;
 }
@@ -565,16 +562,18 @@ window.tandem.browser.onConsole((c) => {
   if (b === browserState) changed({ soon: true });
 });
 
-/* An agent asked for a preview in a folder with no tab open for one. Main has
+/* An agent asked for a preview in a chat with no tab open for one. Main has
    already made the native view and minted the id, so the strip takes that id
-   rather than one of its own and the two ends stay one thing. */
-window.tandem.browser.onOpenTab(({ project, tab }) => {
+   rather than one of its own and the two ends stay one thing. The tab goes in
+   the panel of the chat main made it for; a terminal agent has no chat and gets
+   the one its folder is showing. */
+window.tandem.browser.onOpenTab(({ project, tab, chat }) => {
   if (!project || !tab) return;
   ownerOf.set(tab, project);
-  if (previewTabs(project).includes(tab)) activateTab(project, tab);
+  if (chatOfTab(tab) !== null) activateTab(project, tab);
   // The column is only brought up for the folder on screen. An agent working
   // somewhere you are not looking at gets its tab made and waiting.
-  else openTab(project, 'browser', tab, { reveal: project === focusedDir });
+  else openTab(project, 'browser', tab, { reveal: project === focusedDir, ...(chat ? { chat } : {}) });
   syncPreview();
 });
 
