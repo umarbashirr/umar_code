@@ -115,6 +115,8 @@ function browserTools(z) {
 
 const INSTRUCTIONS = [
   'You are working next to a live preview browser. It is a real Chromium view the human can see.',
+  'Use browser_navigate to load a URL (bare ports work: "3000" becomes http://localhost:3000).',
+  'Call browser_show when you want the human to see the pane; it starts hidden and the page keeps working while closed.',
   'Call browser_snapshot to perceive the page: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept.',
   'Refs are dropped on navigation, so snapshot again after loading a page.',
   'After any action that should have changed something, check browser_console and browser_network before concluding it worked.',

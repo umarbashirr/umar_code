@@ -112,6 +112,7 @@ const text = (v) => (typeof v === 'string' ? v : JSON.stringify(v ?? null, null,
 const CODEX_INSTRUCTIONS = [
   INSTRUCTIONS.replace(/\bbrowser_/g, 'mcp__tandem__browser_'),
   'These mcp__tandem__ tools drive the preview pane inside this app, which is the browser the human is looking at.',
+  'Prefer mcp__tandem__browser_show after a change you want the human to see.',
   'Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',
 ].join(' ');
 

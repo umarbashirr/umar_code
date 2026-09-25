@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
-const { DEFAULT_MODE, isMode, decideCodex, DEBUG_PREFACE } = require('../modes');
+const { DEFAULT_MODE, isMode, decideCodex, DEBUG_PREFACE, browserTool } = require('../modes');
+const { INSTRUCTIONS } = require('../../shared/browser-tools');
 const shellEnv = require('../shell-env');
 
 const CLIENT = {
@@ -27,15 +28,33 @@ const KIND_TOOL = {
   other: 'Tool',
 };
 
+/* Exact ACP mode ids we will set for each Tandem mode. `build` is deliberately
+   absent: OpenCode's build is ordinary work, not ask/always/bypass, and mapping
+   bypass onto it would drop the mode's meaning. Work modes that still need a
+   CLI that allows edits may fall through to `build` in pickMode below. */
 const MODE_CANDIDATES = {
   plan: ['plan'],
-  ask: ['ask', 'default', 'normal', 'build'],
-  debug: ['ask', 'default', 'normal', 'build'],
-  auto: ['auto', 'acceptEdits', 'agent', 'code', 'build'],
-  acceptEdits: ['acceptEdits', 'agent', 'auto', 'build'],
-  always: ['ask', 'default', 'normal', 'build'],
-  bypass: ['bypass', 'danger', 'full', 'build'],
+  ask: ['ask', 'default', 'normal'],
+  debug: ['ask', 'default', 'normal'],
+  auto: ['auto', 'acceptEdits', 'agent', 'code'],
+  acceptEdits: ['acceptEdits', 'agent', 'auto'],
+  always: ['ask', 'default', 'normal'],
+  bypass: ['bypass', 'danger', 'full'],
 };
+
+// Modes that mean "do the work, Tandem decides" — never bypass/always/plan.
+const BUILD_FALLBACK = new Set(['ask', 'debug', 'auto', 'acceptEdits']);
+
+/* Same words Claude and Codex get, plus the disambiguation Codex needed when
+   another browser skill was competing. ACP agents (Cursor, Grok, OpenCode)
+   only see MCP tool lists unless we say this out loud on the first turn. */
+const ACP_INSTRUCTIONS = [
+  INSTRUCTIONS,
+  'These browser_* tools from the tandem MCP server drive the preview pane inside this app, which is the browser the human is looking at.',
+  'Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',
+].join(' ');
+
+const BROWSER_NAME = /^(?:mcp__(?:preview|tandem)__)?browser_\w+$/;
 
 const textOf = (v) => {
   if (v == null) return '';
@@ -57,8 +76,31 @@ function mcpEnv(env) {
 
 function pickMode(ourMode, available) {
   if (!available?.length) return null;
-  const ids = new Set(available.map((m) => m.id));
-  return (MODE_CANDIDATES[ourMode] || []).find((id) => ids.has(id)) || null;
+  const ids = new Set(available.map((m) => m.id || m.value).filter(Boolean));
+  const hit = (MODE_CANDIDATES[ourMode] || []).find((id) => ids.has(id));
+  if (hit) return hit;
+  // OpenCode often only advertises plan/build. Ask/auto still need a CLI that
+  // allows edits so our permission callback can run; bypass and always must not
+  // inherit build or they silently stop meaning what the composer shows.
+  if (BUILD_FALLBACK.has(ourMode) && ids.has('build')) return 'build';
+  return null;
+}
+
+/* Prefer a concrete MCP / browser tool name over ACP's coarse kind bucket.
+   kind "other" used to become "Tool" and skip browser READS auto-allow. */
+function toolOf(call) {
+  const title = typeof call?.title === 'string' ? call.title : '';
+  const raw = call?.rawInput && typeof call.rawInput === 'object' ? call.rawInput : null;
+  const named = [
+    title,
+    raw?.name, raw?.tool, raw?.toolName, raw?.mcpTool,
+  ].filter((v) => typeof v === 'string' && v);
+  for (const name of named) {
+    if (browserTool(name) || BROWSER_NAME.test(name)) return name;
+  }
+  const kind = call?.kind;
+  if (kind && kind !== 'other' && KIND_TOOL[kind]) return KIND_TOOL[kind];
+  return title || KIND_TOOL[kind] || 'Tool';
 }
 
 function optionFor(options, decision) {
@@ -90,7 +132,12 @@ class AcpSession extends EventEmitter {
     this.sessionId = null;
     this.rpc = null;
     this.streaming = false;
-    this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
+    // Debug rides ahead of the next human turn; browser instructions ride ahead
+    // of the first turn only, the same way Codex puts them on thread/start.
+    this.preface = [
+      this.mcp ? ACP_INSTRUCTIONS : null,
+      this.mode === 'debug' ? DEBUG_PREFACE : null,
+    ].filter(Boolean).join('\n\n') || null;
     this.modes = [];
     this.config = [];
     this.startedAt = 0;
@@ -239,8 +286,17 @@ class AcpSession extends EventEmitter {
     if (!isMode(mode)) return this.mode;
     const was = this.mode;
     this.mode = mode;
-    if (mode === 'debug' && was !== 'debug') this.preface = DEBUG_PREFACE;
-    if (mode !== 'debug') this.preface = this.preface === DEBUG_PREFACE ? null : this.preface;
+    if (mode === 'debug' && was !== 'debug') {
+      this.preface = this.preface
+        ? `${this.preface}\n\n${DEBUG_PREFACE}`
+        : DEBUG_PREFACE;
+    }
+    if (mode !== 'debug' && this.preface) {
+      this.preface = this.preface
+        .split('\n\n')
+        .filter((p) => p !== DEBUG_PREFACE)
+        .join('\n\n') || null;
+    }
     const acpMode = pickMode(mode, this.modes);
     if (acpMode && this.sessionId) {
       try { await this.#set('mode', acpMode); } catch {}
@@ -327,7 +383,7 @@ class AcpSession extends EventEmitter {
     if (kind === 'tool_call') {
       this.#closeStream();
       const id = update.toolCallId;
-      const name = KIND_TOOL[update.kind] || update.title || 'Tool';
+      const name = toolOf(update);
       const input = update.rawInput && typeof update.rawInput === 'object' ? update.rawInput : { title: update.title };
       this.#emit({
         type: 'assistant',
@@ -372,7 +428,7 @@ class AcpSession extends EventEmitter {
 
   #permission(params, respond) {
     const call = params.toolCall || {};
-    const tool = KIND_TOOL[call.kind] || call.title || 'Tool';
+    const tool = toolOf(call);
     const input = call.rawInput && typeof call.rawInput === 'object' ? call.rawInput : { title: call.title };
     const verdict = decideCodex(this.mode, tool, input);
     const options = params.options || [];
@@ -418,4 +474,6 @@ class AcpSession extends EventEmitter {
   }
 }
 
-module.exports = { AcpSession, CLIENT, mcpEnv };
+module.exports = {
+  AcpSession, CLIENT, mcpEnv, pickMode, toolOf, MODE_CANDIDATES, ACP_INSTRUCTIONS,
+};
