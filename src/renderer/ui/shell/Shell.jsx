@@ -8,7 +8,9 @@
    Every panel stays mounted whether or not it is on screen. Closing one
    collapses it to zero rather than unmounting it, which is what the preview
    needs anyway: a native view that stops laying out hands the agent a 0x0
-   page.
+   page. The splitters between panels stay mounted for the same reason: taking
+   one out of the tree remounts its neighbours, and the terminals hang real
+   xterm hosts under #terms that do not survive a remount.
 
    Sizes are the ones the old CSS carried. In this version of the library a bare
    number means pixels and a bare string means percent, so "18" is 18% of the
@@ -267,7 +269,9 @@ export default function Shell() {
               <Rail />
             </SidebarProvider>
         </ResizablePanel>
-        {railOpen && <ResizableHandle />}
+        {/* Same rule as the handle beside the right column: keep it in the
+            tree so collapsing the rail does not remount the content group. */}
+        <ResizableHandle className={railOpen ? undefined : 'pointer-events-none opacity-0'} />
 
         <ResizablePanel id="content" minSize="380px">
           <ResizablePanelGroup orientation="horizontal" onLayoutChange={relayoutNow}>
@@ -283,7 +287,12 @@ export default function Shell() {
                 <Welcome />
               </section>
             </ResizablePanel>
-            {!full && rightOpen && <ResizableHandle />}
+            {/* Always mounted. Conditionally rendering the handle used to shift
+                the right panel in this group's children and remount it, which
+                threw away #terms and every xterm host hanging under it while
+                app.js still thought those shells were alive. Collapse is what
+                hides a pane; the handle just sits between two real panels. */}
+            <ResizableHandle className={(full || !rightOpen) ? 'pointer-events-none opacity-0' : undefined} />
             <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
               <section id="right" data-full={full || undefined}>
                 <TabStrip />

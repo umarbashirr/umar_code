@@ -339,12 +339,17 @@ function disposeShell(shell) {
 
 // Every terminal tab in every chat's panel, against every shell held. Run on
 // each change to the tabs, which is also how a folder or a chat going away
-// takes its shells.
+// takes its shells. A host that has fallen out of the document (the column
+// remounted under it) is re-homed into the live #terms rather than killed, so a
+// build that was printing while the column was shut is still the same pty.
 function reconcileShells() {
+  const box = $('#terms');
   const wanted = new Set();
   for (const { dir, tab } of everyTab()) {
     if (tab.kind !== 'terminal') continue;
     wanted.add(tab.id);
+    const held = shells.get(tab.id);
+    if (held && box && !box.contains(held.host)) box.appendChild(held.host);
     if (!shells.has(tab.id)) spawnShell(dir, tab.id);
   }
   for (const shell of [...shells.values()]) if (!wanted.has(shell.tabId)) disposeShell(shell);

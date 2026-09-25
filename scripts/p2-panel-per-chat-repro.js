@@ -22,6 +22,21 @@ const check = (name, ok, detail) => {
   if (!ok) failures.push(name);
 };
 
+function checkSource() {
+  const shell = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/shell/Shell.jsx'), 'utf8');
+  check(
+    'handles-stay-mounted',
+    !/\{railOpen && <ResizableHandle/.test(shell) && !/\{!full && rightOpen && <ResizableHandle/.test(shell),
+    'conditional ResizableHandle still present',
+  );
+  const app = fs.readFileSync(path.join(ROOT, 'src/renderer/app.js'), 'utf8');
+  check(
+    'reconcile-rehomes-hosts',
+    /box\.contains\(held\.host\)/.test(app) && /box\.appendChild\(held\.host\)/.test(app),
+    'reconcileShells does not re-home detached hosts',
+  );
+}
+
 function fixture() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'tandem-panel-'));
   const home = path.join(base, 'home');
@@ -107,6 +122,12 @@ const panel = (page) => page.evaluate(() => {
 const show = (p) => `${p.open ? 'open' : 'shut'} [${p.tabs.join(', ')}]`;
 
 async function main() {
+  checkSource();
+  if (process.env.TANDEM_SOURCE_ONLY) {
+    console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
+    process.exit(failures.length ? 1 : 0);
+  }
+
   const fx = fixture();
   const electron = require(path.join(ROOT, 'node_modules', 'electron'));
   const app = spawn(electron, [
@@ -122,25 +143,66 @@ async function main() {
     const { one, two, three } = fx.chats;
 
     await openChat(page, one);
-    await chord(page, 'D');
+    await chord(page, '`', false);
     let p = await panel(page);
-    check('files-opens-in-chat-one', p.open && p.tabs.includes('Files'), show(p));
+    check('terminal-opens-in-chat-one', p.open && p.tabs.includes('Terminal') && p.shells === 1, `${show(p)} shells=${p.shells}`);
+    const shellConnected = await page.evaluate(() => {
+      const host = document.querySelector('#terms .term-host');
+      return !!(host && document.getElementById('terms')?.contains(host));
+    });
+    check('terminal-host-in-terms', shellConnected);
 
     await openChat(page, two);
     p = await panel(page);
     check('chat-two-same-folder-starts-shut', !p.open, show(p));
 
-    await chord(page, 'G');
+    // Opening the column on chat two used to remount #terms (conditional
+    // ResizableHandle) and leave chat one's xterm host detached. The shell
+    // count must stay 1 and the host must still sit under #terms.
+    await chord(page, 'D');
     p = await panel(page);
-    check('changes-opens-in-chat-two', p.open && p.tabs.join() === 'Changes', show(p));
+    check('files-opens-in-chat-two', p.open && p.tabs.includes('Files'), show(p));
+    const stillHomed = await page.evaluate(() => {
+      const hosts = [...document.querySelectorAll('.term-host')];
+      const box = document.getElementById('terms');
+      return hosts.length === 1 && !!box && hosts.every((h) => box.contains(h));
+    });
+    check('chat-one-shell-still-under-terms', stillHomed, 'host left #terms after opening the other chat');
 
     await openChat(page, one);
     p = await panel(page);
-    check('chat-one-comes-back-as-left', p.open && p.tabs.join() === 'Files', show(p));
+    check('chat-one-terminal-comes-back', p.open && p.tabs.includes('Terminal') && p.shells === 1, `${show(p)} shells=${p.shells}`);
+    const backHomed = await page.evaluate(() => {
+      const host = document.querySelector('#terms .term-host.active, #terms .term-host');
+      return !!(host && document.getElementById('terms')?.contains(host)
+        && host.querySelector('.xterm'));
+    });
+    check('chat-one-terminal-still-drawn', backHomed);
 
     await openChat(page, two);
     p = await panel(page);
-    check('chat-two-comes-back-as-left', p.open && p.tabs.join() === 'Changes', show(p));
+    check('chat-two-kept-its-files', p.open && p.tabs.join() === 'Files', show(p));
+
+    await openChat(page, one);
+    await chord(page, 'D');
+    p = await panel(page);
+    check('files-opens-in-chat-one', p.open && p.tabs.includes('Files'), show(p));
+
+    await openChat(page, two);
+    p = await panel(page);
+    check('chat-two-same-folder-starts-shut-again', !p.open, show(p));
+
+    await chord(page, 'G');
+    p = await panel(page);
+    check('changes-opens-in-chat-two', p.open && p.tabs.includes('Changes'), show(p));
+
+    await openChat(page, one);
+    p = await panel(page);
+    check('chat-one-comes-back-as-left', p.open && p.tabs.includes('Files') && p.tabs.includes('Terminal'), show(p));
+
+    await openChat(page, two);
+    p = await panel(page);
+    check('chat-two-comes-back-as-left', p.open && p.tabs.includes('Changes'), show(p));
 
     await openChat(page, three);
     p = await panel(page);
@@ -149,11 +211,11 @@ async function main() {
     await chord(page, 'D');
     await openChat(page, one);
     p = await panel(page);
-    check('back-across-folders-to-chat-one', p.open && p.tabs.join() === 'Files', show(p));
+    check('back-across-folders-to-chat-one', p.open && p.tabs.includes('Files'), show(p));
 
     await openChat(page, three);
     p = await panel(page);
-    check('chat-three-kept-its-own', p.open && p.tabs.join() === 'Files', show(p));
+    check('chat-three-kept-its-own', p.open && p.tabs.includes('Files'), show(p));
 
     await openChat(page, one);
     await chord(page, 'B');
@@ -161,16 +223,16 @@ async function main() {
     await openChat(page, two);
     await chord(page, '`', false);
     p = await panel(page);
-    check('terminal-opens-in-chat-two', p.tabs.includes('Changes') && p.tabs.length === 2 && p.shells === 1, `${show(p)} shells=${p.shells}`);
+    check('terminal-opens-in-chat-two', p.tabs.includes('Changes') && p.tabs.includes('Terminal') && p.shells >= 1, `${show(p)} shells=${p.shells}`);
 
     await openChat(page, one);
     p = await panel(page);
-    check('chat-one-keeps-its-preview', p.tabs.join() === withPreview.join() && p.tabs.length === 2, `${show(p)} was [${withPreview}]`);
-    check('chat-two-shell-lives-while-away', p.shells === 1, `shells=${p.shells}`);
+    check('chat-one-keeps-its-preview', withPreview.every((t) => p.tabs.includes(t)), `${show(p)} was [${withPreview}]`);
+    check('chat-two-shell-lives-while-away', p.shells >= 1, `shells=${p.shells}`);
 
     await openChat(page, two);
     p = await panel(page);
-    check('chat-two-terminal-comes-back', p.open && p.tabs.length === 2 && p.shells === 1, `${show(p)} shells=${p.shells}`);
+    check('chat-two-terminal-comes-back', p.open && p.tabs.includes('Terminal') && p.shells >= 1, `${show(p)} shells=${p.shells}`);
 
     page.ws.close();
   } finally {
